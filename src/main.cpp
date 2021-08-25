@@ -1,0 +1,176 @@
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+#include <Windows.h>
+#include "juice/juice.h"
+#include "wintun.h"
+
+static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *user_ptr) {
+
+}
+
+static void on_candidate(juice_agent_t *agent, const char *sdp, void *user_ptr) {
+
+}
+
+static void on_gathering_done(juice_agent_t *agent, void *user_ptr) {
+    
+}
+
+static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *user_ptr) {
+    printf("Received %.*s\n", size, data);
+}
+
+static bool readline(char *buffer, size_t buffer_size) {
+    assert(buffer_size >= 2);
+
+    size_t character_index = 0;
+    while(character_index != buffer_size - 2) {
+        auto character = getc(stdin);
+
+        if(character == -1) {
+            return false;
+        }
+
+        buffer[character_index] = (char)character;
+
+        character_index += 1;
+
+        if(character == '\n') {
+            break;
+        }
+    }
+
+    buffer[character_index] = '\n';
+    buffer[character_index + 1] = '\0';
+
+    return true;
+}
+
+struct EnumerationParameters {
+    bool adapter_found;
+    WCHAR adapter_name[MAX_ADAPTER_NAME];
+};
+
+static WINTUN_ENUM_ADAPTERS_FUNC WintunEnumAdapters;
+static WINTUN_CREATE_ADAPTER_FUNC WintunCreateAdapter;
+static WINTUN_OPEN_ADAPTER_FUNC WintunOpenAdapter;
+static WINTUN_GET_ADAPTER_NAME_FUNC WintunGetAdapterName;
+static WINTUN_START_SESSION_FUNC WintunStartSession;
+static WINTUN_END_SESSION_FUNC WintunEndSession;
+static WINTUN_FREE_ADAPTER_FUNC WintunFreeAdapter;
+
+static BOOL CALLBACK wintun_adapter_enumeration_callback(WINTUN_ADAPTER_HANDLE adapter, LPARAM parameter) {
+    auto parameters = (EnumerationParameters*)parameter;
+
+    parameters->adapter_found = true;
+
+    WintunGetAdapterName(adapter, parameters->adapter_name);
+
+    return FALSE;
+}
+
+int main(int argument_count, char *arguments[]) {
+#ifndef NDEBUG
+    juice_set_log_level(JUICE_LOG_LEVEL_DEBUG);
+#endif
+
+    auto wintun_library = LoadLibraryA("wintun.dll");
+
+    WintunEnumAdapters = (WINTUN_ENUM_ADAPTERS_FUNC)GetProcAddress(wintun_library, "WintunEnumAdapters");
+    WintunCreateAdapter = (WINTUN_CREATE_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunCreateAdapter");
+    WintunOpenAdapter = (WINTUN_OPEN_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunOpenAdapter");
+    WintunGetAdapterName = (WINTUN_GET_ADAPTER_NAME_FUNC)GetProcAddress(wintun_library, "WintunGetAdapterName");
+    WintunStartSession = (WINTUN_START_SESSION_FUNC)GetProcAddress(wintun_library, "WintunStartSession");
+    WintunEndSession = (WINTUN_END_SESSION_FUNC)GetProcAddress(wintun_library, "WintunEndSession");
+    WintunFreeAdapter = (WINTUN_FREE_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunFreeAdapter");
+
+    auto pool_name = L"P2PVPN";
+
+    EnumerationParameters parameters {};
+    WintunEnumAdapters(pool_name, wintun_adapter_enumeration_callback, (LPARAM)&parameters);
+
+    WINTUN_ADAPTER_HANDLE wintun_adapter;
+    if(parameters.adapter_found) {
+        wintun_adapter = WintunOpenAdapter(pool_name, parameters.adapter_name);
+    } else {
+        // {CA88F39E-7B30-4AC1-8A08-EFF4220C133A}
+        const static GUID guid { 0xca88f39e, 0x7b30, 0x4ac1, { 0x8a, 0x8, 0xef, 0xf4, 0x22, 0xc, 0x13, 0x3a } };
+        wintun_adapter = WintunCreateAdapter(pool_name, L"P2P VPN Adapter", &guid, nullptr);
+    }
+
+    auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
+
+    juice_config_t config {};
+    config.stun_server_host = "stun.stunprotocol.org";
+    config.stun_server_port = 3478;
+
+    config.cb_state_changed = on_state_changed;
+    config.cb_candidate = on_candidate;
+    config.cb_gathering_done = on_gathering_done;
+    config.cb_recv = on_recv;
+
+    auto agent = juice_create(&config);
+
+    char sdp[JUICE_MAX_SDP_STRING_LEN];
+    juice_get_local_description(agent, sdp, JUICE_MAX_SDP_STRING_LEN);
+
+    printf("Local SDP:\n%s\n", sdp);
+
+    char remote_sdp[JUICE_MAX_SDP_STRING_LEN] = "";
+
+    printf("Please enter remote SDP:\n");
+
+    while(true) {
+        char line[JUICE_MAX_SDP_STRING_LEN];
+        if(!readline(line, JUICE_MAX_SDP_STRING_LEN)) {
+            fprintf(stderr, "ERROR: Unexpected EOF in stdin\n");
+
+            return 1;
+        }
+
+        size_t character_index = 0;
+        while(character_index != JUICE_MAX_ADDRESS_STRING_LEN - 1) {
+            auto character = getc(stdin);
+
+            if(character == -1) {
+                fprintf(stderr, "ERROR: Unexpected EOF in stdin\n");
+
+                return 1;
+            }
+
+            line[character_index] = (char)character;
+
+            character_index += 1;
+
+            if(character == '\n') {
+                break;
+            }
+        }
+
+        line[character_index] = '\0';
+
+        if(strcmp(line, "\n") == 0) {
+            break;
+        }
+
+        strcat_s(remote_sdp, line);
+    }
+
+    juice_set_remote_description(agent, remote_sdp);
+
+    juice_gather_candidates(agent);
+
+    while(true) {
+        char line[1024];
+        if(!readline(line, 1024)) {
+            break;
+        }
+
+        if(juice_get_state(agent) == JUICE_STATE_COMPLETED) {
+            juice_send(agent, line, strlen(line) - 1);
+        }
+    }
+
+    return 0;
+}

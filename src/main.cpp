@@ -5,20 +5,31 @@
 #include "juice/juice.h"
 #include "wintun.h"
 
-static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *user_ptr) {
+static WINTUN_ENUM_ADAPTERS_FUNC WintunEnumAdapters;
+static WINTUN_CREATE_ADAPTER_FUNC WintunCreateAdapter;
+static WINTUN_OPEN_ADAPTER_FUNC WintunOpenAdapter;
+static WINTUN_GET_ADAPTER_NAME_FUNC WintunGetAdapterName;
+static WINTUN_START_SESSION_FUNC WintunStartSession;
+static WINTUN_GET_READ_WAIT_EVENT_FUNC WintunGetReadWaitEvent;
+static WINTUN_RECEIVE_PACKET_FUNC WintunReceivePacket;
+static WINTUN_RELEASE_RECEIVE_PACKET_FUNC WintunReleaseReceivePacket;
+static WINTUN_ALLOCATE_SEND_PACKET_FUNC WintunAllocateSendPacket;
+static WINTUN_SEND_PACKET_FUNC WintunSendPacket;
+static WINTUN_END_SESSION_FUNC WintunEndSession;
+static WINTUN_FREE_ADAPTER_FUNC WintunFreeAdapter;
 
-}
-
-static void on_candidate(juice_agent_t *agent, const char *sdp, void *user_ptr) {
-
-}
-
-static void on_gathering_done(juice_agent_t *agent, void *user_ptr) {
-    
-}
+struct JuiceParameters {
+    WINTUN_SESSION_HANDLE wintun_session;
+};
 
 static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *user_ptr) {
-    printf("Received %.*s\n", size, data);
+    auto parameters = (JuiceParameters*)user_ptr;
+
+    auto packet = WintunAllocateSendPacket(parameters->wintun_session, (DWORD)size);
+
+    memcpy(packet, data, size);
+
+    WintunSendPacket(parameters->wintun_session, packet);
 }
 
 static bool readline(char *buffer, size_t buffer_size) {
@@ -52,14 +63,6 @@ struct EnumerationParameters {
     WCHAR adapter_name[MAX_ADAPTER_NAME];
 };
 
-static WINTUN_ENUM_ADAPTERS_FUNC WintunEnumAdapters;
-static WINTUN_CREATE_ADAPTER_FUNC WintunCreateAdapter;
-static WINTUN_OPEN_ADAPTER_FUNC WintunOpenAdapter;
-static WINTUN_GET_ADAPTER_NAME_FUNC WintunGetAdapterName;
-static WINTUN_START_SESSION_FUNC WintunStartSession;
-static WINTUN_END_SESSION_FUNC WintunEndSession;
-static WINTUN_FREE_ADAPTER_FUNC WintunFreeAdapter;
-
 static BOOL CALLBACK wintun_adapter_enumeration_callback(WINTUN_ADAPTER_HANDLE adapter, LPARAM parameter) {
     auto parameters = (EnumerationParameters*)parameter;
 
@@ -82,17 +85,22 @@ int main(int argument_count, char *arguments[]) {
     WintunOpenAdapter = (WINTUN_OPEN_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunOpenAdapter");
     WintunGetAdapterName = (WINTUN_GET_ADAPTER_NAME_FUNC)GetProcAddress(wintun_library, "WintunGetAdapterName");
     WintunStartSession = (WINTUN_START_SESSION_FUNC)GetProcAddress(wintun_library, "WintunStartSession");
+    WintunGetReadWaitEvent = (WINTUN_GET_READ_WAIT_EVENT_FUNC)GetProcAddress(wintun_library, "WintunGetReadWaitEvent");
+    WintunReceivePacket = (WINTUN_RECEIVE_PACKET_FUNC)GetProcAddress(wintun_library, "WintunReceivePacket");
+    WintunReleaseReceivePacket = (WINTUN_RELEASE_RECEIVE_PACKET_FUNC)GetProcAddress(wintun_library, "WintunReleaseReceivePacket");
+    WintunAllocateSendPacket = (WINTUN_ALLOCATE_SEND_PACKET_FUNC)GetProcAddress(wintun_library, "WintunAllocateSendPacket");
+    WintunSendPacket = (WINTUN_SEND_PACKET_FUNC)GetProcAddress(wintun_library, "WintunSendPacket");
     WintunEndSession = (WINTUN_END_SESSION_FUNC)GetProcAddress(wintun_library, "WintunEndSession");
     WintunFreeAdapter = (WINTUN_FREE_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunFreeAdapter");
 
     auto pool_name = L"P2PVPN";
 
-    EnumerationParameters parameters {};
-    WintunEnumAdapters(pool_name, wintun_adapter_enumeration_callback, (LPARAM)&parameters);
+    EnumerationParameters enum_parameters {};
+    WintunEnumAdapters(pool_name, wintun_adapter_enumeration_callback, (LPARAM)&enum_parameters);
 
     WINTUN_ADAPTER_HANDLE wintun_adapter;
-    if(parameters.adapter_found) {
-        wintun_adapter = WintunOpenAdapter(pool_name, parameters.adapter_name);
+    if(enum_parameters.adapter_found) {
+        wintun_adapter = WintunOpenAdapter(pool_name, enum_parameters.adapter_name);
     } else {
         // {CA88F39E-7B30-4AC1-8A08-EFF4220C133A}
         const static GUID guid { 0xca88f39e, 0x7b30, 0x4ac1, { 0x8a, 0x8, 0xef, 0xf4, 0x22, 0xc, 0x13, 0x3a } };
@@ -101,13 +109,15 @@ int main(int argument_count, char *arguments[]) {
 
     auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
 
+    JuiceParameters parameters;
+    parameters.wintun_session = wintun_session;
+
     juice_config_t config {};
     config.stun_server_host = "stun.stunprotocol.org";
     config.stun_server_port = 3478;
 
-    config.cb_state_changed = on_state_changed;
-    config.cb_candidate = on_candidate;
-    config.cb_gathering_done = on_gathering_done;
+    config.user_ptr = (void*)&parameters;
+
     config.cb_recv = on_recv;
 
     auto agent = juice_create(&config);
@@ -161,14 +171,20 @@ int main(int argument_count, char *arguments[]) {
 
     juice_gather_candidates(agent);
 
-    while(true) {
-        char line[1024];
-        if(!readline(line, 1024)) {
-            break;
-        }
+    auto wintun_wait_handle = WintunGetReadWaitEvent(wintun_session);
 
-        if(juice_get_state(agent) == JUICE_STATE_COMPLETED) {
-            juice_send(agent, line, strlen(line) - 1);
+    while(true) {
+        DWORD packet_size;
+        auto packet = WintunReceivePacket(wintun_session, &packet_size);
+
+        if(packet != nullptr) {
+            if(juice_get_state(agent) == JUICE_STATE_COMPLETED) {
+                juice_send(agent, (const char*)packet, packet_size);
+            }
+
+            WintunReleaseReceivePacket(wintun_session, packet);
+        } else {
+            WaitForSingleObject(wintun_wait_handle, INFINITE);
         }
     }
 

@@ -1,9 +1,12 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <assert.h>
 #include <Windows.h>
 #include "juice/juice.h"
 #include "wintun.h"
+#define CBASE64_IMPLEMENTATION
+#include "cbase64.h"
 
 static WINTUN_ENUM_ADAPTERS_FUNC WintunEnumAdapters;
 static WINTUN_CREATE_ADAPTER_FUNC WintunCreateAdapter;
@@ -74,10 +77,6 @@ static BOOL CALLBACK wintun_adapter_enumeration_callback(WINTUN_ADAPTER_HANDLE a
 }
 
 int main(int argument_count, char *arguments[]) {
-#ifndef NDEBUG
-    juice_set_log_level(JUICE_LOG_LEVEL_DEBUG);
-#endif
-
     auto wintun_library = LoadLibraryA("wintun.dll");
 
     WintunEnumAdapters = (WINTUN_ENUM_ADAPTERS_FUNC)GetProcAddress(wintun_library, "WintunEnumAdapters");
@@ -103,11 +102,34 @@ int main(int argument_count, char *arguments[]) {
         wintun_adapter = WintunOpenAdapter(pool_name, enum_parameters.adapter_name);
     } else {
         // {CA88F39E-7B30-4AC1-8A08-EFF4220C133A}
-        const static GUID guid { 0xca88f39e, 0x7b30, 0x4ac1, { 0x8a, 0x8, 0xef, 0xf4, 0x22, 0xc, 0x13, 0x3a } };
+        const GUID guid { 0xca88f39e, 0x7b30, 0x4ac1, { 0x8a, 0x8, 0xef, 0xf4, 0x22, 0xc, 0x13, 0x3a } };
         wintun_adapter = WintunCreateAdapter(pool_name, L"P2P VPN Adapter", &guid, nullptr);
     }
 
     auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
+
+    const uint8_t ip_prefix[4] = { 0, 0, 64, 100 };
+    const uint8_t ip_mask[4] = { 0, 0, 192, 255 };
+
+    srand((unsigned int)time(nullptr));
+
+    uint8_t ip_address[4];
+    ip_address[0] = (uint8_t)rand();
+    ip_address[1] = (uint8_t)rand();
+    ip_address[2] = (uint8_t)rand();
+    ip_address[3] = (uint8_t)rand();
+
+    ip_address[0] &= ~ip_mask[0];
+    ip_address[1] &= ~ip_mask[1];
+    ip_address[2] &= ~ip_mask[2];
+    ip_address[3] &= ~ip_mask[3];
+
+    ip_address[0] |= ip_prefix[0];
+    ip_address[1] |= ip_prefix[1];
+    ip_address[2] |= ip_prefix[2];
+    ip_address[3] |= ip_prefix[3];
+
+    printf("Your IP address is %hhu.%hhu.%hhu.%hhu\n", ip_address[3], ip_address[2], ip_address[1], ip_address[0]);
 
     JuiceParameters parameters;
     parameters.wintun_session = wintun_session;
@@ -122,25 +144,38 @@ int main(int argument_count, char *arguments[]) {
 
     auto agent = juice_create(&config);
 
-    char sdp[JUICE_MAX_SDP_STRING_LEN];
-    juice_get_local_description(agent, sdp, JUICE_MAX_SDP_STRING_LEN);
+    char local_description[JUICE_MAX_SDP_STRING_LEN];
+    juice_get_local_description(agent, local_description, JUICE_MAX_SDP_STRING_LEN);
 
-    printf("Local SDP:\n%s\n", sdp);
+    const size_t max_connection_string_length = 4 * ((JUICE_MAX_SDP_STRING_LEN - 1) / 3) + (((JUICE_MAX_SDP_STRING_LEN - 1) % 3 != 0) ? 4 : 0);
 
-    char remote_sdp[JUICE_MAX_SDP_STRING_LEN] = "";
+    char local_connection_string[max_connection_string_length + 1];
 
-    printf("Please enter remote SDP:\n");
+    {
+        cbase64_encodestate encode_state;
+        cbase64_init_encodestate(&encode_state);
 
-    while(true) {
-        char line[JUICE_MAX_SDP_STRING_LEN];
-        if(!readline(line, JUICE_MAX_SDP_STRING_LEN)) {
-            fprintf(stderr, "ERROR: Unexpected EOF in stdin\n");
+        auto length_written = (size_t)cbase64_encode_block(
+            (unsigned char*)local_description,
+            (unsigned int)strlen(local_description),
+            local_connection_string,
+            &encode_state
+        );
 
-            return 1;
-        }
+        length_written += cbase64_encode_blockend(&(local_connection_string[length_written]), &encode_state);
 
+        local_connection_string[length_written] = '\0';
+    }
+
+    printf("Your local connection string: %s\n", local_connection_string);
+
+    char remote_connection_string[max_connection_string_length + 1];
+
+    printf("Please enter remote connection string: ");
+
+    {
         size_t character_index = 0;
-        while(character_index != JUICE_MAX_ADDRESS_STRING_LEN - 1) {
+        while(character_index != max_connection_string_length) {
             auto character = getc(stdin);
 
             if(character == -1) {
@@ -149,25 +184,34 @@ int main(int argument_count, char *arguments[]) {
                 return 1;
             }
 
-            line[character_index] = (char)character;
+            remote_connection_string[character_index] = (char)character;
 
             character_index += 1;
 
-            if(character == '\n') {
+            if(character == '\n' || character == '\r') {
                 break;
             }
         }
 
-        line[character_index] = '\0';
-
-        if(strcmp(line, "\n") == 0) {
-            break;
-        }
-
-        strcat_s(remote_sdp, line);
+        remote_connection_string[character_index] = '\0';
     }
 
-    juice_set_remote_description(agent, remote_sdp);
+    char remote_description[JUICE_MAX_SDP_STRING_LEN];
+    {
+        cbase64_decodestate decode_state;
+        cbase64_init_decodestate(&decode_state);
+
+        auto length_written = (size_t)cbase64_decode_block(
+            remote_connection_string,
+            (unsigned int)strlen(remote_connection_string),
+            (unsigned char*)remote_description,
+            &decode_state
+        );
+
+        remote_description[length_written] = '\0';
+    }
+
+    juice_set_remote_description(agent, remote_description);
 
     juice_gather_candidates(agent);
 

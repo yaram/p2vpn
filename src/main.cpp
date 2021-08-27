@@ -23,7 +23,15 @@ static WINTUN_FREE_ADAPTER_FUNC WintunFreeAdapter;
 
 struct JuiceParameters {
     WINTUN_SESSION_HANDLE wintun_session;
+
+    HANDLE gathering_done_event;
 };
+
+static void on_gathering_done(juice_agent_t *agent, void *user_ptr) {
+    auto parameters = (JuiceParameters*)user_ptr;
+
+    SetEvent(parameters->gathering_done_event);
+}
 
 static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *user_ptr) {
     auto parameters = (JuiceParameters*)user_ptr;
@@ -36,28 +44,32 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
 }
 
 static bool readline(char *buffer, size_t buffer_size) {
-    assert(buffer_size >= 2);
-
     size_t character_index = 0;
-    while(character_index != buffer_size - 2) {
+    while(character_index != buffer_size - 1) {
         auto character = getc(stdin);
 
         if(character == -1) {
+            fprintf(stderr, "ERROR: Unexpected EOF in stdin\n");
+
             return false;
+        }
+
+        if(character == '\r') {
+            character == getc(stdin);
+
+            if(character != '\n') {
+                ungetc(character, stdin);
+            }
+        } else if(character == '\n') {
+            break;
         }
 
         buffer[character_index] = (char)character;
 
         character_index += 1;
-
-        if(character == '\n') {
-            break;
-        }
     }
 
-    buffer[character_index] = '\n';
-    buffer[character_index + 1] = '\0';
-
+    buffer[character_index] = '\0';
     return true;
 }
 
@@ -74,6 +86,64 @@ static BOOL CALLBACK wintun_adapter_enumeration_callback(WINTUN_ADAPTER_HANDLE a
     WintunGetAdapterName(adapter, parameters->adapter_name);
 
     return FALSE;
+}
+
+static void base64_encode_string(const char *string, char *buffer) {
+    cbase64_encodestate encode_state;
+    cbase64_init_encodestate(&encode_state);
+
+    auto length_written = (size_t)cbase64_encode_block(
+        (unsigned char*)string,
+        (unsigned int)strlen(string),
+        buffer,
+        &encode_state
+    );
+
+    length_written += cbase64_encode_blockend(&(buffer[length_written]), &encode_state);
+
+    buffer[length_written] = '\0';
+}
+
+static void base64_decode_string(const char *base64_string, char *buffer) {
+    cbase64_decodestate decode_state;
+    cbase64_init_decodestate(&decode_state);
+
+    auto length_written = (size_t)cbase64_decode_block(
+        base64_string,
+        (unsigned int)strlen(base64_string),
+        (unsigned char*)buffer,
+        &decode_state
+    );
+
+    buffer[length_written] = '\0';
+}
+
+const static size_t max_connection_string_length = 4 * ((JUICE_MAX_SDP_STRING_LEN - 1) / 3) + (((JUICE_MAX_SDP_STRING_LEN - 1) % 3 != 0) ? 4 : 0);
+
+static void acquire_local_connection_string(juice_agent_t *agent, JuiceParameters juice_parameters) {
+    juice_gather_candidates(agent);
+
+    WaitForSingleObject(juice_parameters.gathering_done_event, INFINITE);
+
+    char local_description[JUICE_MAX_SDP_STRING_LEN];
+    juice_get_local_description(agent, local_description, JUICE_MAX_SDP_STRING_LEN);
+
+    char local_description_base64[max_connection_string_length + 1];
+    base64_encode_string(local_description, local_description_base64);
+
+    printf("Your local connection string: %s\n", local_description_base64);
+}
+
+static void acquire_remote_connection_string(juice_agent_t *agent) {
+    char remote_description_base64[max_connection_string_length + 1];
+
+    printf("Please enter remote connection string: ");
+    readline(remote_description_base64, max_connection_string_length + 1);
+
+    char remote_description[JUICE_MAX_SDP_STRING_LEN];
+    base64_decode_string(remote_description_base64, remote_description);
+
+    juice_set_remote_description(agent, remote_description);
 }
 
 int main(int argument_count, char *arguments[]) {
@@ -131,89 +201,40 @@ int main(int argument_count, char *arguments[]) {
 
     printf("Your IP address is %hhu.%hhu.%hhu.%hhu\n", ip_address[3], ip_address[2], ip_address[1], ip_address[0]);
 
-    JuiceParameters parameters;
-    parameters.wintun_session = wintun_session;
+    JuiceParameters juice_parameters;
+    juice_parameters.wintun_session = wintun_session;
+    juice_parameters.gathering_done_event = CreateEventA(nullptr, FALSE, FALSE, "gathering_done");
 
     juice_config_t config {};
     config.stun_server_host = "stun.stunprotocol.org";
     config.stun_server_port = 3478;
 
-    config.user_ptr = (void*)&parameters;
+    config.user_ptr = (void*)&juice_parameters;
 
+    config.cb_gathering_done = on_gathering_done;
     config.cb_recv = on_recv;
 
     auto agent = juice_create(&config);
 
-    char local_description[JUICE_MAX_SDP_STRING_LEN];
-    juice_get_local_description(agent, local_description, JUICE_MAX_SDP_STRING_LEN);
+    char main_option[128];
 
-    const size_t max_connection_string_length = 4 * ((JUICE_MAX_SDP_STRING_LEN - 1) / 3) + (((JUICE_MAX_SDP_STRING_LEN - 1) % 3 != 0) ? 4 : 0);
+    printf("create: Create a network\n");
+    printf("connect: Connect to an existing network\n");
+    printf("Please choose an option: ");
 
-    char local_connection_string[max_connection_string_length + 1];
+    readline(main_option, 128);
 
-    {
-        cbase64_encodestate encode_state;
-        cbase64_init_encodestate(&encode_state);
+    if(strcmp(main_option, "create") == 0) {
+        acquire_local_connection_string(agent, juice_parameters);
 
-        auto length_written = (size_t)cbase64_encode_block(
-            (unsigned char*)local_description,
-            (unsigned int)strlen(local_description),
-            local_connection_string,
-            &encode_state
-        );
+        acquire_remote_connection_string(agent);
+    } else if(strcmp(main_option, "connect") == 0) {
+        acquire_remote_connection_string(agent);
 
-        length_written += cbase64_encode_blockend(&(local_connection_string[length_written]), &encode_state);
-
-        local_connection_string[length_written] = '\0';
+        acquire_local_connection_string(agent, juice_parameters);
+    } else {
+        fprintf(stderr, "ERROR: Unknown option '%s'\n", main_option);
     }
-
-    printf("Your local connection string: %s\n", local_connection_string);
-
-    char remote_connection_string[max_connection_string_length + 1];
-
-    printf("Please enter remote connection string: ");
-
-    {
-        size_t character_index = 0;
-        while(character_index != max_connection_string_length) {
-            auto character = getc(stdin);
-
-            if(character == -1) {
-                fprintf(stderr, "ERROR: Unexpected EOF in stdin\n");
-
-                return 1;
-            }
-
-            remote_connection_string[character_index] = (char)character;
-
-            character_index += 1;
-
-            if(character == '\n' || character == '\r') {
-                break;
-            }
-        }
-
-        remote_connection_string[character_index] = '\0';
-    }
-
-    char remote_description[JUICE_MAX_SDP_STRING_LEN];
-    {
-        cbase64_decodestate decode_state;
-        cbase64_init_decodestate(&decode_state);
-
-        auto length_written = (size_t)cbase64_decode_block(
-            remote_connection_string,
-            (unsigned int)strlen(remote_connection_string),
-            (unsigned char*)remote_description,
-            &decode_state
-        );
-
-        remote_description[length_written] = '\0';
-    }
-
-    juice_set_remote_description(agent, remote_description);
-
-    juice_gather_candidates(agent);
 
     auto wintun_wait_handle = WintunGetReadWaitEvent(wintun_session);
 

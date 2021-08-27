@@ -55,7 +55,7 @@ static bool readline(char *buffer, size_t buffer_size) {
         }
 
         if(character == '\r') {
-            character == getc(stdin);
+            character = getc(stdin);
 
             if(character != '\n') {
                 ungetc(character, stdin);

@@ -1,8 +1,15 @@
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <winsock2.h>
+#include <ws2ipdef.h> 
+#include <iphlpapi.h>
 #include <assert.h>
-#include <Windows.h>
 #include "juice/juice.h"
 #include "wintun.h"
 #define CBASE64_IMPLEMENTATION
@@ -12,6 +19,7 @@ static WINTUN_ENUM_ADAPTERS_FUNC WintunEnumAdapters;
 static WINTUN_CREATE_ADAPTER_FUNC WintunCreateAdapter;
 static WINTUN_OPEN_ADAPTER_FUNC WintunOpenAdapter;
 static WINTUN_GET_ADAPTER_NAME_FUNC WintunGetAdapterName;
+static WINTUN_GET_ADAPTER_LUID_FUNC WintunGetAdapterLUID;
 static WINTUN_START_SESSION_FUNC WintunStartSession;
 static WINTUN_GET_READ_WAIT_EVENT_FUNC WintunGetReadWaitEvent;
 static WINTUN_RECEIVE_PACKET_FUNC WintunReceivePacket;
@@ -43,15 +51,15 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
     WintunSendPacket(parameters->wintun_session, packet);
 }
 
-static bool readline(char *buffer, size_t buffer_size) {
+static void readline(char *buffer, size_t buffer_size) {
     size_t character_index = 0;
     while(character_index != buffer_size - 1) {
         auto character = getc(stdin);
 
         if(character == -1) {
-            fprintf(stderr, "ERROR: Unexpected EOF in stdin\n");
+            fprintf(stderr, "\nERROR: Unexpected EOF in stdin\n");
 
-            return false;
+            exit(1);
         }
 
         if(character == '\r') {
@@ -70,7 +78,6 @@ static bool readline(char *buffer, size_t buffer_size) {
     }
 
     buffer[character_index] = '\0';
-    return true;
 }
 
 struct EnumerationParameters {
@@ -146,6 +153,8 @@ static void acquire_remote_connection_string(juice_agent_t *agent) {
     juice_set_remote_description(agent, remote_description);
 }
 
+#define IP_CONSTANT(a, b, c, d) ((uint32_t)d | (uint32_t)c << 8 | (uint32_t)b << 16 | (uint32_t)a << 24)
+
 int main(int argument_count, char *arguments[]) {
     auto wintun_library = LoadLibraryA("wintun.dll");
 
@@ -153,6 +162,7 @@ int main(int argument_count, char *arguments[]) {
     WintunCreateAdapter = (WINTUN_CREATE_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunCreateAdapter");
     WintunOpenAdapter = (WINTUN_OPEN_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunOpenAdapter");
     WintunGetAdapterName = (WINTUN_GET_ADAPTER_NAME_FUNC)GetProcAddress(wintun_library, "WintunGetAdapterName");
+    WintunGetAdapterLUID = (WINTUN_GET_ADAPTER_LUID_FUNC)GetProcAddress(wintun_library, "WintunGetAdapterLUID");
     WintunStartSession = (WINTUN_START_SESSION_FUNC)GetProcAddress(wintun_library, "WintunStartSession");
     WintunGetReadWaitEvent = (WINTUN_GET_READ_WAIT_EVENT_FUNC)GetProcAddress(wintun_library, "WintunGetReadWaitEvent");
     WintunReceivePacket = (WINTUN_RECEIVE_PACKET_FUNC)GetProcAddress(wintun_library, "WintunReceivePacket");
@@ -178,28 +188,60 @@ int main(int argument_count, char *arguments[]) {
 
     auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
 
-    const uint8_t ip_prefix[4] = { 0, 0, 64, 100 };
-    const uint8_t ip_mask[4] = { 0, 0, 192, 255 };
+    const uint32_t ip_subnet_prefix = IP_CONSTANT(100, 64, 0, 0);
+    const uint32_t ip_subnet_length = 10;
+    const uint32_t ip_subnet_mask = ~0 << (32 - ip_subnet_length); // Crazy bit stuff to calculate subnet mask
 
     srand((unsigned int)time(nullptr));
 
-    uint8_t ip_address[4];
-    ip_address[0] = (uint8_t)rand();
-    ip_address[1] = (uint8_t)rand();
-    ip_address[2] = (uint8_t)rand();
-    ip_address[3] = (uint8_t)rand();
+    uint32_t ip_address;
 
-    ip_address[0] &= ~ip_mask[0];
-    ip_address[1] &= ~ip_mask[1];
-    ip_address[2] &= ~ip_mask[2];
-    ip_address[3] &= ~ip_mask[3];
+    ip_address = (uint32_t)rand();
 
-    ip_address[0] |= ip_prefix[0];
-    ip_address[1] |= ip_prefix[1];
-    ip_address[2] |= ip_prefix[2];
-    ip_address[3] |= ip_prefix[3];
+    ip_address &= ~ip_subnet_mask;
 
-    printf("Your IP address is %hhu.%hhu.%hhu.%hhu\n", ip_address[3], ip_address[2], ip_address[1], ip_address[0]);
+    ip_address |= ip_subnet_prefix;
+
+    printf(
+        "Your IP address is %hhu.%hhu.%hhu.%hhu\n",
+        (uint8_t)(ip_address >> 24),
+        (uint8_t)(ip_address >> 16),
+        (uint8_t)(ip_address >> 8),
+        (uint8_t)ip_address
+    );
+
+    NET_LUID wintun_adapter_luid;
+    WintunGetAdapterLUID(wintun_adapter, &wintun_adapter_luid);
+
+    // Clear existing IPv4 addresses from adapter with windows craziness
+
+    MIB_UNICASTIPADDRESS_TABLE *address_table;
+    GetUnicastIpAddressTable(AF_INET, &address_table);
+
+    for(size_t i = 0; i < address_table->NumEntries; i += 1) {
+        if(memcmp(&address_table->Table[i].InterfaceLuid, &wintun_adapter_luid, sizeof(NET_LUID)) == 0) {
+            DeleteUnicastIpAddressEntry(&address_table->Table[i]);
+        }
+    }
+
+    FreeMibTable(address_table);
+
+    // Assign new IPv4 address to adapter with windows craziness
+
+    MIB_UNICASTIPADDRESS_ROW address_row;
+    InitializeUnicastIpAddressEntry(&address_row);
+
+    address_row.Address.Ipv4.sin_family = AF_INET;
+    address_row.Address.Ipv4.sin_addr.S_un.S_un_b.s_b1 = (uint8_t)(ip_address >> 24);
+    address_row.Address.Ipv4.sin_addr.S_un.S_un_b.s_b2 = (uint8_t)(ip_address >> 16);
+    address_row.Address.Ipv4.sin_addr.S_un.S_un_b.s_b3 = (uint8_t)(ip_address >> 8);
+    address_row.Address.Ipv4.sin_addr.S_un.S_un_b.s_b4 = (uint8_t)ip_address;
+
+    address_row.InterfaceLuid = wintun_adapter_luid;
+
+    address_row.OnLinkPrefixLength = ip_subnet_length;
+
+    CreateUnicastIpAddressEntry(&address_row);
 
     JuiceParameters juice_parameters;
     juice_parameters.wintun_session = wintun_session;
@@ -234,6 +276,8 @@ int main(int argument_count, char *arguments[]) {
         acquire_local_connection_string(agent, juice_parameters);
     } else {
         fprintf(stderr, "ERROR: Unknown option '%s'\n", main_option);
+
+        return 1;
     }
 
     auto wintun_wait_handle = WintunGetReadWaitEvent(wintun_session);

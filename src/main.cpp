@@ -60,6 +60,10 @@ static void base64_decode_string(const char *base64_string, char *buffer) {
     buffer[length_written] = '\0';
 }
 
+static size_t base64_decoded_length(const char *base64_string) {
+    return (size_t)cbase64_calc_decoded_length(base64_string, (size_t)strlen(base64_string));
+}
+
 const static size_t max_description_length = JUICE_MAX_SDP_STRING_LEN - 1;
 const static size_t max_description_base64_length = 4 * ((max_description_length - 1) / 3) + (((max_description_length - 1) % 3 != 0) ? 4 : 0);
 
@@ -201,7 +205,7 @@ void on_create_page_connect_button_pressed(uiButton *button, void *data) {
 
     auto remote_description_base64 = uiEntryText(context->create_page_remote_connection_string_entry);
 
-    if(cbase64_calc_decoded_length(remote_description_base64, strlen(remote_description_base64)) > max_description_length) {
+    if(base64_decoded_length(remote_description_base64) > max_description_length) {
         uiLabelSetText(context->status_label, "Remote connection string too long");
         uiControlShow(uiControl(context->status_label));
 
@@ -231,7 +235,7 @@ void on_connect_page_generate_button_pressed(uiButton *button, void *data) {
 
     auto remote_description_base64 = uiEntryText(context->connect_page_remote_connection_string_entry);
 
-    if(cbase64_calc_decoded_length(remote_description_base64, strlen(remote_description_base64)) > max_description_length) {
+    if(base64_decoded_length(remote_description_base64) > max_description_length) {
         uiLabelSetText(context->status_label, "Remote connection string too long");
         uiControlShow(uiControl(context->status_label));
 

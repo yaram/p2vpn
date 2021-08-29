@@ -71,7 +71,7 @@ set(_LIBUI_SOURCES ${_LIBUI_SOURCES} PARENT_SCOPE)
 # In those cases, we just need them to include the manifest with the executable (or link it directly into the output executable themselves); they can also customize the manifest as they see fit (assuming nothing breaks in the process).
 # TODO make sure this gets added to both binary-only archives and install rules in this case
 list(APPEND _LIBUI_INTERFACE_SOURCES
-	${CMAKE_CURRENT_SOURCE_DIR}/resources.rc
+	${CMAKE_CURRENT_SOURCE_DIR}/libui.manifest
 )
 set(_LIBUI_INTERFACE_SOURCES ${_LIBUI_INTERFACE_SOURCES} PARENT_SCOPE)
 

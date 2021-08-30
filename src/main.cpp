@@ -285,7 +285,7 @@ void on_connect_page_button_pressed(uiButton *button, void *data) {
 
 #define IP_CONSTANT(a, b, c, d) ((uint32_t)d | (uint32_t)c << 8 | (uint32_t)b << 16 | (uint32_t)a << 24)
 
-int main(int argument_count, char *arguments[]) {
+bool entry() {
     auto wintun_library = LoadLibraryA("wintun.dll");
 
     WintunEnumAdapters = (WINTUN_ENUM_ADAPTERS_FUNC)GetProcAddress(wintun_library, "WintunEnumAdapters");
@@ -517,3 +517,21 @@ int main(int argument_count, char *arguments[]) {
 
     return 0;
 }
+
+#ifdef WINDOWS_SUBSYSTEM
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+    if(entry()) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+#else
+int main(int argc, char *argv[]) {
+    if(entry()) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+#endif

@@ -15,4 +15,6 @@ target_include_directories(vpn PRIVATE thirdparty)
 
 if(WIN32)
     target_link_libraries(vpn PRIVATE iphlpapi)
+    target_compile_definitions(vpn PRIVATE $<$<NOT:$<CONFIG:Debug>>:WINDOWS_SUBSYSTEM>)
+    set_target_properties(vpn PROPERTIES WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>)
 endif()

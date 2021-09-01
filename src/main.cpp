@@ -61,7 +61,7 @@ static size_t base64_decode(const char *base64_string, uint8_t *buffer) {
 }
 
 static size_t base64_decoded_length(const char *base64_string) {
-    return (size_t)cbase64_calc_decoded_length(base64_string, (size_t)strlen(base64_string));
+    return (size_t)cbase64_calc_decoded_length(base64_string, (unsigned int)strlen(base64_string));
 }
 
 const static size_t max_description_length = JUICE_MAX_SDP_STRING_LEN - 1;
@@ -594,7 +594,7 @@ bool entry() {
 
     const uint32_t ip_subnet_prefix = IP_CONSTANT(100, 64, 0, 0);
     const uint32_t ip_subnet_length = 10;
-    const uint32_t ip_subnet_mask = ~0 << (32 - ip_subnet_length); // Crazy bit stuff to calculate subnet mask
+    const uint32_t ip_subnet_mask = ~0u << (32u - ip_subnet_length); // Crazy bit stuff to calculate subnet mask
 
     srand((unsigned int)time(nullptr));
 

@@ -30,13 +30,13 @@ static WINTUN_SEND_PACKET_FUNC WintunSendPacket;
 static WINTUN_END_SESSION_FUNC WintunEndSession;
 static WINTUN_FREE_ADAPTER_FUNC WintunFreeAdapter;
 
-static void base64_encode_string(const char *string, char *buffer) {
+static void base64_encode(const uint8_t *data, size_t data_length, char *buffer) {
     cbase64_encodestate encode_state;
     cbase64_init_encodestate(&encode_state);
 
     auto length_written = (size_t)cbase64_encode_block(
-        (unsigned char*)string,
-        (unsigned int)strlen(string),
+        data,
+        (unsigned int)data_length,
         buffer,
         &encode_state
     );
@@ -46,18 +46,18 @@ static void base64_encode_string(const char *string, char *buffer) {
     buffer[length_written] = '\0';
 }
 
-static void base64_decode_string(const char *base64_string, char *buffer) {
+static size_t base64_decode(const char *base64_string, uint8_t *buffer) {
     cbase64_decodestate decode_state;
     cbase64_init_decodestate(&decode_state);
 
     auto length_written = (size_t)cbase64_decode_block(
         base64_string,
         (unsigned int)strlen(base64_string),
-        (unsigned char*)buffer,
+        buffer,
         &decode_state
     );
 
-    buffer[length_written] = '\0';
+    return length_written;
 }
 
 static size_t base64_decoded_length(const char *base64_string) {
@@ -65,7 +65,8 @@ static size_t base64_decoded_length(const char *base64_string) {
 }
 
 const static size_t max_description_length = JUICE_MAX_SDP_STRING_LEN - 1;
-const static size_t max_description_base64_length = 4 * ((max_description_length - 1) / 3) + (((max_description_length - 1) % 3 != 0) ? 4 : 0);
+const static size_t max_description_encoded_length = max_description_length;
+const static size_t max_description_encoded_base64_length = 4 * ((max_description_encoded_length - 1) / 3) + (((max_description_encoded_length - 1) % 3 != 0) ? 4 : 0);
 
 enum struct Page {
     Initial,
@@ -124,25 +125,282 @@ static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *us
     }
 }
 
+static void encode_string(const char *source, size_t *source_index, uint8_t *destination, size_t *destination_index, char terminator) {
+    auto start = *source_index;
+
+    while(source[*source_index] != terminator) {
+        *source_index += 1;
+    }
+
+    auto end = *source_index;
+    *source_index += 1;
+
+    auto length = (uint8_t)(end - start);
+
+    destination[*destination_index] = length;
+    *destination_index += 1;
+
+    memcpy(&destination[*destination_index], &source[start], length);
+    *destination_index += length;
+}
+
+static size_t encode_description(const char *description, uint8_t *buffer) {
+    size_t index = 0;
+    size_t buffer_index = 0;
+
+    // Don't bother verifying format of descriptor for now, very unsafe, much jank
+
+    index += strlen("a=ice-ufrag:");
+    encode_string(description, &index, buffer, &buffer_index, '\n'); // Password
+
+    index += strlen("a=ice-pwd:");
+    encode_string(description, &index, buffer, &buffer_index, '\n'); // Username
+
+    while(true) {
+        index += strlen("a=");
+
+        if(description[index] != 'c') {
+            break;
+        }
+
+        index += strlen("candidate:");
+
+        encode_string(description, &index, buffer, &buffer_index, ' ');
+
+        {
+            auto start = index;
+
+            while(isdigit(description[index])) {
+                index += 1;
+            }
+
+            index += 1;
+
+            auto value =  (uint8_t)(strtoull(&description[start], nullptr, 10) - 1);
+
+            buffer[buffer_index] = value;
+            buffer_index += 1;
+        }
+
+        index += strlen("UDP ");
+
+        {
+            auto start = index;
+
+            while(isdigit(description[index])) {
+                index += 1;
+            }
+
+            index += 1;
+
+            auto value =  (uint32_t)strtoull(&description[start], nullptr, 10);
+
+            buffer[buffer_index] = (uint8_t)value;
+            buffer[buffer_index + 1] = (uint8_t)(value >> 8);
+            buffer[buffer_index + 2] = (uint8_t)(value >> 16);
+            buffer[buffer_index + 3] = (uint8_t)(value >> 24);
+            buffer_index += 4;
+        }
+
+        encode_string(description, &index, buffer, &buffer_index, ' ');
+
+        {
+            auto start = index;
+
+            while(isdigit(description[index])) {
+                index += 1;
+            }
+
+            index += 1;
+
+            auto value =  (uint16_t)strtoull(&description[start], nullptr, 10);
+
+            buffer[buffer_index] = (uint8_t)value;
+            buffer[buffer_index + 1] = (uint8_t)(value >> 8);
+            buffer_index += 2;
+        }
+
+        encode_string(description, &index, buffer, &buffer_index, '\n');
+    }
+
+    // description[index] == 'e' (end-of-candidates)
+
+    return buffer_index;
+}
+
+static bool output_character(char *destination, size_t destination_size, size_t *index, char character) {
+    if(*index == destination_size) {
+        return false;
+    }
+
+    destination[*index] = character;
+    *index += 1;
+
+    return true;
+}
+
+static bool output_string(char *destination, size_t destination_size, size_t *index, const char *string) {
+    auto length = strlen(string);
+
+    if(destination_size - *index < length) {
+        return false;
+    }
+
+    memcpy(&destination[*index], string, length);
+    *index += length;
+
+    return true;
+}
+
+static bool decode_string(
+    uint8_t *source,
+    size_t source_length,
+    size_t *source_index,
+    char *destination,
+    size_t destination_length,
+    size_t *destination_index
+) {
+    if(*source_index == source_length) {
+        return false;
+    }
+
+    auto length = source[*source_index];
+    *source_index += 1;
+
+    if(source_length - *source_index < length) {
+        return false;
+    }
+
+    if(destination_length - *destination_index < length) {
+        return false;
+    }
+
+    memcpy(&destination[*destination_index], &source[*source_index], length);
+    *destination_index += length;
+    *source_index += length;
+
+    return true;
+}
+
+#define check(expression) if(!expression) { return false; }
+
+static bool decode_description(uint8_t *bytes, size_t bytes_length, char *buffer, size_t buffer_length) {
+    size_t index = 0;
+    size_t buffer_index = 0;
+
+    check(output_string(buffer, buffer_length, &buffer_index, "a=ice-ufrag:"));
+    check(decode_string(bytes, bytes_length, &index, buffer, buffer_length, &buffer_index));
+    check(output_character(buffer, buffer_length, &buffer_index, '\n'));
+
+    check(output_string(buffer, buffer_length, &buffer_index, "a=ice-pwd:"));
+    check(decode_string(bytes, bytes_length, &index, buffer, buffer_length, &buffer_index));
+    check(output_character(buffer, buffer_length, &buffer_index, '\n'));
+
+    while(index != bytes_length) {
+        check(output_string(buffer, buffer_length, &buffer_index, "a=candidate:"));
+
+        check(decode_string(bytes, bytes_length, &index, buffer, buffer_length, &buffer_index));
+        check(output_character(buffer, buffer_length, &buffer_index, ' '));
+
+        {
+            if(index == bytes_length) {
+                return false;
+            }
+
+            auto value = (uint32_t)bytes[index] + 1;
+            index += 1;
+
+            char temp_buffer[32];
+            auto length = (size_t)sprintf_s(temp_buffer, 32, "%u ", value);
+
+            if(buffer_length - buffer_index < length) {
+                return false;
+            }
+
+            memcpy(&buffer[buffer_index], temp_buffer, length);
+            buffer_index += length;
+        }
+
+        check(output_string(buffer, buffer_length, &buffer_index, "UDP "));
+
+        {
+            if(bytes_length - index < 4) {
+                return false;
+            }
+
+            auto value = (uint32_t)bytes[index] |
+                (uint32_t)bytes[index + 1] << 8 |
+                (uint32_t)bytes[index + 2] << 16 |
+                (uint32_t)bytes[index + 3] << 24;
+            index += 4;
+
+            char temp_buffer[32];
+            auto length = (size_t)sprintf_s(temp_buffer, 32, "%u ", value);
+
+            if(buffer_length - buffer_index < length) {
+                return false;
+            }
+
+            memcpy(&buffer[buffer_index], temp_buffer, length);
+            buffer_index += length;
+        }
+
+        check(decode_string(bytes, bytes_length, &index, buffer, buffer_length, &buffer_index));
+        check(output_character(buffer, buffer_length, &buffer_index, ' '));
+
+        {
+            if(bytes_length - index < 2) {
+                return false;
+            }
+
+            auto value = (uint16_t)bytes[index] |
+                (uint16_t)bytes[index + 1] << 8;
+            index += 2;
+
+            char temp_buffer[32];
+            auto length = (size_t)sprintf_s(temp_buffer, 32, "%hu ", value);
+
+            if(buffer_length - buffer_index < length) {
+                return false;
+            }
+
+            memcpy(&buffer[buffer_index], temp_buffer, length);
+            buffer_index += length;
+        }
+
+        check(decode_string(bytes, bytes_length, &index, buffer, buffer_length, &buffer_index));
+        check(output_character(buffer, buffer_length, &buffer_index, '\n'));
+    }
+
+    check(output_string(buffer, buffer_length, &buffer_index, "a=end-of-candidates"));
+
+    check(output_character(buffer, buffer_length, &buffer_index, '\0'));
+
+    return true;
+}
+
 static void on_gathering_done(juice_agent_t *agent, void *user_ptr) {
     auto context = (Context*)user_ptr;
 
     char local_description[max_description_length + 1];
     juice_get_local_description(context->juice_agent, local_description, max_description_length + 1);
 
-    char local_description_base64[max_description_base64_length + 1];
-    base64_encode_string(local_description, local_description_base64);
+    uint8_t local_description_encoded[max_description_encoded_length];
+    auto local_description_encoded_length = encode_description(local_description, local_description_encoded);
+
+    char local_description_encoded_base64[max_description_encoded_base64_length + 1];
+    base64_encode(local_description_encoded, local_description_encoded_length, local_description_encoded_base64);
 
     switch(context->current_page) {
         case Page::Create: {
-            uiEntrySetText(context->create_page_local_connection_string_entry, local_description_base64);
+            uiEntrySetText(context->create_page_local_connection_string_entry, local_description_encoded_base64);
             uiControlEnable(uiControl(context->create_page_local_connection_string_entry));
             uiControlEnable(uiControl(context->create_page_remote_connection_string_entry));
             uiControlEnable(uiControl(context->create_page_connect_button));
         } break;
 
         case Page::Connect: {
-            uiEntrySetText(context->connect_page_local_connection_string_entry, local_description_base64);
+            uiEntrySetText(context->connect_page_local_connection_string_entry, local_description_encoded_base64);
             uiControlEnable(uiControl(context->connect_page_local_connection_string_entry));
         } break;
     }
@@ -203,17 +461,25 @@ int on_window_closing(uiWindow *window, void *data) {
 void on_create_page_connect_button_pressed(uiButton *button, void *data) {
     auto context = (Context*)data;
 
-    auto remote_description_base64 = uiEntryText(context->create_page_remote_connection_string_entry);
+    auto remote_description_encoded_base64 = uiEntryText(context->create_page_remote_connection_string_entry);
 
-    if(base64_decoded_length(remote_description_base64) > max_description_length) {
+    if(base64_decoded_length(remote_description_encoded_base64) > max_description_length) {
         uiLabelSetText(context->status_label, "Remote connection string too long");
         uiControlShow(uiControl(context->status_label));
 
         return;
     }
 
+    uint8_t remote_descriptor_encoded[max_description_encoded_length];
+    auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64, remote_descriptor_encoded);
+
     char remote_descriptor[max_description_length + 1];
-    base64_decode_string(remote_description_base64, remote_descriptor);
+    if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
+        uiLabelSetText(context->status_label, "Remote connection string is invalid");
+        uiControlShow(uiControl(context->status_label));
+
+        return;
+    }
 
     if(juice_set_remote_description(context->juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
         uiLabelSetText(context->status_label, "Remote connection string is invalid");
@@ -233,17 +499,25 @@ void on_create_page_connect_button_pressed(uiButton *button, void *data) {
 void on_connect_page_generate_button_pressed(uiButton *button, void *data) {
     auto context = (Context*)data;
 
-    auto remote_description_base64 = uiEntryText(context->connect_page_remote_connection_string_entry);
+    auto remote_description_encoded_base64 = uiEntryText(context->connect_page_remote_connection_string_entry);
 
-    if(base64_decoded_length(remote_description_base64) > max_description_length) {
+    if(base64_decoded_length(remote_description_encoded_base64) > max_description_length) {
         uiLabelSetText(context->status_label, "Remote connection string too long");
         uiControlShow(uiControl(context->status_label));
 
         return;
     }
 
+    uint8_t remote_descriptor_encoded[max_description_encoded_length];
+    auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64, remote_descriptor_encoded);
+
     char remote_descriptor[max_description_length + 1];
-    base64_decode_string(remote_description_base64, remote_descriptor);
+    if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
+        uiLabelSetText(context->status_label, "Remote connection string is invalid");
+        uiControlShow(uiControl(context->status_label));
+
+        return;
+    }
 
     if(juice_set_remote_description(context->juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
         uiLabelSetText(context->status_label, "Remote connection string is invalid");

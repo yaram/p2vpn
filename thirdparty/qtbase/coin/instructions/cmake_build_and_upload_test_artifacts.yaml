@@ -1,0 +1,46 @@
+type: Group
+instructions:
+  - type: ChangeDirectory
+    directory: "{{.SourceDir}}"
+  - type: MakeDirectory
+    directory: "{{.SourceDir}}_standalone_tests"
+  - type: SetBuildDirectory
+    directory: "{{.SourceDir}}_standalone_tests"
+  - type: ChangeDirectory
+    directory: "{{.BuildDir}}"
+  - type: AppendToEnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    variableValue: " -DCMAKE_AUTOGEN_VERBOSE=ON -S {{.SourceDir}} -B ."
+    disable_if:
+      condition: runtime
+      env_var: COIN_CMAKE_ARGS
+      equals_value: null
+  - type: EnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    variableValue: "-DCMAKE_AUTOGEN_VERBOSE=ON -S {{.SourceDir}} -B ."
+    enable_if:
+      condition: runtime
+      env_var: COIN_CMAKE_ARGS
+      equals_value: null
+
+  # Inform CMake to build just a minimal set of tests for static Qt builds.
+  - type: AppendToEnvironmentVariable
+    variableName: COIN_CMAKE_ARGS
+    variableValue: " -DQT_BUILD_MINIMAL_STATIC_TESTS=ON"
+    enable_if:
+      condition: property
+      property: features
+      contains_value: "MinimalStaticTests"
+
+  - !include "{{qt/qtbase}}/call_cmake_for_standalone_tests.yaml"
+  - type: ExecuteCommand
+    command: "{{.Env.TESTS_ENV_PREFIX}} cmake --build . --parallel -v"
+    maxTimeInSeconds: 6000
+    maxTimeBetweenOutput: 1200
+    userMessageOnFailure: >
+      Failed to build sources. In the current state bug can be everywhere.
+  - type: UploadTestArtifact
+    transferType: UploadModuleTestsArtifact
+    archiveDirectory: "{{.BuildDir}}"
+    maxTimeInSeconds: 1200
+    maxTimeBetweenOutput: 1200

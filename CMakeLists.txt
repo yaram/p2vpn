@@ -5,12 +5,17 @@ include(ExternalProject)
 project(P2PVPN LANGUAGES CXX)
 
 add_subdirectory(thirdparty/libjuice)
-add_subdirectory(thirdparty/libui)
+add_subdirectory(thirdparty/qtbase)
 
-add_executable(vpn src/main.cpp)
+add_executable(vpn
+    src/ecoji.h
+    src/ecoji.cpp
+
+    src/main.cpp
+)
 
 target_compile_features(vpn PRIVATE cxx_std_11)
-target_link_libraries(vpn PRIVATE juice-static libui)
+target_link_libraries(vpn PRIVATE juice-static Qt::Core Qt::Gui Qt::Widgets Qt::QWindowsIntegrationPlugin)
 target_include_directories(vpn PRIVATE thirdparty)
 
 if(WIN32)

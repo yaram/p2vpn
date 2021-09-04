@@ -1,0 +1,13 @@
+type: Group
+instructions:
+  - type: Group
+    instructions:
+      - type: ExecuteCommand
+        command: "{{.InstallDir}}/libexec/android_emulator_launcher.sh"
+        maxTimeInSeconds: 300
+        maxTimeBetweenOutput: 300
+        userMessageOnFailure: "Failed to start emulator, check logs."
+    enable_if:
+      condition: property
+      property: features
+      contains_value: AndroidTestRun

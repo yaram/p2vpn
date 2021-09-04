@@ -7,7 +7,7 @@ set(PROJECT_DESCRIPTION "JUICE is a UDP ICE library")
 option(USE_NETTLE "Use Nettle for hash functions" OFF)
 option(NO_SERVER "Disable server support" OFF)
 option(NO_TESTS "Disable tests build" OFF)
-option(NO_EXPORT_HEADER "Disable export header" OFF)
+option(NO_EXPORT_HEADER "Disable export header" ON)
 option(WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 
 # Mitigations

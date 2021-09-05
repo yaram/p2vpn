@@ -2,9 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
-#endif
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2ipdef.h> 
@@ -14,7 +12,14 @@
 #include "wintun.h"
 #define CBASE64_IMPLEMENTATION
 #include "cbase64.h"
-#include "ui.h"
+#include "qapplication.h"
+#include "qmainwindow.h"
+#include "qboxlayout.h"
+#include "qstackedwidget.h"
+#include "qlabel.h"
+#include "qlineedit.h"
+#include "qpushbutton.h"
+#include "qplugin.h"
 
 static WINTUN_ENUM_ADAPTERS_FUNC WintunEnumAdapters;
 static WINTUN_CREATE_ADAPTER_FUNC WintunCreateAdapter;
@@ -67,63 +72,6 @@ static size_t base64_decoded_length(const char *base64_string) {
 const static size_t max_description_length = JUICE_MAX_SDP_STRING_LEN - 1;
 const static size_t max_description_encoded_length = max_description_length;
 const static size_t max_description_encoded_base64_length = 4 * ((max_description_encoded_length - 1) / 3) + (((max_description_encoded_length - 1) % 3 != 0) ? 4 : 0);
-
-enum struct Page {
-    Initial,
-    Create,
-    Connect,
-    Connected
-};
-
-struct Context {
-    WINTUN_SESSION_HANDLE wintun_session;
-
-    juice_agent_t *juice_agent;
-
-    Page current_page;
-
-    uiLabel *status_label;
-
-    uiBox *initial_page_box;
-
-    uiBox *create_page_box;
-    uiEntry *create_page_local_connection_string_entry;
-    uiEntry *create_page_remote_connection_string_entry;
-    uiButton *create_page_connect_button;
-
-    uiBox *connect_page_box;
-    uiEntry *connect_page_local_connection_string_entry;
-    uiEntry *connect_page_remote_connection_string_entry;
-    uiButton *connect_page_generate_button;
-};
-
-static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *user_ptr) {
-    auto context = (Context*)user_ptr;
-
-    switch(state) {
-        case JUICE_STATE_COMPLETED: {
-            if(context->current_page == Page::Connect) {
-                uiControlHide(uiControl(context->connect_page_box));
-
-                context->current_page = Page::Connected;
-            }
-
-            uiLabelSetText(context->status_label, "Connected to peer!");
-            uiControlShow(uiControl(context->status_label));
-        } break;
-
-        case JUICE_STATE_FAILED: {
-            if(context->current_page == Page::Connect) {
-                uiControlHide(uiControl(context->connect_page_box));
-
-                context->current_page = Page::Connected;
-            }
-
-            uiLabelSetText(context->status_label, "Disconnected from peer!");
-            uiControlShow(uiControl(context->status_label));
-        } break;
-    }
-}
 
 static void encode_string(const char *source, size_t *source_index, uint8_t *destination, size_t *destination_index, char terminator) {
     auto start = *source_index;
@@ -379,31 +327,189 @@ static bool decode_description(uint8_t *bytes, size_t bytes_length, char *buffer
     return true;
 }
 
+enum struct Page {
+    Initial,
+    Create,
+    Connect,
+    Connected
+};
+
+struct Context : QObject {
+    WINTUN_SESSION_HANDLE wintun_session;
+
+    juice_agent_t *juice_agent;
+
+    Page current_page;
+
+    QLabel *status_label;
+
+    QStackedWidget *page_stack;
+
+    QWidget *create_page_widget;
+    QLineEdit *create_page_local_connection_string_edit;
+    QLineEdit *create_page_remote_connection_string_edit;
+    QPushButton *create_page_connect_button;
+
+    QWidget *connect_page_widget;
+    QLineEdit *connect_page_local_connection_string_edit;
+    QLineEdit *connect_page_remote_connection_string_edit;
+    QPushButton *connect_page_generate_button;
+
+    QWidget *connected_page_widget;
+
+    void on_create_page_button_pressed() {
+        page_stack->setCurrentWidget(create_page_widget);
+
+        juice_gather_candidates(juice_agent);
+
+        current_page = Page::Create;
+    }
+
+    void on_connect_page_button_pressed() {
+        page_stack->setCurrentWidget(connect_page_widget);
+
+        current_page = Page::Connect;
+    }
+
+    void on_create_page_connect_button_pressed() {
+        auto remote_description_encoded_base64 = create_page_remote_connection_string_edit->text().toUtf8();
+
+        if(remote_description_encoded_base64.length() > max_description_encoded_base64_length) {
+            status_label->setText("Remote connection string is invalid");
+            status_label->setVisible(true);
+
+            return;
+        }
+
+        remote_description_encoded_base64.append('\0');
+
+        uint8_t remote_descriptor_encoded[max_description_encoded_length];
+        auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64.data(), remote_descriptor_encoded);
+
+        char remote_descriptor[max_description_length + 1];
+        if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
+            status_label->setText("Remote connection string is invalid");
+            status_label->setVisible(true);
+
+            return;
+        }
+
+        if(juice_set_remote_description(juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
+            status_label->setText("Remote connection string is invalid");
+            status_label->setVisible(true);
+
+            return;
+        }
+
+        page_stack->setCurrentWidget(connected_page_widget);
+
+        current_page = Page::Connected;
+
+        status_label->setText("Waiting for connection from peer...");
+        status_label->setVisible(true);
+    }
+
+    void on_connect_page_generate_button_pressed() {
+        auto remote_description_encoded_base64 = connect_page_remote_connection_string_edit->text().toUtf8();
+
+        if(remote_description_encoded_base64.length() > max_description_encoded_base64_length) {
+            status_label->setText("Remote connection string is invalid");
+            status_label->setVisible(true);
+
+            return;
+        }
+
+        remote_description_encoded_base64.append('\0');
+
+        uint8_t remote_descriptor_encoded[max_description_encoded_length];
+        auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64.data(), remote_descriptor_encoded);
+
+        char remote_descriptor[max_description_length + 1];
+        if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
+            status_label->setText("Remote connection string is invalid");
+            status_label->setVisible(true);
+
+            return;
+        }
+
+        if(juice_set_remote_description(juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
+            status_label->setText("Remote connection string is invalid");
+            status_label->setVisible(true);
+
+            return;
+        }
+
+        connect_page_remote_connection_string_edit->setEnabled(false);
+        connect_page_generate_button->setEnabled(false);
+
+        juice_gather_candidates(juice_agent);
+
+        status_label->setText("Waiting for connection from peer...");
+        status_label->setVisible(true);
+    }
+
+    void on_gathering_done() {
+        char local_description[max_description_length + 1];
+        juice_get_local_description(juice_agent, local_description, max_description_length + 1);
+
+        uint8_t local_description_encoded[max_description_encoded_length];
+        auto local_description_encoded_length = encode_description(local_description, local_description_encoded);
+
+        char local_description_encoded_base64[max_description_encoded_base64_length + 1];
+        base64_encode(local_description_encoded, local_description_encoded_length, local_description_encoded_base64);
+
+        switch(current_page) {
+            case Page::Create: {
+                create_page_local_connection_string_edit->setText(local_description_encoded_base64);
+                create_page_local_connection_string_edit->setEnabled(true);
+                create_page_remote_connection_string_edit->setEnabled(true);
+                create_page_connect_button->setEnabled(true);
+            } break;
+
+            case Page::Connect: {
+                connect_page_local_connection_string_edit->setText(local_description_encoded_base64);
+                connect_page_local_connection_string_edit->setEnabled(true);
+            } break;
+        }
+    }
+
+    void on_state_changed() {
+        switch(juice_get_state(juice_agent)) {
+            case JUICE_STATE_COMPLETED: {
+                if(current_page == Page::Connect) {
+                    page_stack->setCurrentWidget(connected_page_widget);
+
+                    current_page = Page::Connected;
+                }
+
+                status_label->setText("Connected to peer!");
+                status_label->setVisible(true);
+            } break;
+
+            case JUICE_STATE_FAILED: {
+                if(current_page == Page::Connect) {
+                    page_stack->setCurrentWidget(connected_page_widget);
+
+                    current_page = Page::Connected;
+                }
+
+                status_label->setText("Disconnected from peer!");
+                status_label->setVisible(true);
+            } break;
+        }
+    }
+};
+
 static void on_gathering_done(juice_agent_t *agent, void *user_ptr) {
     auto context = (Context*)user_ptr;
 
-    char local_description[max_description_length + 1];
-    juice_get_local_description(context->juice_agent, local_description, max_description_length + 1);
+    QMetaObject::invokeMethod(context, &Context::on_gathering_done);
+}
 
-    uint8_t local_description_encoded[max_description_encoded_length];
-    auto local_description_encoded_length = encode_description(local_description, local_description_encoded);
+static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *user_ptr) {
+    auto context = (Context*)user_ptr;
 
-    char local_description_encoded_base64[max_description_encoded_base64_length + 1];
-    base64_encode(local_description_encoded, local_description_encoded_length, local_description_encoded_base64);
-
-    switch(context->current_page) {
-        case Page::Create: {
-            uiEntrySetText(context->create_page_local_connection_string_entry, local_description_encoded_base64);
-            uiControlEnable(uiControl(context->create_page_local_connection_string_entry));
-            uiControlEnable(uiControl(context->create_page_remote_connection_string_entry));
-            uiControlEnable(uiControl(context->create_page_connect_button));
-        } break;
-
-        case Page::Connect: {
-            uiEntrySetText(context->connect_page_local_connection_string_entry, local_description_encoded_base64);
-            uiControlEnable(uiControl(context->connect_page_local_connection_string_entry));
-        } break;
-    }
+    QMetaObject::invokeMethod(context, &Context::on_state_changed);
 }
 
 static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *user_ptr) {
@@ -452,114 +558,9 @@ static DWORD WINAPI packet_send_thread(LPVOID lpParameter) {
     }
 }
 
-int on_window_closing(uiWindow *window, void *data) {
-    uiQuit();
-
-    return true;
-}
-
-void on_create_page_connect_button_pressed(uiButton *button, void *data) {
-    auto context = (Context*)data;
-
-    auto remote_description_encoded_base64 = uiEntryText(context->create_page_remote_connection_string_entry);
-
-    if(base64_decoded_length(remote_description_encoded_base64) > max_description_length) {
-        uiLabelSetText(context->status_label, "Remote connection string too long");
-        uiControlShow(uiControl(context->status_label));
-
-        return;
-    }
-
-    uint8_t remote_descriptor_encoded[max_description_encoded_length];
-    auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64, remote_descriptor_encoded);
-
-    char remote_descriptor[max_description_length + 1];
-    if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
-        uiLabelSetText(context->status_label, "Remote connection string is invalid");
-        uiControlShow(uiControl(context->status_label));
-
-        return;
-    }
-
-    if(juice_set_remote_description(context->juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
-        uiLabelSetText(context->status_label, "Remote connection string is invalid");
-        uiControlShow(uiControl(context->status_label));
-
-        return;
-    }
-
-    uiControlHide(uiControl(context->create_page_box));
-
-    context->current_page = Page::Connected;
-
-    uiLabelSetText(context->status_label, "Waiting for connection from peer...");
-    uiControlShow(uiControl(context->status_label));
-}
-
-void on_connect_page_generate_button_pressed(uiButton *button, void *data) {
-    auto context = (Context*)data;
-
-    auto remote_description_encoded_base64 = uiEntryText(context->connect_page_remote_connection_string_entry);
-
-    if(base64_decoded_length(remote_description_encoded_base64) > max_description_length) {
-        uiLabelSetText(context->status_label, "Remote connection string too long");
-        uiControlShow(uiControl(context->status_label));
-
-        return;
-    }
-
-    uint8_t remote_descriptor_encoded[max_description_encoded_length];
-    auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64, remote_descriptor_encoded);
-
-    char remote_descriptor[max_description_length + 1];
-    if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
-        uiLabelSetText(context->status_label, "Remote connection string is invalid");
-        uiControlShow(uiControl(context->status_label));
-
-        return;
-    }
-
-    if(juice_set_remote_description(context->juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
-        uiLabelSetText(context->status_label, "Remote connection string is invalid");
-        uiControlShow(uiControl(context->status_label));
-
-        return;
-    }
-
-    uiControlDisable(uiControl(context->connect_page_remote_connection_string_entry));
-    uiControlDisable(uiControl(context->connect_page_generate_button));
-
-    juice_set_remote_description(context->juice_agent, remote_descriptor);
-
-    juice_gather_candidates(context->juice_agent);
-
-    uiLabelSetText(context->status_label, "Waiting for connection from peer...");
-    uiControlShow(uiControl(context->status_label));
-}
-
-void on_create_page_button_pressed(uiButton *button, void *data) {
-    auto context = (Context*)data;
-
-    uiControlHide(uiControl(context->initial_page_box));
-    uiControlShow(uiControl(context->create_page_box));
-
-    juice_gather_candidates(context->juice_agent);
-
-    context->current_page = Page::Create;
-}
-
-void on_connect_page_button_pressed(uiButton *button, void *data) {
-    auto context = (Context*)data;
-
-    uiControlHide(uiControl(context->initial_page_box));
-    uiControlShow(uiControl(context->connect_page_box));
-
-    context->current_page = Page::Connect;
-}
-
 #define IP_CONSTANT(a, b, c, d) ((uint32_t)d | (uint32_t)c << 8 | (uint32_t)b << 16 | (uint32_t)a << 24)
 
-bool entry() {
+static bool entry() {
     auto wintun_library = LoadLibraryA("wintun.dll");
 
     WintunEnumAdapters = (WINTUN_ENUM_ADAPTERS_FUNC)GetProcAddress(wintun_library, "WintunEnumAdapters");
@@ -657,137 +658,130 @@ bool entry() {
 
     CreateThread(nullptr, 0, packet_send_thread, (void*)&context, 0, nullptr);
 
-    uiInitOptions ui_init_options {};
-    uiInit(&ui_init_options);
+    int dummy_argc = 0;
+    QApplication application(dummy_argc, nullptr);
+    application.setStyle("Fusion");
 
-    auto window = uiNewWindow("P2P VPN", 200, 300, false);
-    uiWindowSetMargined(window, true);
-    uiWindowOnClosing(window, on_window_closing, nullptr);
+    QMainWindow window;
+    window.setWindowTitle("P2P VPN");
 
-    auto main_box = uiNewVerticalBox();
-    uiWindowSetChild(window, uiControl(main_box));
-    uiBoxSetPadded(main_box, true);
+    QWidget central_widget;
+    QVBoxLayout central_layout(&central_widget);
+    window.setCentralWidget(&central_widget);
 
-    { // Local IP address
-        auto box = uiNewHorizontalBox();
-        uiBoxAppend(main_box, uiControl(box), false);
-        uiBoxSetPadded(box, true);
+    QWidget ip_address_widget;
+    QHBoxLayout ip_address_layout(&ip_address_widget);
+    central_layout.addWidget(&ip_address_widget);
 
-        auto label = uiNewLabel("Your IP address is:");
-        uiBoxAppend(box, uiControl(label), false);
+    QLabel ip_address_label("Your IP address is:");
+    ip_address_layout.addWidget(&ip_address_label);
 
-        auto entry = uiNewEntry();
-        uiBoxAppend(box, uiControl(entry), true);
-        uiEntrySetReadOnly(entry, true);
+    char ip_address_text[32];
+    sprintf_s(
+        ip_address_text,
+        32,
+        "%hhu.%hhu.%hhu.%hhu",
+        (uint8_t)(ip_address >> 24),
+        (uint8_t)(ip_address >> 16),
+        (uint8_t)(ip_address >> 8),
+        (uint8_t)ip_address
+    );
 
-        char ip_address_text[32];
-        sprintf_s(
-            ip_address_text,
-            32,
-            "%hhu.%hhu.%hhu.%hhu",
-            (uint8_t)(ip_address >> 24),
-            (uint8_t)(ip_address >> 16),
-            (uint8_t)(ip_address >> 8),
-            (uint8_t)ip_address
-        );
-        uiEntrySetText(entry, ip_address_text);
-    }
+    QLineEdit ip_address_edit(ip_address_text);
+    ip_address_layout.addWidget(&ip_address_edit);
+    ip_address_edit.setReadOnly(true);
 
-    { // Initial page
-        auto page_box = uiNewHorizontalBox();
-        uiBoxAppend(main_box, uiControl(page_box), false);
-        uiBoxSetPadded(page_box, true);
+    QStackedWidget page_stack;
+    central_layout.addWidget(&page_stack);
+    context.page_stack = &page_stack;
 
-        auto create_button = uiNewButton("Create");
-        uiBoxAppend(page_box, uiControl(create_button), false);
-        uiButtonOnClicked(create_button, on_create_page_button_pressed, (void*)&context);
+    // Will probably clean this up eventually...
 
-        auto connect_button = uiNewButton("Connect");
-        uiBoxAppend(page_box, uiControl(connect_button), false);
-        uiButtonOnClicked(connect_button, on_connect_page_button_pressed, (void*)&context);
+    // Initial page
 
-        context.initial_page_box = page_box;
-        context.current_page = Page::Initial;
-    }
+    QWidget initial_page_widget;
+    QVBoxLayout initial_page_layout(&initial_page_widget);
+    page_stack.addWidget(&initial_page_widget);
 
-    { // Create page
-        auto page_box = uiNewVerticalBox();
-        uiBoxAppend(main_box, uiControl(page_box), false);
-        uiBoxSetPadded(page_box, true);
-        uiControlHide(uiControl(page_box));
+    QPushButton initial_page_create_page_button("Create");
+    QObject::connect(&initial_page_create_page_button, &QPushButton::clicked, &context, &Context::on_create_page_button_pressed);
+    initial_page_layout.addWidget(&initial_page_create_page_button);
 
-        auto local_connection_string_label = uiNewLabel("Your connection string (send this to your peer)");
-        uiBoxAppend(page_box, uiControl(local_connection_string_label), false);
+    QPushButton initial_page_connect_page_button("Connect");
+    QObject::connect(&initial_page_connect_page_button, &QPushButton::clicked, &context, &Context::on_connect_page_button_pressed);
+    initial_page_layout.addWidget(&initial_page_connect_page_button);
 
-        auto local_connection_string_entry = uiNewEntry();
-        uiBoxAppend(page_box, uiControl(local_connection_string_entry), false);
-        uiControlDisable(uiControl(local_connection_string_entry));
-        uiEntrySetReadOnly(local_connection_string_entry, true);
-        uiEntrySetText(local_connection_string_entry, "Loading...");
+    // Create page
 
-        context.create_page_local_connection_string_entry = local_connection_string_entry;
+    QWidget create_page_widget;
+    QVBoxLayout create_page_layout(&create_page_widget);
+    page_stack.addWidget(&create_page_widget);
+    context.create_page_widget = &create_page_widget;
 
-        auto remote_connection_string_label = uiNewLabel("Their connection string (your peer will send this to you)");
-        uiBoxAppend(page_box, uiControl(remote_connection_string_label), false);
+    QLabel create_page_local_connection_string_label("Your connection string (send this to your peer)");
+    create_page_layout.addWidget(&create_page_local_connection_string_label);
 
-        auto remote_connection_string_entry = uiNewEntry();
-        uiBoxAppend(page_box, uiControl(remote_connection_string_entry), false);
-        uiControlDisable(uiControl(remote_connection_string_entry));
+    QLineEdit create_page_local_connection_string_edit("Loading...");
+    create_page_layout.addWidget(&create_page_local_connection_string_edit);
+    create_page_local_connection_string_edit.setReadOnly(true);
+    create_page_local_connection_string_edit.setDisabled(true);
+    context.create_page_local_connection_string_edit = &create_page_local_connection_string_edit;
 
-        context.create_page_remote_connection_string_entry = remote_connection_string_entry;
+    QLabel create_page_remote_connection_string_label("Their connection string (your peer will send this to you)");
+    create_page_layout.addWidget(&create_page_remote_connection_string_label);
 
-        auto connect_button = uiNewButton("Connect to Peer");
-        uiBoxAppend(page_box, uiControl(connect_button), false);
-        uiButtonOnClicked(connect_button, on_create_page_connect_button_pressed, (void*)&context);
-        uiControlDisable(uiControl(connect_button));
+    QLineEdit create_page_remote_connection_string_edit;
+    create_page_layout.addWidget(&create_page_remote_connection_string_edit);
+    create_page_remote_connection_string_edit.setDisabled(true);
+    context.create_page_remote_connection_string_edit = &create_page_remote_connection_string_edit;
 
-        context.create_page_connect_button = connect_button;
+    QPushButton create_page_connect_button("Connect to peer");
+    create_page_layout.addWidget(&create_page_connect_button);
+    QObject::connect(&create_page_connect_button, &QPushButton::clicked, &context, &Context::on_create_page_connect_button_pressed);
+    context.create_page_connect_button = &create_page_connect_button;
 
-        context.create_page_box = page_box;
-    }
+    // Connect page
 
-    { // connect page
-        auto page_box = uiNewVerticalBox();
-        uiBoxAppend(main_box, uiControl(page_box), false);
-        uiBoxSetPadded(page_box, true);
-        uiControlHide(uiControl(page_box));
+    QWidget connect_page_widget;
+    QVBoxLayout connect_page_layout(&connect_page_widget);
+    page_stack.addWidget(&connect_page_widget);
+    context.connect_page_widget = &connect_page_widget;
 
-        auto remote_connection_string_label = uiNewLabel("Their connection string (your peer will send this to you)");
-        uiBoxAppend(page_box, uiControl(remote_connection_string_label), false);
+    QLabel connect_page_remote_connection_string_label("Their connection string (your peer will send this to you)");
+    connect_page_layout.addWidget(&connect_page_remote_connection_string_label);
 
-        auto remote_connection_string_entry = uiNewEntry();
-        uiBoxAppend(page_box, uiControl(remote_connection_string_entry), false);
+    QLineEdit connect_page_remote_connection_string_edit;
+    connect_page_layout.addWidget(&connect_page_remote_connection_string_edit);
+    context.connect_page_remote_connection_string_edit = &connect_page_remote_connection_string_edit;
 
-        context.connect_page_remote_connection_string_entry = remote_connection_string_entry;
+    QPushButton connect_page_generate_button("Generate connection string");
+    connect_page_layout.addWidget(&connect_page_generate_button);
+    QObject::connect(&connect_page_generate_button, &QPushButton::clicked, &context, &Context::on_connect_page_generate_button_pressed);
+    context.connect_page_generate_button = &connect_page_generate_button;
 
-        auto connect_button = uiNewButton("Generate connecting string");
-        uiBoxAppend(page_box, uiControl(connect_button), false);
-        uiButtonOnClicked(connect_button, on_connect_page_generate_button_pressed, (void*)&context);
+    QLabel connect_page_local_connection_string_label("Your connection string (send this to your peer)");
+    connect_page_layout.addWidget(&connect_page_local_connection_string_label);
 
-        auto local_connection_string_label = uiNewLabel("Your connection string (send this to your peer)");
-        uiBoxAppend(page_box, uiControl(local_connection_string_label), false);
+    QLineEdit connect_page_local_connection_string_edit;
+    connect_page_layout.addWidget(&connect_page_local_connection_string_edit);
+    connect_page_local_connection_string_edit.setReadOnly(true);
+    connect_page_local_connection_string_edit.setDisabled(true);
+    context.connect_page_local_connection_string_edit = &connect_page_local_connection_string_edit;
 
-        auto local_connection_string_entry = uiNewEntry();
-        uiBoxAppend(page_box, uiControl(local_connection_string_entry), false);
-        uiControlDisable(uiControl(local_connection_string_entry));
-        uiEntrySetReadOnly(local_connection_string_entry, true);
+    // Connected page
 
-        context.connect_page_local_connection_string_entry = local_connection_string_entry;
+    QWidget connected_page_widget;
+    page_stack.addWidget(&connected_page_widget);
+    context.connected_page_widget = &connected_page_widget;
 
-        context.connect_page_generate_button = connect_button;
+    QLabel status_label;
+    status_label.setVisible(false);
+    central_layout.addWidget(&status_label);
+    context.status_label = &status_label;
 
-        context.connect_page_box = page_box;
-    }
+    window.show();
 
-    auto error_label = uiNewLabel("");
-    uiBoxAppend(main_box, uiControl(error_label), false);
-    uiControlHide(uiControl(error_label));
-
-    context.status_label = error_label;
-
-    uiControlShow(uiControl(window));
-
-    uiMain();
+    application.exec();
 
     return 0;
 }
@@ -809,3 +803,5 @@ int main(int argc, char *argv[]) {
     }
 }
 #endif
+
+Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)

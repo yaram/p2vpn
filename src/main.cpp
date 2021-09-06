@@ -327,6 +327,11 @@ static bool decode_description(uint8_t *bytes, size_t bytes_length, char *buffer
     return true;
 }
 
+enum struct PacketType {
+    IPAddress,
+    Data
+};
+
 enum struct Page {
     Initial,
     Create,
@@ -338,6 +343,9 @@ struct Context : QObject {
     WINTUN_SESSION_HANDLE wintun_session;
 
     juice_agent_t *juice_agent;
+
+    uint32_t local_ip_address;
+    uint32_t peer_ip_address;
 
     Page current_page;
 
@@ -356,6 +364,7 @@ struct Context : QObject {
     QPushButton *connect_page_generate_button;
 
     QWidget *connected_page_widget;
+    QLineEdit *connected_page_peer_ip_address_edit;
 
     void on_create_page_button_pressed() {
         page_stack->setCurrentWidget(create_page_widget);
@@ -482,6 +491,16 @@ struct Context : QObject {
                     current_page = Page::Connected;
                 }
 
+                uint8_t ip_address_packet[5] {
+                    (uint8_t)PacketType::IPAddress,
+                    (uint8_t)(local_ip_address >> 24),
+                    (uint8_t)(local_ip_address >> 16),
+                    (uint8_t)(local_ip_address >> 8),
+                    (uint8_t)local_ip_address
+                };
+
+                juice_send(juice_agent, (char*)ip_address_packet, 5);
+
                 status_label->setText("Connected to peer!");
                 status_label->setVisible(true);
             } break;
@@ -497,6 +516,22 @@ struct Context : QObject {
                 status_label->setVisible(true);
             } break;
         }
+    }
+
+    void on_peer_ip_address_received() {
+        char ip_address_text[32];
+        sprintf_s(
+            ip_address_text,
+            32,
+            "%hhu.%hhu.%hhu.%hhu",
+            (uint8_t)(peer_ip_address >> 24),
+            (uint8_t)(peer_ip_address >> 16),
+            (uint8_t)(peer_ip_address >> 8),
+            (uint8_t)peer_ip_address
+        );
+
+        connected_page_peer_ip_address_edit->setText(ip_address_text);
+        connected_page_peer_ip_address_edit->setEnabled(true);
     }
 };
 
@@ -515,11 +550,27 @@ static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *us
 static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *user_ptr) {
     auto context = (Context*)user_ptr;
 
-    auto packet = WintunAllocateSendPacket(context->wintun_session, (DWORD)size);
+    auto data_bytes = (const uint8_t*)data;
 
-    memcpy(packet, data, size);
+    switch((PacketType)data_bytes[0]) {
+        case PacketType::IPAddress: {
+            context->peer_ip_address =
+                (uint32_t)data_bytes[1] << 24 |
+                (uint32_t)data_bytes[2] << 16 |
+                (uint32_t)data_bytes[3] << 8 |
+                (uint32_t)data_bytes[4];
 
-    WintunSendPacket(context->wintun_session, packet);
+            QMetaObject::invokeMethod(context, &Context::on_peer_ip_address_received);
+        } break;
+
+        case PacketType::Data: {
+            auto packet = WintunAllocateSendPacket(context->wintun_session, (DWORD)size);
+
+            memcpy(packet, &data[1], size - 1);
+
+            WintunSendPacket(context->wintun_session, packet);
+        } break;
+    }
 }
 
 struct EnumerationParameters {
@@ -543,15 +594,22 @@ static DWORD WINAPI packet_send_thread(LPVOID lpParameter) {
     auto wintun_wait_handle = WintunGetReadWaitEvent(context->wintun_session);
 
     while(true) {
-        DWORD packet_size;
-        auto packet = WintunReceivePacket(context->wintun_session, &packet_size);
+        DWORD packet_data_size;
+        auto packet_data = WintunReceivePacket(context->wintun_session, &packet_data_size);
 
-        if(packet != nullptr) {
+        if(packet_data != nullptr) {
             if(juice_get_state(context->juice_agent) == JUICE_STATE_COMPLETED) {
-                juice_send(context->juice_agent, (const char*)packet, packet_size);
+                auto packet_size = 1 + (size_t)packet_data_size;
+                auto packet = (uint8_t*)malloc(packet_size);
+
+                packet[0] = (uint8_t)PacketType::Data;
+
+                memcpy(&packet[1], packet_data, packet_data_size);
+
+                juice_send(context->juice_agent, (char*)packet, packet_size);
             }
 
-            WintunReleaseReceivePacket(context->wintun_session, packet);
+            WintunReleaseReceivePacket(context->wintun_session, packet_data);
         } else {
             WaitForSingleObject(wintun_wait_handle, INFINITE);
         }
@@ -593,6 +651,9 @@ static bool entry() {
 
     auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
 
+    Context context;
+    context.wintun_session = wintun_session;
+
     const uint32_t ip_subnet_prefix = IP_CONSTANT(100, 64, 0, 0);
     const uint32_t ip_subnet_length = 10;
     const uint32_t ip_subnet_mask = ~0u << (32u - ip_subnet_length); // Crazy bit stuff to calculate subnet mask
@@ -606,6 +667,8 @@ static bool entry() {
     ip_address &= ~ip_subnet_mask;
 
     ip_address |= ip_subnet_prefix;
+
+    context.local_ip_address = ip_address;
 
     NET_LUID wintun_adapter_luid;
     WintunGetAdapterLUID(wintun_adapter, &wintun_adapter_luid);
@@ -640,9 +703,6 @@ static bool entry() {
 
     CreateUnicastIpAddressEntry(&address_row);
 
-    Context context;
-    context.wintun_session = wintun_session;
-
     juice_config_t juice_config {};
     juice_config.stun_server_host = "stun.stunprotocol.org";
     juice_config.stun_server_port = 3478;
@@ -668,28 +728,6 @@ static bool entry() {
     QWidget central_widget;
     QVBoxLayout central_layout(&central_widget);
     window.setCentralWidget(&central_widget);
-
-    QWidget ip_address_widget;
-    QHBoxLayout ip_address_layout(&ip_address_widget);
-    central_layout.addWidget(&ip_address_widget);
-
-    QLabel ip_address_label("Your IP address is:");
-    ip_address_layout.addWidget(&ip_address_label);
-
-    char ip_address_text[32];
-    sprintf_s(
-        ip_address_text,
-        32,
-        "%hhu.%hhu.%hhu.%hhu",
-        (uint8_t)(ip_address >> 24),
-        (uint8_t)(ip_address >> 16),
-        (uint8_t)(ip_address >> 8),
-        (uint8_t)ip_address
-    );
-
-    QLineEdit ip_address_edit(ip_address_text);
-    ip_address_layout.addWidget(&ip_address_edit);
-    ip_address_edit.setReadOnly(true);
 
     QStackedWidget page_stack;
     central_layout.addWidget(&page_stack);
@@ -771,8 +809,49 @@ static bool entry() {
     // Connected page
 
     QWidget connected_page_widget;
+    QVBoxLayout connected_page_layout(&connected_page_widget);
     page_stack.addWidget(&connected_page_widget);
     context.connected_page_widget = &connected_page_widget;
+
+    QWidget connected_page_ip_address_widget;
+    QHBoxLayout ip_address_layout(&connected_page_ip_address_widget);
+    connected_page_layout.addWidget(&connected_page_ip_address_widget);
+
+    QLabel connected_page_ip_address_label("Your IP address is:");
+    ip_address_layout.addWidget(&connected_page_ip_address_label);
+
+    char ip_address_text[32];
+    sprintf_s(
+        ip_address_text,
+        32,
+        "%hhu.%hhu.%hhu.%hhu",
+        (uint8_t)(ip_address >> 24),
+        (uint8_t)(ip_address >> 16),
+        (uint8_t)(ip_address >> 8),
+        (uint8_t)ip_address
+    );
+
+    QLineEdit connected_page_ip_address_edit(ip_address_text);
+    ip_address_layout.addWidget(&connected_page_ip_address_edit);
+    connected_page_ip_address_edit.setReadOnly(true);
+
+    QLineEdit connected_page_peer_ip_address_edit;
+    connected_page_layout.addWidget(&connected_page_peer_ip_address_edit);
+    connected_page_peer_ip_address_edit.setReadOnly(true);
+    connected_page_peer_ip_address_edit.setDisabled(true);
+
+    QWidget connected_page_peer_ip_address_widget;
+    QHBoxLayout peer_ip_address_layout(&connected_page_peer_ip_address_widget);
+    connected_page_layout.addWidget(&connected_page_peer_ip_address_widget);
+
+    QLabel connected_page_peer_ip_address_label("Your peer's IP address is:");
+    peer_ip_address_layout.addWidget(&connected_page_peer_ip_address_label);
+
+    QLineEdit peer_ip_address_edit;
+    peer_ip_address_layout.addWidget(&connected_page_peer_ip_address_edit);
+    peer_ip_address_edit.setReadOnly(true);
+    peer_ip_address_edit.setDisabled(true);
+    context.connected_page_peer_ip_address_edit = &connected_page_peer_ip_address_edit;
 
     QLabel status_label;
     status_label.setVisible(false);

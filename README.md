@@ -9,6 +9,7 @@ Windows is currently the only supported platform, but more are planned.
 
 Requirements:
 * CMake 3.21.2 or later
+* Ninja 1.10.0 or later
 * Visual Studio 2019 with C++ build tools (MSVC)
 * The latest amd64 `wintun.dll` from https://www.wintun.net
 

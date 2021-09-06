@@ -72,63 +72,6 @@ Q_FORWARD_DECLARE_OBJC_CLASS(NSData);
 
 QT_BEGIN_NAMESPACE
 
-
-/*****************************************************************************
-  Safe and portable C string functions; extensions to standard string.h
- *****************************************************************************/
-
-Q_CORE_EXPORT char *qstrdup(const char *);
-
-inline size_t qstrlen(const char *str)
-{
-    QT_WARNING_PUSH
-#if defined(Q_CC_GNU) && Q_CC_GNU >= 900 && Q_CC_GNU < 1000
-    // spurious compiler warning (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=91490#c6)
-    // when Q_DECLARE_METATYPE_TEMPLATE_1ARG is used
-    QT_WARNING_DISABLE_GCC("-Wstringop-overflow")
-#endif
-    return str ? strlen(str) : 0;
-    QT_WARNING_POP
-}
-
-inline size_t qstrnlen(const char *str, size_t maxlen)
-{
-    size_t length = 0;
-    if (str) {
-        while (length < maxlen && *str++)
-            length++;
-    }
-    return length;
-}
-
-Q_CORE_EXPORT char *qstrcpy(char *dst, const char *src);
-Q_CORE_EXPORT char *qstrncpy(char *dst, const char *src, size_t len);
-
-Q_CORE_EXPORT int qstrcmp(const char *str1, const char *str2);
-
-inline int qstrncmp(const char *str1, const char *str2, size_t len)
-{
-    return (str1 && str2) ? strncmp(str1, str2, len)
-        : (str1 ? 1 : (str2 ? -1 : 0));
-}
-Q_CORE_EXPORT int qstricmp(const char *, const char *);
-Q_CORE_EXPORT int qstrnicmp(const char *, const char *, size_t len);
-Q_CORE_EXPORT int qstrnicmp(const char *, qsizetype, const char *, qsizetype = -1);
-
-// implemented in qvsnprintf.cpp
-Q_CORE_EXPORT int qvsnprintf(char *str, size_t n, const char *fmt, va_list ap);
-Q_CORE_EXPORT int qsnprintf(char *str, size_t n, const char *fmt, ...);
-
-// qChecksum: Internet checksum
-Q_CORE_EXPORT quint16 qChecksum(QByteArrayView data, Qt::ChecksumType standard = Qt::ChecksumIso3309);
-
-#if QT_DEPRECATED_SINCE(6, 0)
-QT_DEPRECATED_VERSION_X_6_0("Use the QByteArrayView overload.")
-inline quint16 qChecksum(const char *s, qsizetype len,
-                         Qt::ChecksumType standard = Qt::ChecksumIso3309)
-{ return qChecksum(QByteArrayView(s, len), standard); }
-#endif
-
 class QString;
 class QDataStream;
 
@@ -432,8 +375,8 @@ public:
     inline QByteArray &setNum(ulong, int base = 10);
     QByteArray &setNum(qlonglong, int base = 10);
     QByteArray &setNum(qulonglong, int base = 10);
-    inline QByteArray &setNum(float, char f = 'g', int prec = 6);
-    QByteArray &setNum(double, char f = 'g', int prec = 6);
+    inline QByteArray &setNum(float, char format = 'g', int precision = 6);
+    QByteArray &setNum(double, char format = 'g', int precision = 6);
     QByteArray &setRawData(const char *a, qsizetype n);
 
     [[nodiscard]] static QByteArray number(int, int base = 10);
@@ -442,7 +385,7 @@ public:
     [[nodiscard]] static QByteArray number(ulong, int base = 10);
     [[nodiscard]] static QByteArray number(qlonglong, int base = 10);
     [[nodiscard]] static QByteArray number(qulonglong, int base = 10);
-    [[nodiscard]] static QByteArray number(double, char f = 'g', int prec = 6);
+    [[nodiscard]] static QByteArray number(double, char format = 'g', int precision = 6);
     [[nodiscard]] static QByteArray fromRawData(const char *data, qsizetype size)
     {
         return QByteArray(DataPointer(nullptr, const_cast<char *>(data), size));
@@ -655,19 +598,19 @@ inline const QByteArray operator+(char a1, const QByteArray &a2)
 #endif // QT_USE_QSTRINGBUILDER
 
 inline QByteArray &QByteArray::setNum(short n, int base)
-{ return base == 10 ? setNum(qlonglong(n), base) : setNum(qulonglong(ushort(n)), base); }
+{ return setNum(qlonglong(n), base); }
 inline QByteArray &QByteArray::setNum(ushort n, int base)
 { return setNum(qulonglong(n), base); }
 inline QByteArray &QByteArray::setNum(int n, int base)
-{ return base == 10 ? setNum(qlonglong(n), base) : setNum(qulonglong(uint(n)), base); }
+{ return setNum(qlonglong(n), base); }
 inline QByteArray &QByteArray::setNum(uint n, int base)
 { return setNum(qulonglong(n), base); }
 inline QByteArray &QByteArray::setNum(long n, int base)
-{ return base == 10 ? setNum(qlonglong(n), base) : setNum(qulonglong(ulong(n)), base); }
+{ return setNum(qlonglong(n), base); }
 inline QByteArray &QByteArray::setNum(ulong n, int base)
 { return setNum(qulonglong(n), base); }
-inline QByteArray &QByteArray::setNum(float n, char f, int prec)
-{ return setNum(double(n),f,prec); }
+inline QByteArray &QByteArray::setNum(float n, char format, int precision)
+{ return setNum(double(n), format, precision); }
 
 inline std::string QByteArray::toStdString() const
 { return std::string(constData(), length()); }
@@ -675,7 +618,7 @@ inline std::string QByteArray::toStdString() const
 inline QByteArray QByteArray::fromStdString(const std::string &s)
 { return QByteArray(s.data(), qsizetype(s.size())); }
 
-#if !defined(QT_NO_DATASTREAM) || (defined(QT_BOOTSTRAPPED) && !defined(QT_BUILD_QMAKE))
+#if !defined(QT_NO_DATASTREAM) || defined(QT_BOOTSTRAPPED)
 Q_CORE_EXPORT QDataStream &operator<<(QDataStream &, const QByteArray &);
 Q_CORE_EXPORT QDataStream &operator>>(QDataStream &, QByteArray &);
 #endif
@@ -755,6 +698,13 @@ QByteArray QByteArrayView::toByteArray() const
 {
     return QByteArray(data(), size());
 }
+
+inline namespace QtLiterals {
+inline QByteArray operator"" _qba(const char *str, size_t size) noexcept
+{
+    return QByteArray(QByteArrayData(nullptr, const_cast<char *>(str), qsizetype(size)));
+}
+} // QtLiterals
 
 QT_END_NAMESPACE
 

@@ -52,6 +52,7 @@
 //
 
 #include "qglobal_p.h"
+#include <qrandom.h>
 #include <private/qsimd_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -71,9 +72,7 @@ enum RNGType {
     MersenneTwister = 1
 };
 
-#if defined(QT_BUILD_INTERNAL) && defined(QT_BUILD_CORE_LIB)
-Q_CORE_EXPORT QBasicAtomicInteger<uint> qt_randomdevice_control = Q_BASIC_ATOMIC_INITIALIZER(0U);
-#elif defined(QT_BUILD_INTERNAL)
+#if defined(QT_BUILD_INTERNAL)
 extern Q_CORE_EXPORT QBasicAtomicInteger<uint> qt_randomdevice_control;
 #else
 static const struct
@@ -81,6 +80,8 @@ static const struct
     uint loadAcquire() const { return 0; }
 } qt_randomdevice_control;
 #endif
+
+QRandomGenerator::InitialRandomData qt_initial_random_value() noexcept;
 
 QT_END_NAMESPACE
 

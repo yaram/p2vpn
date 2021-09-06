@@ -1573,7 +1573,7 @@ QList<QString> QSslSocket::availableBackends()
     from the list of available backends.
 
     \note When selecting a default backend implicitly, QSslSocket prefers
-    native backends, such as SecureTransport on Darwin, or Schannel on Windows.
+    the OpenSSL backend if available.
 
     \sa setActiveBackend(), availableBackends()
 */
@@ -1668,7 +1668,7 @@ QList<QSsl::ImplementedClass> QSslSocket::implementedClasses(const QString &back
 
 /*!
     \since 6.1
-    Returns true if a class \cl is implemented by the backend named \a backendName. An empty
+    Returns true if a class \a cl is implemented by the backend named \a backendName. An empty
     \a backendName is understood as a query about the currently active backend.
 
     \sa implementedClasses()

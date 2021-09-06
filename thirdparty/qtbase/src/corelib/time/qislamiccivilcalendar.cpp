@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -72,23 +72,20 @@ using namespace QRoundingDown;
     \sa QHijriCalendar, QCalendar
 */
 
-QIslamicCivilCalendar::QIslamicCivilCalendar()
-    : QHijriCalendar(QStringLiteral("Islamic Civil"), QCalendar::System::IslamicCivil)
-{
-    registerAlias(QStringLiteral("islamic-civil")); // CLDR name
-    registerAlias(QStringLiteral("islamicc")); // old CLDR name, still (2018) used by Mozilla
-    // Until we have a oncrete implementation that knows all the needed ephemerides:
-    registerAlias(QStringLiteral("Islamic"));
-}
-
 QString QIslamicCivilCalendar::name() const
 {
     return QStringLiteral("Islamic Civil");
 }
 
-QCalendar::System QIslamicCivilCalendar::calendarSystem() const
+QStringList QIslamicCivilCalendar::nameList()
 {
-    return QCalendar::System::IslamicCivil;
+    return {
+        QStringLiteral("Islamic Civil"),
+        QStringLiteral("islamic-civil"), // CLDR name
+        QStringLiteral("islamicc"), // old CLDR name, still (2018) used by Mozilla
+        // Until we have a concrete implementation that knows all the needed ephemerides:
+        QStringLiteral("Islamic"),
+    };
 }
 
 bool QIslamicCivilCalendar::isLeapYear(int year) const

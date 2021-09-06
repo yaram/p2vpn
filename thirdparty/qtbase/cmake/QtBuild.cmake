@@ -121,7 +121,7 @@ qt_configure_process_path(
     "Helper programs [ARCHDATADIR/bin on Windows, ARCHDATADIR/libexec otherwise]")
 qt_configure_process_path(INSTALL_QMLDIR
                           "${INSTALL_ARCHDATADIR}/qml"
-                           "QML2 imports [ARCHDATADIR/qml]")
+                           "QML imports [ARCHDATADIR/qml]")
 qt_configure_process_path(INSTALL_DATADIR "." "Arch-independent data [PREFIX]")
 qt_configure_process_path(INSTALL_DOCDIR "${INSTALL_DATADIR}/doc" "Documentation [DATADIR/doc]")
 qt_configure_process_path(INSTALL_TRANSLATIONSDIR "${INSTALL_DATADIR}/translations"
@@ -260,8 +260,23 @@ function(qt_setup_tool_path_command)
     list(APPEND command COMMAND)
     list(APPEND command set PATH=${bindir}$<SEMICOLON>%PATH%)
     set(QT_TOOL_PATH_SETUP_COMMAND "${command}" CACHE INTERNAL "internal command prefix for tool invocations" FORCE)
+    # QT_TOOL_PATH_SETUP_COMMAND is deprecated. Please use _qt_internal_wrap_tool_command
+    # instead.
 endfunction()
 qt_setup_tool_path_command()
+
+function(qt_internal_generate_tool_command_wrapper)
+    if(NOT CMAKE_HOST_WIN32 OR DEFINED QT_TOOL_COMMAND_WRAPPER_PATH)
+        return()
+    endif()
+    set(bindir "${QT_BUILD_INTERNALS_RELOCATABLE_INSTALL_PREFIX}/${INSTALL_BINDIR}")
+    file(TO_NATIVE_PATH "${bindir}" bindir)
+    set(QT_TOOL_COMMAND_WRAPPER_PATH "${QT_BUILD_DIR}/${INSTALL_LIBEXECDIR}/qt_setup_tool_path.bat"
+        CACHE INTERNAL "Path to the wrapper of the tool commands")
+    file(GENERATE OUTPUT "${QT_TOOL_COMMAND_WRAPPER_PATH}" CONTENT
+        "@echo off\r\nset PATH=${bindir}$<SEMICOLON>%PATH%\r\n%*")
+endfunction()
+qt_internal_generate_tool_command_wrapper()
 
 # Platform define path, etc.
 if(WIN32)
@@ -270,7 +285,9 @@ if(WIN32)
         list(APPEND QT_DEFAULT_PLATFORM_DEFINITIONS WIN64 _WIN64)
     endif()
     if(MSVC)
-        if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+        if (CLANG)
+            set(QT_DEFAULT_MKSPEC win32-clang-msvc)
+        elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
             set(QT_DEFAULT_MKSPEC win32-arm64-msvc)
         else()
             set(QT_DEFAULT_MKSPEC win32-msvc)
@@ -302,7 +319,7 @@ elseif(IOS)
     set(QT_DEFAULT_MKSPEC macx-ios-clang)
 elseif(APPLE)
     set(QT_DEFAULT_MKSPEC macx-clang)
-elseif(EMSCRIPTEN)
+elseif(WASM)
     set(QT_DEFAULT_MKSPEC wasm-emscripten)
 elseif(QNX)
     # Certain POSIX defines are not set if we don't compile with -std=gnuXX
@@ -319,6 +336,30 @@ elseif(QNX)
             set(QT_DEFAULT_MKSPEC qnx-${arch}-qcc)
         endif()
     endforeach()
+elseif(FREEBSD)
+    if(CLANG)
+        set(QT_DEFAULT_MKSPEC freebsd-clang)
+    elseif(GCC)
+        set(QT_DEFAULT_MKSPEC freebsd-g++)
+    endif()
+elseif(NETBSD)
+    set(QT_DEFAULT_MKSPEC netbsd-g++)
+elseif(OPENBSD)
+    set(QT_DEFAULT_MKSPEC openbsd-g++)
+elseif(SOLARIS)
+    if(GCC)
+        if(QT_64BIT)
+             set(QT_DEFAULT_MKSPEC solaris-g++-64)
+        else()
+             set(QT_DEFAULT_MKSPEC solaris-g++)
+        endif()
+    else()
+        if(QT_64BIT)
+             set(QT_DEFAULT_MKSPEC solaris-cc-64)
+        else()
+             set(QT_DEFAULT_MKSPEC solaris-cc)
+        endif()
+    endif()
 endif()
 
 if(NOT QT_QMAKE_TARGET_MKSPEC)
@@ -365,11 +406,6 @@ set(QT_PLATFORM_DEFINITION_DIR "${QT_DEFAULT_PLATFORM_DEFINITION_DIR}"
     CACHE PATH "Path to directory that contains qplatformdefs.h")
 
 set(QT_NAMESPACE "" CACHE STRING "Qt Namespace")
-if(QT_NAMESPACE STREQUAL "")
-    set(QT_HAS_NAMESPACE OFF)
-else()
-    set(QT_HAS_NAMESPACE ON)
-endif()
 
 include(QtGlobalStateHelpers)
 
@@ -461,7 +497,6 @@ set(__default_target_info_args
 set(__qt_internal_add_executable_optional_args
     GUI
     BOOTSTRAP
-    NO_QT
     NO_INSTALL
     EXCEPTIONS
     DELAY_RC
@@ -482,11 +517,11 @@ set(__qt_internal_add_executable_multi_args
 
 option(QT_CMAKE_DEBUG_EXTEND_TARGET "Debug extend_target calls in Qt's build system" OFF)
 
+# Internal helpers available only while building Qt itself.
 include(Qt3rdPartyLibraryHelpers)
 include(QtAppHelpers)
 include(QtAutogenHelpers)
 include(QtCMakeHelpers)
-include(QtCompatibilityHelpers)
 include(QtDeferredDependenciesHelpers)
 include(QtDbusHelpers)
 include(QtDocsHelpers)
@@ -508,6 +543,7 @@ include(QtRpathHelpers)
 include(QtSanitizerHelpers)
 include(QtScopeFinalizerHelpers)
 include(QtSimdHelpers)
+include(QtSingleRepoTargetSetBuildHelpers)
 include(QtSyncQtHelpers)
 include(QtTargetHelpers)
 include(QtTestHelpers)
@@ -518,6 +554,13 @@ include(QtJavaHelpers)
 if(ANDROID)
     include(QtAndroidHelpers)
 endif()
+
+# Helpers that are available in public projects and while building Qt itself.
+include(QtPublicPluginHelpers)
+include(QtPublicTargetHelpers)
+include(QtPublicWalkLibsHelpers)
+include(QtPublicFindPackageHelpers)
+include(QtPublicDependencyHelpers)
 
 # TODO: This block provides support for old variables. It should be removed once
 #       we remove all references to these variables in other Qt module repos.

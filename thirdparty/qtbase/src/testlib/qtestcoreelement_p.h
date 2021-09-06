@@ -139,8 +139,10 @@ const char *QTestCoreElement<ElementType>::elementName() const
         "testcase",
         "testsuite",
         "benchmark",
+        "message",
         "system-err",
-        "system-out"
+        "system-out",
+        "skipped"
     };
 
     if (type != QTest::LET_Undefined)

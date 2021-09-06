@@ -83,12 +83,14 @@ void QTestJUnitStreamer::formatStart(const QTestElement *element, QTestCharBuffe
     indentForElement(element, indent, sizeof(indent));
 
     // Messages/errors are written as CDATA within system-out, system-err,
-    // respectively, comments elsewhere
+    // error, and failure respectively, comments elsewhere
     if (element->elementType() == QTest::LET_Message) {
         switch (element->parentElement()->elementType()) {
         case QTest::LET_SystemOutput:
         case QTest::LET_SystemError:
-            QTest::qt_asprintf(formatted, "<![CDATA[");
+        case QTest::LET_Failure:
+        case QTest::LET_Error:
+            QTest::qt_asprintf(formatted, "%s<![CDATA[", indent);
             break;
         default:
             QTest::qt_asprintf(formatted, "%s<!--", indent);
@@ -123,31 +125,23 @@ void QTestJUnitStreamer::formatAttributes(const QTestElement* element, const QTe
 
     QTest::AttributeIndex attrindex = attribute->index();
 
-    // For messages/errors within system-out, system-err, respectively,
-    // we only want to output `message'
+    // For messages we only want to output the `message' attribute value
     if (element && element->elementType() == QTest::LET_Message
         && (element->parentElement()->elementType() == QTest::LET_SystemOutput
-            || element->parentElement()->elementType() == QTest::LET_SystemError)) {
+            || element->parentElement()->elementType() == QTest::LET_SystemError
+            || element->parentElement()->elementType() == QTest::LET_Failure
+            || element->parentElement()->elementType() == QTest::LET_Error)) {
 
-        if (attrindex != QTest::AI_Description) return;
+        if (attrindex != QTest::AI_Message) return;
 
         QXmlTestLogger::xmlCdata(formatted, attribute->value());
         return;
     }
 
-    char const* key = nullptr;
-    if (attrindex == QTest::AI_Description)
-        key = "message";
-    else if (attrindex != QTest::AI_File && attrindex != QTest::AI_Line)
-        key = attribute->name();
-
-    if (key) {
-        QTestCharBuffer quotedValue;
-        QXmlTestLogger::xmlQuote(&quotedValue, attribute->value());
-        QTest::qt_asprintf(formatted, " %s=\"%s\"", key, quotedValue.constData());
-    } else {
-        formatted->data()[0] = '\0';
-    }
+    QTestCharBuffer quotedValue;
+    QXmlTestLogger::xmlQuote(&quotedValue, attribute->value());
+    QTest::qt_asprintf(formatted, " %s=\"%s\"",
+        attribute->name(), quotedValue.constData());
 }
 
 void QTestJUnitStreamer::formatAfterAttributes(const QTestElement *element, QTestCharBuffer *formatted) const
@@ -155,12 +149,14 @@ void QTestJUnitStreamer::formatAfterAttributes(const QTestElement *element, QTes
     if (!element || !formatted )
         return;
 
-    // Messages/errors are written as CDATA within system-out, system-err,
-    // respectively, comments elsewhere
+    // Messages are written as CDATA within system-out, system-err,
+    // error, and failure respectively, comments elsewhere
     if (element->elementType() == QTest::LET_Message) {
         switch (element->parentElement()->elementType()) {
         case QTest::LET_SystemOutput:
         case QTest::LET_SystemError:
+        case QTest::LET_Failure:
+        case QTest::LET_Error:
             QTest::qt_asprintf(formatted, "]]>\n");
             break;
         default:
@@ -197,21 +193,20 @@ void QTestJUnitStreamer::outputElements(QTestElement *element, bool) const
     while (element) {
         hasChildren = element->childElements();
 
-        if (element->elementType() != QTest::LET_Benchmark) {
-            formatStart(element, &buf);
-            outputString(buf.data());
+        formatStart(element, &buf);
+        outputString(buf.data());
 
-            outputElementAttributes(element, element->attributes());
+        outputElementAttributes(element, element->attributes());
 
-            formatAfterAttributes(element, &buf);
-            outputString(buf.data());
+        formatAfterAttributes(element, &buf);
+        outputString(buf.data());
 
-            if (hasChildren)
-                outputElements(element->childElements(), true);
+        if (hasChildren)
+            outputElements(element->childElements(), true);
 
-            formatEnd(element, &buf);
-            outputString(buf.data());
-        }
+        formatEnd(element, &buf);
+        outputString(buf.data());
+
         element = element->previousElement();
     }
 }

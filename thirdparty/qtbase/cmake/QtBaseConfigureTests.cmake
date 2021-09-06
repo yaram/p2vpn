@@ -9,23 +9,30 @@ function(qt_run_config_test_architecture)
     qt_get_platform_try_compile_vars(platform_try_compile_vars)
     list(APPEND flags ${platform_try_compile_vars})
 
+    list(TRANSFORM flags PREPEND "    " OUTPUT_VARIABLE flags_indented)
+    list(JOIN flags_indented "\n" flags_indented)
+    message(STATUS
+            "Building architecture extraction project with the following CMake arguments:\n${flags_indented}")
+
     try_compile(
         _arch_result
         "${CMAKE_CURRENT_BINARY_DIR}/config.tests/arch"
         "${CMAKE_CURRENT_SOURCE_DIR}/config.tests/arch"
         arch
         CMAKE_FLAGS ${flags}
+        OUTPUT_VARIABLE arch_test_output
         )
 
     if (NOT _arch_result)
-        message(FATAL_ERROR "Failed to compile architecture detection file.")
+        message(FATAL_ERROR
+                "Failed to build architecture extraction project. Build output:\n ${arch_test_output}")
     endif()
 
     set(_arch_file_suffix "${CMAKE_EXECUTABLE_SUFFIX}")
     # With emscripten the application entry point is a .js file (to be run with node for example),
     # but the real "data" is in the .wasm file, so that's where we need to look for the ABI, etc.
     # information.
-    if (EMSCRIPTEN)
+    if (WASM)
         set(_arch_file_suffix ".wasm")
     endif()
 
@@ -34,11 +41,17 @@ function(qt_run_config_test_architecture)
         string(APPEND arch_test_location "/${QT_MULTI_CONFIG_FIRST_CONFIG}")
     endif()
 
+    set(arch_dir "${CMAKE_CURRENT_BINARY_DIR}/${arch_test_location}")
+    file(GLOB arch_dir_globbed_files RELATIVE "${arch_dir}" "${arch_dir}/*")
+    list(JOIN arch_dir_globbed_files "\n" arch_dir_globbed_files)
+
     set(_arch_file
         "${CMAKE_CURRENT_BINARY_DIR}/${arch_test_location}/architecture_test${_arch_file_suffix}")
     if (NOT EXISTS "${_arch_file}")
         message(FATAL_ERROR
-                "Failed to find compiled architecture detection executable at ${_arch_file}.")
+                "Failed to find compiled architecture detection executable at ${_arch_file}. \
+                The following files were found at: ${arch_dir} \
+                ${arch_dir_globbed_files}")
     endif()
     message(STATUS "Extracting architecture info from ${_arch_file}.")
 
@@ -66,7 +79,12 @@ function(qt_run_config_test_architecture)
     endforeach()
 
     if (NOT _architecture OR NOT _build_abi)
-        message(FATAL_ERROR "Failed to extract architecture data from file.")
+        list(SUBLIST _arch_lines 0 5 arch_lines_fewer)
+        list(JOIN arch_lines_fewer "\n" arch_lines_output)
+
+        message(FATAL_ERROR
+                "Failed to extract architecture data from file. \
+                Here are the first few lines extracted:\n${arch_lines_output}")
     endif()
 
     set(TEST_architecture 1 CACHE INTERNAL "Ran the architecture test")
@@ -112,6 +130,10 @@ VERS_1;
     if(APPLE)
         set(HAVE_LD_VERSION_SCRIPT OFF)
     endif()
+    # Also makes no sense with MSVC-style command-line
+    if(MSVC)
+        set(HAVE_LD_VERSION_SCRIPT OFF)
+    endif()
 
     set(TEST_ld_version_script "${HAVE_LD_VERSION_SCRIPT}" CACHE INTERNAL "linker version script support")
 endfunction()
@@ -142,8 +164,16 @@ function(qt_internal_print_cmake_darwin_info)
         message(STATUS "CMAKE_OSX_DEPLOYMENT_TARGET: \"${CMAKE_OSX_DEPLOYMENT_TARGET}\"")
         message(STATUS "QT_MAC_SDK_VERSION: \"${QT_MAC_SDK_VERSION}\"")
         message(STATUS "QT_MAC_XCODE_VERSION: \"${QT_MAC_XCODE_VERSION}\"")
+
+        if(DEFINED CACHE{QT_IS_MACOS_UNIVERSAL})
+            message(STATUS "QT_IS_MACOS_UNIVERSAL: \"${QT_IS_MACOS_UNIVERSAL}\"")
+        endif()
         if(QT_UIKIT_SDK)
             message(STATUS "QT_UIKIT_SDK: \"${QT_UIKIT_SDK}\"")
+        endif()
+        qt_internal_get_first_osx_arch(osx_first_arch)
+        if(osx_first_arch)
+            message(STATUS "Configure tests main architecture (in multi-arch build): \"${osx_first_arch}\"")
         endif()
     endif()
 endfunction()

@@ -6,7 +6,7 @@
 
 qt_internal_add_plugin(QEglFSEmulatorIntegrationPlugin
     OUTPUT_NAME qeglfs-emu-integration
-    TYPE egldeviceintegrations
+    PLUGIN_TYPE egldeviceintegrations
     SOURCES
         qeglfsemulatorintegration.cpp qeglfsemulatorintegration.h
         qeglfsemulatorscreen.cpp qeglfsemulatorscreen.h
@@ -15,7 +15,7 @@ qt_internal_add_plugin(QEglFSEmulatorIntegrationPlugin
         QT_EGL_NO_X11
     INCLUDE_DIRECTORIES
         ../../api
-    PUBLIC_LIBRARIES
+    LIBRARIES
         Qt::Core
         Qt::CorePrivate
         Qt::EglFSDeviceIntegrationPrivate

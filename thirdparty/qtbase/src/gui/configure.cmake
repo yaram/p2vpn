@@ -25,7 +25,7 @@ set_property(CACHE INPUT_libpng PROPERTY STRINGS undefined no qt system)
 
 
 #### Libraries
-
+qt_set01(X11_SUPPORTED LINUX OR HPUX OR FREEBSD OR NETBSD OR OPENBSD OR SOLARIS) # special case
 qt_find_package(ATSPI2 PROVIDED_TARGETS PkgConfig::ATSPI2 MODULE_NAME gui QMAKE_LIB atspi)
 qt_find_package(DirectFB PROVIDED_TARGETS PkgConfig::DirectFB MODULE_NAME gui QMAKE_LIB directfb)
 qt_find_package(Libdrm PROVIDED_TARGETS Libdrm::Libdrm MODULE_NAME gui QMAKE_LIB drm)
@@ -41,6 +41,7 @@ qt_find_package(gbm PROVIDED_TARGETS gbm::gbm MODULE_NAME gui QMAKE_LIB gbm)
 qt_find_package(WrapSystemHarfbuzz 2.6.0 PROVIDED_TARGETS WrapSystemHarfbuzz::WrapSystemHarfbuzz MODULE_NAME gui QMAKE_LIB harfbuzz)
 qt_find_package(Libinput PROVIDED_TARGETS Libinput::Libinput MODULE_NAME gui QMAKE_LIB libinput)
 qt_find_package(JPEG PROVIDED_TARGETS JPEG::JPEG MODULE_NAME gui QMAKE_LIB libjpeg)
+qt_find_package(WrapSystemMd4c PROVIDED_TARGETS WrapSystemMd4c::WrapSystemMd4c MODULE_NAME gui QMAKE_LIB libmd4c)
 qt_find_package(WrapSystemPNG PROVIDED_TARGETS WrapSystemPNG::WrapSystemPNG MODULE_NAME gui QMAKE_LIB libpng)
 if(QT_FEATURE_system_zlib)
     qt_add_qmake_lib_dependency(libpng zlib)
@@ -49,82 +50,82 @@ qt_find_package(Mtdev PROVIDED_TARGETS PkgConfig::Mtdev MODULE_NAME gui QMAKE_LI
 qt_find_package(WrapOpenGL PROVIDED_TARGETS WrapOpenGL::WrapOpenGL MODULE_NAME gui QMAKE_LIB opengl)
 qt_find_package(GLESv2 PROVIDED_TARGETS GLESv2::GLESv2 MODULE_NAME gui QMAKE_LIB opengl_es2)
 qt_find_package(Tslib PROVIDED_TARGETS PkgConfig::Tslib MODULE_NAME gui QMAKE_LIB tslib)
-qt_find_package(Vulkan PROVIDED_TARGETS Vulkan::Vulkan MODULE_NAME gui QMAKE_LIB vulkan MARK_OPTIONAL) # special case
+qt_find_package(WrapVulkanHeaders PROVIDED_TARGETS WrapVulkanHeaders::WrapVulkanHeaders MODULE_NAME gui QMAKE_LIB vulkan MARK_OPTIONAL) # special case
 if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(Wayland PROVIDED_TARGETS Wayland::Server MODULE_NAME gui QMAKE_LIB wayland_server)
 endif()
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(X11 PROVIDED_TARGETS X11::X11 MODULE_NAME gui QMAKE_LIB xlib)
 endif()
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(X11 PROVIDED_TARGETS ${X11_SM_LIB} ${X11_ICE_LIB} MODULE_NAME gui QMAKE_LIB x11sm)
 endif()
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB 1.11 PROVIDED_TARGETS XCB::XCB MODULE_NAME gui QMAKE_LIB xcb)
 endif()
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB 0.3.9 COMPONENTS ICCCM PROVIDED_TARGETS XCB::ICCCM MODULE_NAME gui QMAKE_LIB xcb_icccm)
 endif()
 qt_add_qmake_lib_dependency(xcb_icccm xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB 0.3.9 COMPONENTS IMAGE PROVIDED_TARGETS XCB::IMAGE MODULE_NAME gui QMAKE_LIB xcb_image)
 endif()
 qt_add_qmake_lib_dependency(xcb_image xcb_shm xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB 0.3.9 COMPONENTS KEYSYMS PROVIDED_TARGETS XCB::KEYSYMS MODULE_NAME gui QMAKE_LIB xcb_keysyms)
 endif()
 qt_add_qmake_lib_dependency(xcb_keysyms xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB 0.3.9 COMPONENTS RENDERUTIL PROVIDED_TARGETS XCB::RENDERUTIL MODULE_NAME gui QMAKE_LIB xcb_renderutil)
 endif()
 qt_add_qmake_lib_dependency(xcb_renderutil xcb xcb_render)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB COMPONENTS RANDR PROVIDED_TARGETS XCB::RANDR MODULE_NAME gui QMAKE_LIB xcb_randr)
 endif()
 qt_add_qmake_lib_dependency(xcb_randr xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB COMPONENTS SHAPE PROVIDED_TARGETS XCB::SHAPE MODULE_NAME gui QMAKE_LIB xcb_shape)
 endif()
 qt_add_qmake_lib_dependency(xcb_shape xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB COMPONENTS SHM PROVIDED_TARGETS XCB::SHM MODULE_NAME gui QMAKE_LIB xcb_shm)
 endif()
 qt_add_qmake_lib_dependency(xcb_shm xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB COMPONENTS SYNC PROVIDED_TARGETS XCB::SYNC MODULE_NAME gui QMAKE_LIB xcb_sync)
 endif()
 qt_add_qmake_lib_dependency(xcb_sync xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB COMPONENTS XFIXES PROVIDED_TARGETS XCB::XFIXES MODULE_NAME gui QMAKE_LIB xcb_xfixes)
 endif()
 qt_add_qmake_lib_dependency(xcb_xfixes xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(X11_XCB PROVIDED_TARGETS X11::XCB MODULE_NAME gui QMAKE_LIB xcb_xlib)
 endif()
 qt_add_qmake_lib_dependency(xcb_xlib xcb xlib)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB COMPONENTS XKB PROVIDED_TARGETS XCB::XKB MODULE_NAME gui QMAKE_LIB xcb_xkb)
 endif()
 qt_add_qmake_lib_dependency(xcb_xkb xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB COMPONENTS RENDER PROVIDED_TARGETS XCB::RENDER MODULE_NAME gui QMAKE_LIB xcb_render)
 endif()
 qt_add_qmake_lib_dependency(xcb_render xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB COMPONENTS GLX PROVIDED_TARGETS XCB::GLX MODULE_NAME gui QMAKE_LIB xcb_glx)
 endif()
 qt_add_qmake_lib_dependency(xcb_glx xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XCB 1.12 COMPONENTS XINPUT PROVIDED_TARGETS XCB::XINPUT MODULE_NAME gui QMAKE_LIB xcb_xinput)
 endif()
 qt_add_qmake_lib_dependency(xcb_xinput xcb)
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XKB 0.5.0 PROVIDED_TARGETS XKB::XKB MODULE_NAME gui QMAKE_LIB xkbcommon)
 endif()
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XKB_COMMON_X11 0.5.0 PROVIDED_TARGETS PkgConfig::XKB_COMMON_X11 MODULE_NAME gui QMAKE_LIB xkbcommon_x11)
 endif()
-if((LINUX) OR QT_FIND_ALL_PACKAGES_ALWAYS)
+if((X11_SUPPORTED) OR QT_FIND_ALL_PACKAGES_ALWAYS)
     qt_find_package(XRender 0.6 PROVIDED_TARGETS PkgConfig::XRender MODULE_NAME gui QMAKE_LIB xrender)
 endif()
 qt_add_qmake_lib_dependency(xrender xlib)
@@ -144,9 +145,9 @@ extern \"C\" {
 #include <xf86drmMode.h>
 #include <xf86drm.h>
 }
-int main(int argc, char **argv)
+
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 drmModeAtomicReq *request;
     /* END TEST: */
@@ -169,9 +170,8 @@ qt_config_compile_test(egl_x11
 #include <EGL/egl.h>
 #include <X11/Xlib.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 Display *dpy = EGL_DEFAULT_DISPLAY;
 EGLNativeDisplayType egldpy = XOpenDisplay(\"\");
@@ -190,13 +190,11 @@ qt_config_compile_test(egl_brcm
     LIBRARIES
         EGL::EGL
     CODE
-"
-#include <EGL/egl.h>
+"#include <EGL/egl.h>
 #include <bcm_host.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 vc_dispmanx_display_open(0);
     /* END TEST: */
@@ -211,13 +209,11 @@ qt_config_compile_test(egl_egldevice
     LIBRARIES
         EGL::EGL
     CODE
-"
-#include <EGL/egl.h>
+"#include <EGL/egl.h>
 #include <EGL/eglext.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 EGLDeviceEXT device = 0;
 EGLStreamKHR stream = 0;
@@ -234,14 +230,12 @@ qt_config_compile_test(egl_mali
     LIBRARIES
         EGL::EGL
     CODE
-"
-#include <EGL/fbdev_window.h>
+"#include <EGL/fbdev_window.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 fbdev_window *w = 0;
     /* END TEST: */
@@ -255,13 +249,11 @@ qt_config_compile_test(egl_mali_2
     LIBRARIES
         EGL::EGL
     CODE
-"
-#include <EGL/egl.h>
+"#include <EGL/egl.h>
 #include <GLES2/gl2.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 mali_native_window *w = 0;
     /* END TEST: */
@@ -277,13 +269,11 @@ qt_config_compile_test(egl_viv
     COMPILE_OPTIONS # special case
         "-DEGL_API_FB=1" # special case
     CODE
-"
-#include <EGL/egl.h>
+"#include <EGL/egl.h>
 #include <EGL/eglvivante.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 #ifdef __INTEGRITY
 fbGetDisplay();
@@ -304,12 +294,10 @@ qt_config_compile_test(egl_openwfd
     LIBRARIES
         EGL::EGL
     CODE
-"
-#include <wfd.h>
+"#include <wfd.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 wfdEnumerateDevices(nullptr, 0, nullptr);
     /* END TEST: */
@@ -324,14 +312,13 @@ qt_config_compile_test(egl_rcar
         EGL::EGL
         GLESv2::GLESv2
     CODE
-"
-#include <EGL/egl.h>
+"#include <EGL/egl.h>
 extern \"C\" {
 extern unsigned long PVRGrfxServerInit(void);
 }
-int main(int argc, char **argv)
+
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 PVRGrfxServerInit();
     /* END TEST: */
@@ -356,10 +343,8 @@ enum {
     e4 = SYN_REPORT,
 };
 
-
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 input_event buf[32];
 (void) buf;
@@ -372,12 +357,10 @@ input_event buf[32];
 qt_config_compile_test(integrityfb
     LABEL "INTEGRITY framebuffer"
     CODE
-"
-#include <device/fbdriver.h>
+"#include <device/fbdriver.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 FBDriver *driver = 0;
     /* END TEST: */
@@ -389,14 +372,12 @@ FBDriver *driver = 0;
 qt_config_compile_test(linuxfb
     LABEL "LinuxFB"
     CODE
-"
-#include <linux/fb.h>
+"#include <linux/fb.h>
 #include <sys/kd.h>
 #include <sys/ioctl.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 fb_fix_screeninfo finfo;
 fb_var_screeninfo vinfo;
@@ -409,10 +390,19 @@ ioctl(fd, FBIOGET_VSCREENINFO, &vinfo);
 ")
 
 # opengles3
+# special case begin
+if(WASM)
+    set(extra_compiler_options "-s FULL_ES3=1")
+endif()
+# special case end
+
 qt_config_compile_test(opengles3
     LABEL "OpenGL ES 3.0"
     LIBRARIES
         GLESv2::GLESv2
+# special case begin
+    COMPILE_OPTIONS ${extra_compiler_options}
+# special case end
     CODE
 "#ifdef __APPLE__
 #  include <OpenGLES/ES3/gl.h>
@@ -421,10 +411,8 @@ qt_config_compile_test(opengles3
 #  include <GLES3/gl3.h>
 #endif
 
-
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 static GLfloat f[6];
 glGetStringi(GL_EXTENSIONS, 0);
@@ -442,12 +430,10 @@ qt_config_compile_test(opengles31
     LIBRARIES
         GLESv2::GLESv2
     CODE
-"
-#include <GLES3/gl31.h>
+"#include <GLES3/gl31.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 glDispatchCompute(1, 1, 1);
 glProgramUniform1i(0, 0, 0);
@@ -462,12 +448,10 @@ qt_config_compile_test(opengles32
     LIBRARIES
         GLESv2::GLESv2
     CODE
-"
-#include <GLES3/gl32.h>
+"#include <GLES3/gl32.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 glFramebufferTexture(GL_TEXTURE_2D, GL_DEPTH_STENCIL_ATTACHMENT, 1, 0);
     /* END TEST: */
@@ -507,9 +491,9 @@ qt_config_compile_test(xcb_syslibs
 #include <xcb/xcb_renderutil.h>
 #include <xcb/xkb.h>
 #undef explicit
-int main(int argc, char **argv)
+
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 int primaryScreen = 0;
 xcb_connection_t *c = xcb_connect(\"\", &primaryScreen);
@@ -767,7 +751,13 @@ qt_feature("vkgen" PRIVATE
 )
 qt_feature("vulkan" PUBLIC
     LABEL "Vulkan"
-    CONDITION QT_FEATURE_vkgen AND Vulkan_FOUND
+    AUTODETECT NOT QNX # FIXME: CI QNX toolchain is broken and finds host vulkan QTQAINFRA-4502
+    CONDITION QT_FEATURE_library AND QT_FEATURE_vkgen AND WrapVulkanHeaders_FOUND
+)
+qt_feature("vkkhrdisplay" PRIVATE
+    SECTION "Platform plugins"
+    LABEL "VK_KHR_display"
+    CONDITION NOT ANDROID AND NOT APPLE AND NOT WIN32 AND NOT WASM AND QT_FEATURE_vulkan
 )
 qt_feature("openvg" PUBLIC
     LABEL "OpenVG"
@@ -880,13 +870,13 @@ qt_feature("tuiotouch" PRIVATE
     PURPOSE "Provides the TuioTouch input plugin."
     CONDITION QT_FEATURE_network AND QT_FEATURE_udpsocket
 )
-qt_feature("xcb" PRIVATE
+qt_feature("xcb" PUBLIC
     SECTION "Platform plugins"
     LABEL "XCB"
     AUTODETECT NOT APPLE
     CONDITION QT_FEATURE_thread AND TARGET XCB::XCB AND TEST_xcb_syslibs AND QT_FEATURE_xkbcommon_x11
 )
-qt_feature("xcb-glx-plugin" PRIVATE
+qt_feature("xcb-glx-plugin" PUBLIC
     LABEL "GLX Plugin"
     CONDITION QT_FEATURE_xcb_xlib AND QT_FEATURE_opengl AND NOT QT_FEATURE_opengles2
     EMIT_IF QT_FEATURE_xcb
@@ -957,7 +947,7 @@ qt_feature("textmarkdownreader" PUBLIC
 qt_feature("system-textmarkdownreader" PUBLIC
     SECTION "Kernel"
     LABEL "  Using system libmd4c"
-    CONDITION libs.libmd4c OR FIXME
+    CONDITION QT_FEATURE_textmarkdownreader AND WrapSystemMd4c_FOUND
     ENABLE INPUT_libmd4c STREQUAL 'system'
     DISABLE INPUT_libmd4c STREQUAL 'qt'
 )
@@ -1166,6 +1156,11 @@ qt_feature("raster-64bit" PRIVATE
     LABEL "QPainter - 64 bit raster"
     PURPOSE "Internal painting support for 64 bit (16 bpc) rasterization."
 )
+qt_feature("raster-fp" PRIVATE
+    SECTION "Painting"
+    LABEL "QPainter - floating point raster"
+    PURPOSE "Internal painting support for floating point rasterization."
+)
 qt_feature("undocommand" PUBLIC
     SECTION "Utilities"
     LABEL "QUndoCommand"
@@ -1237,6 +1232,7 @@ qt_configure_add_summary_entry(ARGS "xlib")
 qt_configure_add_summary_entry(ARGS "xcb-xlib")
 qt_configure_add_summary_entry(ARGS "egl_x11")
 qt_configure_add_summary_entry(ARGS "xkbcommon-x11")
+qt_configure_add_summary_entry(ARGS "xcb-sm")
 qt_configure_end_summary_section() # end of "X11 specific" section
 qt_configure_end_summary_section() # end of "Features used by QPA backends" section
 qt_configure_add_summary_section(NAME "QPA backends")
@@ -1256,6 +1252,7 @@ qt_configure_add_summary_entry(ARGS "eglfs_x11")
 qt_configure_end_summary_section() # end of "EGLFS details" section
 qt_configure_add_summary_entry(ARGS "linuxfb")
 qt_configure_add_summary_entry(ARGS "vnc")
+qt_configure_add_summary_entry(ARGS "vkkhrdisplay")
 qt_configure_add_summary_entry(
     ARGS "integrityfb"
     CONDITION INTEGRITY

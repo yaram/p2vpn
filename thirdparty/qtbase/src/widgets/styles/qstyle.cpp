@@ -1516,6 +1516,9 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value PM_TitleBarButtonSize The size of buttons on a title bar.
            This enum value has been introduced in Qt 5.8.
 
+    \value PM_LineEditIconSize The default size for icons in a line edit.
+           This enum value has been introduced in Qt 6.2.
+
     \value PM_CustomBase Base value for custom pixel metrics.  Custom
     values must be greater than this value.
 
@@ -2142,7 +2145,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
 /*!
     \fn QPixmap QStyle::standardPixmap(StandardPixmap standardPixmap, const QStyleOption *option, const QWidget *widget) const
 
-    \obsolete
+    \deprecated
     Returns a pixmap for the given \a standardPixmap.
 
     A standard pixmap is a pixmap that can follow some existing GUI

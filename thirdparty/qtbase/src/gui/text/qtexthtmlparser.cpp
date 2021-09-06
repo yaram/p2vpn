@@ -800,12 +800,38 @@ void QTextHtmlParser::parseExclamationTag()
     }
 }
 
+QString QTextHtmlParser::parseEntity(QStringView entity)
+{
+    QChar resolved = resolveEntity(entity);
+    if (!resolved.isNull())
+        return QString(resolved);
+
+    if (entity.length() > 1 && entity.at(0) == QLatin1Char('#')) {
+        entity = entity.mid(1); // removing leading #
+
+        int base = 10;
+        bool ok = false;
+
+        if (entity.at(0).toLower() == QLatin1Char('x')) { // hex entity?
+            entity = entity.mid(1);
+            base = 16;
+        }
+
+        uint uc = entity.toUInt(&ok, base);
+        if (ok) {
+            if (uc >= 0x80 && uc < 0x80 + (sizeof(windowsLatin1ExtendedCharacters)/sizeof(windowsLatin1ExtendedCharacters[0])))
+                uc = windowsLatin1ExtendedCharacters[uc - 0x80];
+            return QStringView{QChar::fromUcs4(uc)}.toString();
+        }
+    }
+    return {};
+}
+
 // parses an entity after "&", and returns it
 QString QTextHtmlParser::parseEntity()
 {
     const int recover = pos;
     int entityLen = 0;
-    QStringView entity;
     while (pos < len) {
         QChar c = txt.at(pos++);
         if (c.isSpace() || pos - recover > 9) {
@@ -816,28 +842,10 @@ QString QTextHtmlParser::parseEntity()
         ++entityLen;
     }
     if (entityLen) {
-        entity = QStringView(txt).mid(recover, entityLen);
-        QChar resolved = resolveEntity(entity);
-        if (!resolved.isNull())
-            return QString(resolved);
-
-        if (entityLen > 1 && entity.at(0) == QLatin1Char('#')) {
-            entity = entity.mid(1); // removing leading #
-
-            int base = 10;
-            bool ok = false;
-
-            if (entity.at(0).toLower() == QLatin1Char('x')) { // hex entity?
-                entity = entity.mid(1);
-                base = 16;
-            }
-
-            uint uc = entity.toUInt(&ok, base);
-            if (ok) {
-                if (uc >= 0x80 && uc < 0x80 + (sizeof(windowsLatin1ExtendedCharacters)/sizeof(windowsLatin1ExtendedCharacters[0])))
-                    uc = windowsLatin1ExtendedCharacters[uc - 0x80];
-                return QStringView{QChar::fromUcs4(uc)}.toString();
-            }
+        const QStringView entity = QStringView(txt).mid(recover, entityLen);
+        QString parsedEntity = parseEntity(entity);
+        if (!parsedEntity.isNull()) {
+            return parsedEntity;
         }
     }
 error:
@@ -1168,6 +1176,44 @@ void QTextHtmlParserNode::setListStyle(const QList<QCss::Value> &cssValues)
         blockFormat.setProperty(QTextFormat::ListStyle, listStyle);
 }
 
+static QTextFrameFormat::BorderStyle toQTextFrameFormat(QCss::BorderStyle cssStyle)
+{
+    switch (cssStyle) {
+    case QCss::BorderStyle::BorderStyle_Dotted:
+        return QTextFrameFormat::BorderStyle::BorderStyle_Dotted;
+    case QCss::BorderStyle::BorderStyle_Dashed:
+        return QTextFrameFormat::BorderStyle::BorderStyle_Dashed;
+    case QCss::BorderStyle::BorderStyle_Solid:
+        return QTextFrameFormat::BorderStyle::BorderStyle_Solid;
+    case QCss::BorderStyle::BorderStyle_Double:
+        return QTextFrameFormat::BorderStyle::BorderStyle_Double;
+    case QCss::BorderStyle::BorderStyle_DotDash:
+        return QTextFrameFormat::BorderStyle::BorderStyle_DotDash;
+    case QCss::BorderStyle::BorderStyle_DotDotDash:
+        return QTextFrameFormat::BorderStyle::BorderStyle_DotDotDash;
+    case QCss::BorderStyle::BorderStyle_Groove:
+        return QTextFrameFormat::BorderStyle::BorderStyle_Groove;
+    case QCss::BorderStyle::BorderStyle_Ridge:
+        return QTextFrameFormat::BorderStyle::BorderStyle_Ridge;
+    case QCss::BorderStyle::BorderStyle_Inset:
+        return QTextFrameFormat::BorderStyle::BorderStyle_Inset;
+    case QCss::BorderStyle::BorderStyle_Outset:
+        return QTextFrameFormat::BorderStyle::BorderStyle_Outset;
+    case QCss::BorderStyle::BorderStyle_Unknown:
+    case QCss::BorderStyle::BorderStyle_None:
+    case QCss::BorderStyle::BorderStyle_Native:
+        return QTextFrameFormat::BorderStyle::BorderStyle_None;
+    case QCss::BorderStyle::NumKnownBorderStyles:
+        break;
+    // Intentionally no "default" to allow a compiler warning when extending the enum
+    // without updating this here. clang gives such a warning.
+    }
+    // Must not happen, intentionally trigger undefined behavior which sanitizers will detect.
+    // Having all cases covered in switch is not sufficient:
+    // MSVC would warn when there is no "default".
+    return static_cast<QTextFrameFormat::BorderStyle>(-1);
+}
+
 void QTextHtmlParserNode::applyCssDeclarations(const QList<QCss::Declaration> &declarations, const QTextDocument *resourceProvider)
 {
     QCss::ValueExtractor extractor(declarations);
@@ -1187,7 +1233,7 @@ void QTextHtmlParserNode::applyCssDeclarations(const QList<QCss::Declaration> &d
         // because tableBorder is not relevant for cells.
         extractor.extractBorder(cssBorder, tableCellBorderBrush, cssStyles, cssRadii);
         for (int i = 0; i < 4; ++i) {
-            tableCellBorderStyle[i] = static_cast<QTextFrameFormat::BorderStyle>(cssStyles[i] - 1);
+            tableCellBorderStyle[i] = toQTextFrameFormat(cssStyles[i]);
             tableCellBorder[i] = static_cast<qreal>(cssBorder[i]);
         }
     }
@@ -1349,6 +1395,7 @@ void QTextHtmlParserNode::applyCssDeclarations(const QList<QCss::Declaration> &d
             default: break;
             }
             break;
+        case QCss::TextDecorationColor: charFormat.setUnderlineColor(decl.colorValue()); break;
         case QCss::ListStyleType:
         case QCss::ListStyle:
             setListStyle(decl.d->values);

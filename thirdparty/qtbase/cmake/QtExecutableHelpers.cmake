@@ -29,10 +29,13 @@ function(qt_internal_add_executable name)
     endif()
 
     if(arg_QT_APP AND QT_FEATURE_debug_and_release AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.19.0")
-        set_property(TARGET "${target}"
+        set_property(TARGET "${name}"
             PROPERTY EXCLUDE_FROM_ALL "$<NOT:$<CONFIG:${QT_MULTI_CONFIG_FIRST_CONFIG}>>")
     endif()
 
+    if(WASM)
+        qt6_wasm_add_target_helpers("${name}")
+    endif()
     if (arg_VERSION)
         if(arg_VERSION MATCHES "[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+")
             # nothing to do
@@ -71,6 +74,7 @@ function(qt_internal_add_executable name)
     endif()
 
     qt_set_common_target_properties(${name})
+    _qt_internal_set_up_static_runtime_library(${name})
     if(ANDROID)
         # On our qmake builds we don't compile the executables with
         # visibility=hidden. Not having this flag set will cause the
@@ -83,7 +87,7 @@ function(qt_internal_add_executable name)
     qt_skip_warnings_are_errors_when_repo_unclean("${name}")
 
     set(extra_libraries "")
-    if(NOT arg_BOOTSTRAP AND NOT arg_NO_QT)
+    if(NOT arg_BOOTSTRAP)
         set(extra_libraries "Qt::Core")
     endif()
 

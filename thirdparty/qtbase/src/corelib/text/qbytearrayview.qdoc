@@ -354,6 +354,18 @@
 */
 
 /*!
+    \fn int QByteArrayView::compare(QByteArrayView bv, Qt::CaseSensitivity cs = Qt::CaseSensitive) const
+    \since 6.2
+
+    Returns an integer less than, equal to, or greater than zero depending on
+    whether this QByteArrayView sorts before, at the same position as, or after
+    the QByteArrayView \a bv. The comparison is performed according to case
+    sensitivity \a cs.
+
+    \sa operator==()
+*/
+
+/*!
     \fn QByteArrayView::const_iterator QByteArrayView::begin() const
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the
@@ -470,23 +482,13 @@
     \sa empty(), isEmpty(), isNull()
 */
 
-#if QT_DEPRECATED_SINCE(6, 0)
 /*!
     \fn int QByteArrayView::length() const
-    \obsolete
-    Use size() and port callers to qsizetype.
 
-    Same as size(), but returns the result as an \c int.
-
-    This function is provided for compatibility with other Qt containers.
-
-    \warning QByteArrayView can represent data with more than 2\sup{31} bytes.
-    Calling this function on a byte array view for which size() returns a value greater
-    than \c{INT_MAX} constitutes undefined behavior.
+    Same as size().
 
     \sa empty(), isEmpty(), isNull(), size()
 */
-#endif
 
 /*!
     \fn char QByteArrayView::operator[](qsizetype n) const

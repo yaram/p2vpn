@@ -84,7 +84,7 @@ QFutureInterfaceBase::QFutureInterfaceBase(const QFutureInterfaceBase &other)
 
 QFutureInterfaceBase::~QFutureInterfaceBase()
 {
-    if (!d->refCount.deref())
+    if (d && !d->refCount.deref())
         delete d;
 }
 
@@ -351,7 +351,11 @@ void QFutureInterfaceBase::reportException(const QException &exception)
     }
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
 void QFutureInterfaceBase::reportException(std::exception_ptr exception)
+#else
+void QFutureInterfaceBase::reportException(const std::exception_ptr &exception)
+#endif
 {
     QMutexLocker locker(&d->m_mutex);
     if (d->state.loadRelaxed() & (Canceled|Finished))
@@ -394,6 +398,9 @@ bool QFutureInterfaceBase::queryState(State state) const
 
 int QFutureInterfaceBase::loadState() const
 {
+    // Used from ~QPromise, so this check is needed
+    if (!d)
+        return QFutureInterfaceBase::State::NoState;
     return d->state.loadRelaxed();
 }
 
@@ -568,26 +575,26 @@ const QtPrivate::ResultStoreBase &QFutureInterfaceBase::resultStoreBase() const
 
 QFutureInterfaceBase &QFutureInterfaceBase::operator=(const QFutureInterfaceBase &other)
 {
-    other.d->refCount.ref();
-    if (!d->refCount.deref())
-        delete d;
-    d = other.d;
+    QFutureInterfaceBase copy(other);
+    swap(copy);
     return *this;
 }
 
+// ### Qt 7: inline
 void QFutureInterfaceBase::swap(QFutureInterfaceBase &other) noexcept
 {
     qSwap(d, other.d);
 }
 
-bool QFutureInterfaceBase::refT() const
+bool QFutureInterfaceBase::refT() const noexcept
 {
     return d->refCount.refT();
 }
 
-bool QFutureInterfaceBase::derefT() const
+bool QFutureInterfaceBase::derefT() const noexcept
 {
-    return d->refCount.derefT();
+    // Called from ~QFutureInterface
+    return !d || d->refCount.derefT();
 }
 
 void QFutureInterfaceBase::reset()
@@ -600,10 +607,13 @@ void QFutureInterfaceBase::reset()
     d->isValid = false;
 }
 
+void QFutureInterfaceBase::rethrowPossibleException()
+{
+    exceptionStore().throwPossibleException();
+}
+
 QFutureInterfaceBasePrivate::QFutureInterfaceBasePrivate(QFutureInterfaceBase::State initialState)
-    : refCount(1), m_progressValue(0), m_progressMinimum(0), m_progressMaximum(0),
-      state(initialState),
-      manualProgress(false), m_expectedResultCount(0), runnable(nullptr), m_pool(nullptr)
+    : state(initialState)
 {
     progressTime.invalidate();
 }

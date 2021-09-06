@@ -91,7 +91,7 @@ QT_BEGIN_NAMESPACE
 
 void QPropertyAnimationPrivate::updateMetaProperty()
 {
-    if (!target || propertyName.isEmpty()) {
+    if (!targetObject || propertyName.value().isEmpty()) {
         propertyType = QMetaType::UnknownType;
         propertyIndex = -1;
         return;
@@ -99,18 +99,22 @@ void QPropertyAnimationPrivate::updateMetaProperty()
 
     //propertyType will be set to a valid type only if there is a Q_PROPERTY
     //otherwise it will be set to QVariant::Invalid at the end of this function
-    propertyType = targetValue->property(propertyName).userType();
-    propertyIndex = targetValue->metaObject()->indexOfProperty(propertyName);
+    propertyType = targetObject->property(propertyName.value()).userType();
+    propertyIndex = targetObject->metaObject()->indexOfProperty(propertyName.value());
 
     if (propertyType != QMetaType::UnknownType)
         convertValues(propertyType);
     if (propertyIndex == -1) {
         //there is no Q_PROPERTY on the object
         propertyType = QMetaType::UnknownType;
-        if (!targetValue->dynamicPropertyNames().contains(propertyName))
-            qWarning("QPropertyAnimation: you're trying to animate a non-existing property %s of your QObject", propertyName.constData());
-    } else if (!targetValue->metaObject()->property(propertyIndex).isWritable()) {
-        qWarning("QPropertyAnimation: you're trying to animate the non-writable property %s of your QObject", propertyName.constData());
+        if (!targetObject->dynamicPropertyNames().contains(propertyName))
+            qWarning("QPropertyAnimation: you're trying to animate a non-existing property %s of "
+                     "your QObject",
+                     propertyName.value().constData());
+    } else if (!targetObject->metaObject()->property(propertyIndex).isWritable()) {
+        qWarning("QPropertyAnimation: you're trying to animate the non-writable property %s of "
+                 "your QObject",
+                 propertyName.value().constData());
     }
 }
 
@@ -119,10 +123,8 @@ void QPropertyAnimationPrivate::updateProperty(const QVariant &newValue)
     if (state == QAbstractAnimation::Stopped)
         return;
 
-    if (!target) {
-        q_func()->stop(); //the target was destroyed we need to stop the animation
+    if (!targetObject)
         return;
-    }
 
     if (newValue.userType() == propertyType) {
         //no conversion is needed, we directly call the QMetaObject::metacall
@@ -130,9 +132,9 @@ void QPropertyAnimationPrivate::updateProperty(const QVariant &newValue)
         int status = -1;
         int flags = 0;
         void *argv[] = { const_cast<void *>(newValue.constData()), const_cast<QVariant *>(&newValue), &status, &flags };
-        QMetaObject::metacall(targetValue, QMetaObject::WriteProperty, propertyIndex, argv);
+        QMetaObject::metacall(targetObject, QMetaObject::WriteProperty, propertyIndex, argv);
     } else {
-        targetValue->setProperty(propertyName.constData(), newValue);
+        targetObject->setProperty(propertyName.value().constData(), newValue);
     }
 }
 
@@ -175,22 +177,36 @@ QPropertyAnimation::~QPropertyAnimation()
  */
 QObject *QPropertyAnimation::targetObject() const
 {
-    return d_func()->target.data();
+    return d_func()->targetObject;
+}
+
+QBindable<QObject *> QPropertyAnimation::bindableTargetObject()
+{
+    return &d_func()->targetObject;
 }
 
 void QPropertyAnimation::setTargetObject(QObject *target)
 {
     Q_D(QPropertyAnimation);
-    if (d->target.data() == target)
-        return;
-
     if (d->state != QAbstractAnimation::Stopped) {
         qWarning("QPropertyAnimation::setTargetObject: you can't change the target of a running animation");
         return;
     }
 
-    d->target = d->targetValue = target;
+    d->targetObject.removeBindingUnlessInWrapper();
+    if (d->targetObject == target)
+        return;
+
+    if (d->targetObject != nullptr)
+        QObject::disconnect(d->targetObject, &QObject::destroyed, this, nullptr);
+    d->targetObject.setValueBypassingBindings(target);
+
+    if (d->targetObject != nullptr) {
+        QObject::connect(d->targetObject, &QObject::destroyed, this,
+                         [d] { d->targetObjectDestroyed(); });
+    }
     d->updateMetaProperty();
+    d->targetObject.notify();
 }
 
 /*!
@@ -214,10 +230,20 @@ void QPropertyAnimation::setPropertyName(const QByteArray &propertyName)
         return;
     }
 
-    d->propertyName = propertyName;
+    d->propertyName.removeBindingUnlessInWrapper();
+
+    if (d->propertyName == propertyName)
+        return;
+
+    d->propertyName.setValueBypassingBindings(propertyName);
     d->updateMetaProperty();
+    d->propertyName.notify();
 }
 
+QBindable<QByteArray> QPropertyAnimation::bindablePropertyName()
+{
+    return &d_func()->propertyName;
+}
 
 /*!
     \reimp
@@ -251,9 +277,10 @@ void QPropertyAnimation::updateState(QAbstractAnimation::State newState,
 {
     Q_D(QPropertyAnimation);
 
-    if (!d->target && oldState == Stopped) {
-        qWarning("QPropertyAnimation::updateState (%s): Changing state of an animation without target",
-                 d->propertyName.constData());
+    if (!d->targetObject && oldState == Stopped) {
+        qWarning("QPropertyAnimation::updateState (%s): Changing state of an animation without "
+                 "target",
+                 d->propertyName.value().constData());
         return;
     }
 
@@ -266,9 +293,16 @@ void QPropertyAnimation::updateState(QAbstractAnimation::State newState,
         typedef QPair<QObject *, QByteArray> QPropertyAnimationPair;
         typedef QHash<QPropertyAnimationPair, QPropertyAnimation*> QPropertyAnimationHash;
         static QPropertyAnimationHash hash;
-        //here we need to use value because we need to know to which pointer
-        //the animation was referring in case stopped because the target was destroyed
-        QPropertyAnimationPair key(d->targetValue, d->propertyName);
+
+        // in case the targetObject gets deleted, the following happens:
+        // 1. targetObject's destroyed signal calls our targetObjectDestroyed.
+        // 2. targetObjectDestroyed calls stop()
+        // 3. QAbstractAnimation::stop() calls setState(Stopped)
+        // 4. setState(Stopped) calls updateState(newState, oldState)
+        // 5. we arrive here. d->targetObject is not yet set to nullptr, we can safely use it.
+        Q_ASSERT(d->targetObject);
+
+        QPropertyAnimationPair key(d->targetObject, d->propertyName);
         if (newState == Running) {
             d->updateMetaProperty();
             animToStop = hash.value(key, nullptr);
@@ -276,7 +310,8 @@ void QPropertyAnimation::updateState(QAbstractAnimation::State newState,
             locker.unlock();
             // update the default start value
             if (oldState == Stopped) {
-                d->setDefaultStartEndValue(d->targetValue->property(d->propertyName.constData()));
+                d->setDefaultStartEndValue(
+                        d->targetObject->property(d->propertyName.value().constData()));
                 //let's check if we have a start value and an end value
                 const char *what = nullptr;
                 if (!startValue().isValid() && (d->direction == Backward || !d->defaultStartEndValue.isValid())) {
@@ -289,9 +324,11 @@ void QPropertyAnimation::updateState(QAbstractAnimation::State newState,
                         what = "end";
                 }
                 if (Q_UNLIKELY(what)) {
-                    qWarning("QPropertyAnimation::updateState (%s, %s, %ls): starting an animation without %s value",
-                             d->propertyName.constData(), d->target.data()->metaObject()->className(),
-                             qUtf16Printable(d->target.data()->objectName()), what);
+                    qWarning("QPropertyAnimation::updateState (%s, %s, %ls): starting an animation "
+                             "without %s value",
+                             d->propertyName.value().constData(),
+                             d->targetObject->metaObject()->className(),
+                             qUtf16Printable(d->targetObject->objectName()), what);
                 }
             }
         } else if (hash.value(key) == this) {

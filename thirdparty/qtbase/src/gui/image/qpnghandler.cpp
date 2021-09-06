@@ -627,10 +627,10 @@ bool QPngHandlerPrivate::readPngHeader()
             }
             if (primaries.areValid()) {
                 colorSpace = QColorSpace(primaries.whitePoint, primaries.redPoint, primaries.greenPoint, primaries.bluePoint,
-                                         QColorSpace::TransferFunction::Gamma, fileGamma);
+                                         QColorSpace::TransferFunction::Gamma, 1.0f / fileGamma);
             } else {
                 colorSpace = QColorSpace(QColorSpace::Primaries::SRgb,
-                                         QColorSpace::TransferFunction::Gamma, fileGamma);
+                                         QColorSpace::TransferFunction::Gamma, 1.0f / fileGamma);
             }
             colorSpaceState = GammaChrm;
         }
@@ -965,7 +965,7 @@ bool QPNGImageWriter::writeImage(const QImage& image, int compression_in, const 
         // Support the old gamma making it override transferfunction.
         if (gamma != 0.0 && !qFuzzyCompare(cs.gamma(), 1.0f / gamma))
             cs = cs.withTransferFunction(QColorSpace::TransferFunction::Gamma, 1.0f / gamma);
-        QByteArray iccProfileName = QColorSpacePrivate::get(cs)->description.toLatin1();
+        QByteArray iccProfileName = cs.description().toLatin1();
         if (iccProfileName.isEmpty())
             iccProfileName = QByteArrayLiteral("Custom");
         QByteArray iccProfile = cs.iccProfile();

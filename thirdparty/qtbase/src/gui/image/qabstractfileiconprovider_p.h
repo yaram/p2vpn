@@ -52,7 +52,9 @@
 //
 
 #include <QtGui/private/qtguiglobal_p.h>
+#if QT_CONFIG(mimetype)
 #include <QtCore/QMimeDatabase>
+#endif
 #include "qabstractfileiconprovider.h"
 
 QT_BEGIN_NAMESPACE
@@ -65,10 +67,19 @@ public:
     QAbstractFileIconProviderPrivate(QAbstractFileIconProvider *q);
     virtual ~QAbstractFileIconProviderPrivate();
 
+    QIcon getPlatformThemeIcon(QAbstractFileIconProvider::IconType type) const;
+    QIcon getIconThemeIcon(QAbstractFileIconProvider::IconType type) const;
+    QIcon getPlatformThemeIcon(const QFileInfo &info) const;
+    QIcon getIconThemeIcon(const QFileInfo &info) const;
+
+    static void clearIconTypeCache();
+
     QAbstractFileIconProvider *q_ptr = nullptr;
     QAbstractFileIconProvider::Options options = {};
 
+#if QT_CONFIG(mimetype)
     QMimeDatabase mimeDatabase;
+#endif
 };
 
 QT_END_NAMESPACE

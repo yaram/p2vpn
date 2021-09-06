@@ -39,7 +39,7 @@ copyright = """/****************************************************************
 ** Copyright (C) 2017 Pier Luigi Fiorini <pierluigi.fiorini@gmail.com>
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the plugins of the Qt Toolkit.
+** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -98,12 +98,12 @@ header = """
 
 QT_BEGIN_NAMESPACE
 
-typedef struct VendorTable {
+struct VendorTable {
     const char id[4];
     const char name[%d];
-} VendorTable;
+};
 
-static const struct VendorTable q_edidVendorTable[] = {"""
+static const VendorTable q_edidVendorTable[] = {"""
 
 footer = """};
 

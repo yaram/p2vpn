@@ -156,7 +156,7 @@ public:
 
 /*!
     \fn QSqlField::QSqlField(const QString &fieldName, QVariant::Type type, const QString &table)
-    \deprecated Use the constructor taking a QMetaType instead.
+    \deprecated [6.0] Use the constructor taking a QMetaType instead.
     \overload
 
     Constructs an empty field called \a fieldName of variant type \a
@@ -419,7 +419,7 @@ void QSqlField::setMetaType(QMetaType type)
 
 /*!
     \fn QVariant::Type QSqlField::type() const
-    \deprecated Use metaType() instead.
+    \deprecated [6.0] Use metaType() instead.
 
     Returns the field's type as stored in the database.
     Note that the actual value might have a different type,
@@ -432,7 +432,7 @@ void QSqlField::setMetaType(QMetaType type)
 
 /*!
     \fn void QSqlField::setType(QVariant::Type type)
-    \deprecated Use setMetaType() instead.
+    \deprecated [6.0] Use setMetaType() instead.
 
     Sets the field's variant type to \a type.
 

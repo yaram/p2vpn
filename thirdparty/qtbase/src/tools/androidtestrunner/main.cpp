@@ -47,6 +47,18 @@
 #define QT_POPEN_READ "r"
 #endif
 
+static auto junitChecker = [](const QByteArray &data) -> bool {
+    QXmlStreamReader reader{data};
+    while (!reader.atEnd()) {
+        reader.readNext();
+        if (reader.isStartElement() && reader.name() == QStringLiteral("testcase") &&
+                reader.attributes().value(QStringLiteral("result")).toString() == QStringLiteral("fail")) {
+            return false;
+        }
+    }
+    return true;
+};
+
 struct Options
 {
     bool helpRequested = false;
@@ -84,17 +96,8 @@ struct Options
     {QStringLiteral("lightxml"), [](const QByteArray &data) -> bool {
         return data.indexOf("\n<Incident type=\"fail\" ") < 0;
     }},
-    {QStringLiteral("xunitxml"), [](const QByteArray &data) -> bool {
-        QXmlStreamReader reader{data};
-        while (!reader.atEnd()) {
-            reader.readNext();
-            if (reader.isStartElement() && reader.name() == QStringLiteral("testcase") &&
-                    reader.attributes().value(QStringLiteral("result")).toString() == QStringLiteral("fail")) {
-                return false;
-            }
-        }
-        return true;
-    }},
+    {QStringLiteral("xunitxml"), junitChecker},
+    {QStringLiteral("junitxml"), junitChecker},
     {QStringLiteral("teamcity"), [](const QByteArray &data) -> bool {
         return data.indexOf("' message='Failure! |[Loc: ") < 0;
     }},
@@ -264,23 +267,32 @@ static void printHelp()
                     "\n"
                     "  Creates an Android package in a temp directory <destination> and\n"
                     "  runs it on the default emulator/device or on the one specified by\n"
-                    "  \"ANDROID_DEVICE_SERIAL\" environment variable.\n\n"
+                    "  \"ANDROID_DEVICE_SERIAL\" environment variable.\n"
+                    "\n"
                     "  Mandatory arguments:\n"
                     "    --path <path>: The path where androiddeployqt builds the android package.\n"
+                    "\n"
                     "    --apk <apk path>: The test apk path. The apk has to exist already, if it\n"
-                    "       does not exist the make command must be provided for building the apk.\n\n"
+                    "       does not exist the make command must be provided for building the apk.\n"
+                    "\n"
                     "  Optional arguments:\n"
                     "    --make <make cmd>: make command, needed to install the qt library.\n"
                     "       For Qt 5.14+ this can be \"make apk\".\n"
+                    "\n"
                     "    --adb <adb cmd>: The Android ADB command. If missing the one from\n"
                     "       $PATH will be used.\n"
+                    "\n"
                     "    --activity <acitvity>: The Activity to run. If missing the first\n"
                     "       activity from AndroidManifest.qml file will be used.\n"
-                    "    --timeout <seconds>: Timeout to run the test.\n"
-                    "       Default is 5 minutes.\n"
+                    "\n"
+                    "    --timeout <seconds>: Timeout to run the test. Default is 5 minutes.\n"
+                    "\n"
                     "    --skip-install-root: Do not append INSTALL_ROOT=... to the make command.\n"
-                    "    -- arguments that will be passed to the test application.\n"
+                    "\n"
+                    "    -- Arguments that will be passed to the test application.\n"
+                    "\n"
                     "    --verbose: Prints out information during processing.\n"
+                    "\n"
                     "    --help: Displays this information.\n\n",
                     qPrintable(QCoreApplication::arguments().at(0))
             );
@@ -326,8 +338,8 @@ static void setOutputFile(QString file, QString format)
 
 static bool parseTestArgs()
 {
-    QRegularExpression oldFormats{QStringLiteral("^-(txt|csv|xunitxml|xml|lightxml|teamcity|tap)$")};
-    QRegularExpression newLoggingFormat{QStringLiteral("^(.*),(txt|csv|xunitxml|xml|lightxml|teamcity|tap)$")};
+    QRegularExpression oldFormats{QStringLiteral("^-(txt|csv|xunitxml|junitxml|xml|lightxml|teamcity|tap)$")};
+    QRegularExpression newLoggingFormat{QStringLiteral("^(.*),(txt|csv|xunitxml|junitxml|xml|lightxml|teamcity|tap)$")};
 
     QString file;
     QString logType;

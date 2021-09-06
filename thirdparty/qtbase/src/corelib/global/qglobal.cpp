@@ -50,6 +50,7 @@
 #  include "private/qwinregistry_p.h"
 #endif // Q_OS_WIN || Q_OS_CYGWIN
 #include <private/qlocale_tools_p.h>
+#include "qnativeinterface.h"
 
 #include <qmutex.h>
 #include <QtCore/private/qlocking_p.h>
@@ -172,6 +173,12 @@ static_assert(std::numeric_limits<float>::radix == 2,
 static_assert(sizeof(size_t) == sizeof(void *), "size_t and a pointer don't have the same size");
 static_assert(sizeof(size_t) == sizeof(qsizetype)); // implied by the definition
 static_assert((std::is_same<qsizetype, qptrdiff>::value));
+
+// Check that our own typedefs are not broken.
+static_assert(sizeof(qint8) == 1, "Internal error, qint8 is misdefined");
+static_assert(sizeof(qint16)== 2, "Internal error, qint16 is misdefined");
+static_assert(sizeof(qint32) == 4, "Internal error, qint32 is misdefined");
+static_assert(sizeof(qint64) == 8, "Internal error, qint64 is misdefined");
 
 /*!
     \class QFlag
@@ -372,6 +379,13 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 */
 
 /*!
+    \fn template <typename Enum> QFlags &QFlags<Enum>::operator&=(QFlags mask)
+    \since 6.2
+
+    \overload
+*/
+
+/*!
     \fn template <typename Enum> QFlags &QFlags<Enum>::operator|=(QFlags other)
 
     Performs a bitwise OR operation with \a other and stores the
@@ -461,6 +475,13 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 */
 
 /*!
+    \fn template <typename Enum> QFlags QFlags<Enum>::operator&(QFlags mask) const
+    \since 6.2
+
+    \overload
+*/
+
+/*!
     \fn template <typename Enum> QFlags QFlags<Enum>::operator~() const
 
     Returns a QFlags object that contains the bitwise negation of
@@ -481,6 +502,52 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
     \since 4.2
 
     Returns \c true if the flag \a flag is set, otherwise \c false.
+
+    \note if \a flag contains multiple bits set to 1 (for instance, if
+    it's an enumerator equal to the bitwise-OR of other enumerators)
+    then this function will return \c true if and only if all the bits
+    are set in this flags object. On the other hand, if \a flag contains
+    no bits set to 1 (that is, its value as a integer is 0), then this
+    function will return \c true if and only if this flags object also
+    has no bits set to 1.
+
+    \sa testAnyFlag()
+*/
+
+/*!
+    \fn template <typename Enum> bool QFlags<Enum>::testFlags(QFlags flags) const noexcept
+    \since 6.2
+
+    Returns \c true if this flags object matches the given \a flags.
+
+    If \a flags has any flags set, this flags object matches precisely
+    if all flags set in \a flags are also set in this flags object.
+    Otherwise, when \a flags has no flags set, this flags object only
+    matches if it also has no flags set.
+
+    \sa testAnyFlags()
+*/
+
+/*!
+    \fn template <typename Enum> bool QFlags<Enum>::testAnyFlag(Enum flag) const noexcept
+    \since 6.2
+
+    Returns \c true if \b any flag set in \a flag is also set in this
+    flags object, otherwise \c false. If \a flag has no flags set, the
+    return will always be \c false.
+
+    \sa testFlag()
+*/
+
+/*!
+    \fn template <typename Enum> bool QFlags<Enum>::testAnyFlags(QFlags flags) const noexcept
+    \since 6.2
+
+    Returns \c true if \b any flag set in \a flags is also set in this
+    flags object, otherwise \c false. If \a flags has no flags set, the
+    return will always be \c false.
+
+    \sa testFlags()
 */
 
 /*!
@@ -489,6 +556,57 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 
     Sets the flag \a flag if \a on is \c true or unsets it if
     \a on is \c false. Returns a reference to this object.
+*/
+
+/*!
+    \fn template <typename Enum> QFlags<Enum> QFlags<Enum>::fromInt(Int i) noexcept
+    \since 6.2
+
+    Constructs a QFlags object representing the integer value \a i.
+*/
+
+/*!
+    \fn template <typename Enum> Int QFlags<Enum>::toInt() const noexcept
+    \since 6.2
+
+    Returns the value stored in the QFlags object as an integer. Note
+    that the returned integer may be signed or unsigned, depending on
+    whether the enum's underlying type is signed or unsigned.
+
+    \sa Int
+*/
+
+/*!
+    \fn template <typename Enum> size_t qHash(QFlags<Enum> flags, size_t seed = 0) noexcept
+    \since 6.2
+    \relates QFlags
+
+    Calculates the hash for the flags \a flags, using \a seed
+    to seed the calcualtion.
+*/
+
+/*!
+    \fn template <typename Enum> bool operator==(QFlags<Enum> lhs, QFlags<Enum> rhs)
+    \fn template <typename Enum> bool operator==(QFlags<Enum> lhs, Enum rhs)
+    \fn template <typename Enum> bool operator==(Enum lhs, QFlags<Enum> rhs)
+    \since 6.2
+    \relates QFlags
+
+    Compares \a lhs and \a rhs for equality; the two arguments are
+    considered equal if they represent exactly the same value
+    (bitmask).
+*/
+
+/*!
+    \fn template <typename Enum> bool operator!=(QFlags<Enum> lhs, QFlags<Enum> rhs)
+    \fn template <typename Enum> bool operator!=(QFlags<Enum> lhs, Enum rhs)
+    \fn template <typename Enum> bool operator!=(Enum lhs, QFlags<Enum> rhs)
+    \since 6.2
+    \relates QFlags
+
+    Compares \a lhs and \a rhs for inequality; the two arguments are
+    considered different if they don't represent exactly the same value
+    (bitmask).
 */
 
 /*!
@@ -533,18 +651,7 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
   application would probably crash when you called a member function
   of \c{w}.
 
-  \sa Q_DISABLE_COPY_MOVE, Q_DISABLE_MOVE
-*/
-
-/*!
-  \macro Q_DISABLE_MOVE(Class)
-  \relates QObject
-
-  Disables the use of move constructors and move assignment operators
-  for the given \a Class.
-
-  \sa Q_DISABLE_COPY, Q_DISABLE_COPY_MOVE
-  \since 5.13
+  \sa Q_DISABLE_COPY_MOVE
 */
 
 /*!
@@ -553,9 +660,9 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 
   A convenience macro that disables the use of copy constructors, assignment
   operators, move constructors and move assignment operators for the given
-  \a Class, combining Q_DISABLE_COPY and Q_DISABLE_MOVE.
+  \a Class.
 
-  \sa Q_DISABLE_COPY, Q_DISABLE_MOVE
+  \sa Q_DISABLE_COPY
   \since 5.13
 */
 
@@ -780,8 +887,8 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 /*! \typedef qint64
     \relates <QtGlobal>
 
-    Typedef for \c{long long int} (\c __int64 on Windows). This type
-    is guaranteed to be 64-bit on all platforms supported by Qt.
+    Typedef for \c{long long int}. This type is guaranteed to be 64-bit
+    on all platforms supported by Qt.
 
     Literals of this type can be created using the Q_INT64_C() macro:
 
@@ -794,9 +901,8 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
     \typedef quint64
     \relates <QtGlobal>
 
-    Typedef for \c{unsigned long long int} (\c{unsigned __int64} on
-    Windows). This type is guaranteed to be 64-bit on all platforms
-    supported by Qt.
+    Typedef for \c{unsigned long long int}. This type is guaranteed to
+    be 64-bit on all platforms supported by Qt.
 
     Literals of this type can be created using the Q_UINT64_C()
     macro:
@@ -821,7 +927,27 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 
     Note that qintptr is signed. Use quintptr for unsigned values.
 
+    In order to print values of this type by using formatted-output
+    facilities such as \c{printf()}, qDebug(), QString::asprintf() and
+    so on, you can use the \c{PRIdQINTPTR} and \c{PRIiQINTPTR}
+    macros as format specifiers. They will both print the value as a
+    base 10 number.
+
+    \code
+    qintptr p = 123;
+    printf("The pointer is %" PRIdQINTPTR "\n", p);
+    \endcode
+
     \sa qptrdiff, qint32, qint64
+*/
+
+/*!
+    \macro PRIdQINTPTR
+    \macro PRIiQINTPTR
+    \since 6.2
+    \relates <QtGlobal>
+
+    See qintptr.
 */
 
 /*!
@@ -839,7 +965,34 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 
     Note that quintptr is unsigned. Use qptrdiff for signed values.
 
+    In order to print values of this type by using formatted-output
+    facilities such as \c{printf()}, qDebug(), QString::asprintf() and
+    so on, you can use the following macros as format specifiers:
+
+    \list
+    \li \c{PRIuQUINTPTR}: prints the value as a base 10 number.
+    \li \c{PRIoQUINTPTR}: prints the value as a base 8 number.
+    \li \c{PRIxQUINTPTR}: prints the value as a base 16 number, using lowercase \c{a-f} letters.
+    \li \c{PRIXQUINTPTR}: prints the value as a base 16 number, using uppercase \c{A-F} letters.
+    \endlist
+
+    \code
+    quintptr p = 123u;
+    printf("The pointer value is 0x%" PRIXQUINTPTR "\n", p);
+    \endcode
+
     \sa qptrdiff, quint32, quint64
+*/
+
+/*!
+    \macro PRIoQUINTPTR
+    \macro PRIuQUINTPTR
+    \macro PRIxQUINTPTR
+    \macro PRIXQUINTPTR
+    \since 6.2
+    \relates <QtGlobal>
+
+    See quintptr.
 */
 
 /*!
@@ -855,7 +1008,27 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 
     Note that qptrdiff is signed. Use quintptr for unsigned values.
 
+    In order to print values of this type by using formatted-output
+    facilities such as \c{printf()}, qDebug(), QString::asprintf() and
+    so on, you can use the \c{PRIdQPTRDIFF} and \c{PRIiQPTRDIFF}
+    macros as format specifiers. They will both print the value as a
+    base 10 number.
+
+    \code
+    qptrdiff d = 123;
+    printf("The difference is %" PRIdQPTRDIFF "\n", d);
+    \endcode
+
     \sa quintptr, qint32, qint64
+*/
+
+/*!
+    \macro PRIdQPTRDIFF
+    \macro PRIiQPTRDIFF
+    \since 6.2
+    \relates <QtGlobal>
+
+    See qptrdiff.
 */
 
 /*!
@@ -870,7 +1043,27 @@ static_assert((std::is_same<qsizetype, qptrdiff>::value));
 
     Note that qsizetype is signed. Use \c size_t for unsigned values.
 
+    In order to print values of this type by using formatted-output
+    facilities such as \c{printf()}, qDebug(), QString::asprintf() and
+    so on, you can use the \c{PRIdQSIZETYPE} and \c{PRIiQSIZETYPE}
+    macros as format specifiers. They will both print the value as a
+    base 10 number.
+
+    \code
+    qsizetype s = 123;
+    printf("The size is %" PRIdQSIZETYPE "\n", s);
+    \endcode
+
     \sa qptrdiff
+*/
+
+/*!
+    \macro PRIdQSIZETYPE
+    \macro PRIiQSIZETYPE
+    \since 6.2
+    \relates <QtGlobal>
+
+    See qsizetype.
 */
 
 /*!
@@ -1903,12 +2096,6 @@ bool qSharedBuild() noexcept
   \sa QT_DISABLE_DEPRECATED_BEFORE
 */
 
-#if defined(QT_BUILD_QMAKE)
-// needed to bootstrap qmake
-static const unsigned int qt_one = 1;
-const int QSysInfo::ByteOrder = ((*((unsigned char *) &qt_one) == 0) ? BigEndian : LittleEndian);
-#endif
-
 #if defined(Q_OS_MAC)
 
 QT_BEGIN_INCLUDE_NAMESPACE
@@ -1982,23 +2169,13 @@ Q_GLOBAL_STATIC(QWindowsSockInit, winsockInit)
 
 static QString readVersionRegistryString(const wchar_t *subKey)
 {
-#if !defined(QT_BUILD_QMAKE)
-     return QWinRegistryKey(HKEY_LOCAL_MACHINE, LR"(SOFTWARE\Microsoft\Windows NT\CurrentVersion)")
+    return QWinRegistryKey(HKEY_LOCAL_MACHINE, LR"(SOFTWARE\Microsoft\Windows NT\CurrentVersion)")
             .stringValue(subKey);
-#else
-     Q_UNUSED(subKey);
-     return QString();
-#endif
 }
 
 static inline QString windows10ReleaseId()
 {
     return readVersionRegistryString(L"ReleaseId");
-}
-
-static inline QString windows7Build()
-{
-    return readVersionRegistryString(L"CurrentBuild");
 }
 
 static QString winSp_helper()
@@ -2024,12 +2201,6 @@ static const char *osVer_helper(QOperatingSystemVersion version = QOperatingSyst
 
 #define Q_WINVER(major, minor) (major << 8 | minor)
     switch (Q_WINVER(osver.dwMajorVersion, osver.dwMinorVersion)) {
-    case Q_WINVER(6, 1):
-        return workstation ? "7" : "Server 2008 R2";
-    case Q_WINVER(6, 2):
-        return workstation ? "8" : "Server 2012";
-    case Q_WINVER(6, 3):
-        return workstation ? "8.1" : "Server 2012 R2";
     case Q_WINVER(10, 0):
         return workstation ? "10" : "Server 2016";
     }
@@ -2646,8 +2817,6 @@ QString QSysInfo::productType()
         \li "10.0" (tvOS 10)
         \li "16.10" (Ubuntu 16.10)
         \li "3.1" (watchOS 3.1)
-        \li "7 SP 1" (Windows 7 Service Pack 1)
-        \li "8.1" (Windows 8.1)
         \li "10" (Windows 10)
         \li "Server 2016" (Windows Server 2016)
     \endlist
@@ -2719,21 +2888,10 @@ QString QSysInfo::prettyProductName()
     return result + QLatin1String(" (") + versionString + QLatin1Char(')');
 #  else
     // (resembling winver.exe): Windows 10 "Windows 10 Version 1809"
-    if (majorVersion >= 10) {
-        const auto releaseId = windows10ReleaseId();
-        if (!releaseId.isEmpty())
-            result += QLatin1String(" Version ") + releaseId;
-        return result;
-    }
-    // Windows 7: "Windows 7 Version 6.1 (Build 7601: Service Pack 1)"
-    result += QLatin1String(" Version ") + versionString + QLatin1String(" (");
-    const auto build = windows7Build();
-    if (!build.isEmpty())
-        result += QLatin1String("Build ") + build;
-    const auto servicePack = winSp_helper();
-    if (!servicePack.isEmpty())
-        result += QLatin1String(": ") + servicePack;
-    return result + QLatin1Char(')');
+    const auto releaseId = windows10ReleaseId();
+    if (!releaseId.isEmpty())
+        result += QLatin1String(" Version ") + releaseId;
+    return result;
 #  endif // Windows
 #elif defined(Q_OS_HAIKU)
     return QLatin1String("Haiku ") + productVersion();
@@ -3685,6 +3843,15 @@ bool qunsetenv(const char *varName)
 */
 
 /*!
+    \fn template <typename Enum> std::underlying_type_t<Enum> qToUnderlying(Enum e)
+    \relates <QtGlobal>
+    \since 6.2
+
+    Converts the enumerator \a e to the equivalent value expressed in its
+    enumeration's underlying type.
+*/
+
+/*!
     \macro QT_TR_NOOP(sourceText)
     \relates <QtGlobal>
 
@@ -4554,7 +4721,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro qMove(x)
     \relates <QtGlobal>
-    \obsolete
+    \deprecated
 
     Use \c std::move instead.
 
@@ -4659,7 +4826,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro Q_DECL_OVERRIDE
     \since 5.0
-    \obsolete
+    \deprecated
     \relates <QtGlobal>
 
     This macro can be used to declare an overriding virtual
@@ -4679,7 +4846,7 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
 /*!
     \macro Q_DECL_FINAL
     \since 5.0
-    \obsolete
+    \deprecated
     \relates <QtGlobal>
 
     This macro can be used to declare an overriding virtual or a class
@@ -4731,5 +4898,9 @@ bool QInternal::activateCallbacks(Callback cb, void **parameters)
     type and the ref type. For example, Q_FORWARD_DECLARE_MUTABLE_CF_TYPE(CFMutableString)
     declares __CFMutableString and CFMutableStringRef.
 */
+
+namespace QNativeInterface::Private {
+    Q_LOGGING_CATEGORY(lcNativeInterface, "qt.nativeinterface")
+}
 
 QT_END_NAMESPACE

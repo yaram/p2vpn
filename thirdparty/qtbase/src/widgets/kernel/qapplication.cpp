@@ -1563,7 +1563,7 @@ QWidget *QApplication::activeWindow()
 
 #if QT_DEPRECATED_SINCE(6,0)
 /*!
-    \obsolete Use the QFontMetricsF constructor instead
+    \deprecated Use the QFontMetricsF constructor instead.
     Returns display (screen) font metrics for the application font.
 
     \sa font(), setFont(), QWidget::fontMetrics(), QPainter::fontMetrics()
@@ -1921,6 +1921,7 @@ void QApplicationPrivate::notifyActiveWindowChange(QWindow *previous)
                 if (widget->inherits("QAxHostWidget"))
                     widget->setFocus(Qt::ActiveWindowFocusReason);
     }
+    // don't call base class to avoid double delivery of WindowActivate/Deactivate events
 }
 
 /*!internal
@@ -2266,12 +2267,6 @@ bool qt_try_modal(QWidget *widget, QEvent::Type type)
     bool block_event  = false;
 
     switch (type) {
-#if 0
-    case QEvent::Focus:
-        if (!static_cast<QWSFocusEvent*>(event)->simpleData.get_focus)
-            break;
-        // drop through
-#endif
     case QEvent::MouseButtonPress:                        // disallow mouse/key events
     case QEvent::MouseButtonRelease:
     case QEvent::MouseMove:
@@ -2949,15 +2944,9 @@ bool QApplication::notify(QObject *receiver, QEvent *e)
 
             // a widget has already grabbed the wheel for a sequence
             if (QApplicationPrivate::wheel_widget) {
-                // Qt explicitly synthesizes a spontaneous event for the receiver, done
-                // by QGraphicsProxyWidget - so trust it
-                if (wheel->source() == Qt::MouseEventSynthesizedByQt) {
-                    QApplicationPrivate::wheel_widget = w;
-                } else {
-                    Q_ASSERT(phase != Qt::NoScrollPhase);
-                    w = QApplicationPrivate::wheel_widget;
-                    relpos = w->mapFromGlobal(wheel->globalPosition().toPoint());
-                }
+                Q_ASSERT(phase != Qt::NoScrollPhase);
+                w = QApplicationPrivate::wheel_widget;
+                relpos = w->mapFromGlobal(wheel->globalPosition().toPoint());
             }
             /*
                 Start or finish a scrolling sequence by grabbing/releasing the wheel via
@@ -2988,9 +2977,6 @@ bool QApplication::notify(QObject *receiver, QEvent *e)
             we.setTimestamp(wheel->timestamp());
             bool eventAccepted;
             do {
-                // events are delivered as accepted and ignored by the default event handler
-                // since we always send the same QWheelEvent object, we need to reset the accepted state
-                we.setAccepted(true);
                 we.m_spont = wheel->spontaneous() && w == receiver;
                 res = d->notify_helper(w, &we);
                 eventAccepted = we.isAccepted();
@@ -4113,6 +4099,11 @@ QPixmap QApplicationPrivate::applyQIconStyleHelper(QIcon::Mode mode, const QPixm
     QStyleOption opt(0);
     opt.palette = QGuiApplication::palette();
     return QApplication::style()->generatedIconPixmap(mode, base, &opt);
+}
+
+void *QApplication::resolveInterface(const char *name, int revision) const
+{
+    return QGuiApplication::resolveInterface(name, revision);
 }
 
 QT_END_NAMESPACE

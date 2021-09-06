@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
@@ -527,8 +527,7 @@ bool operator==(const QCursor &lhs, const QCursor &rhs) noexcept
 */
 
 /*!
-    Returns the cursor shape identifier. The return value is one of
-    the \l Qt::CursorShape enum values (cast to an int).
+    Returns the cursor shape identifier.
 
     \sa setShape()
 */
@@ -566,7 +565,7 @@ void QCursor::setShape(Qt::CursorShape shape)
 /*!
     \fn QBitmap QCursor::bitmap(Qt::ReturnByValueConstant) const
     \since 5.15
-    \obsolete Use the overload without argument instead.
+    \deprecated Use the overload without argument instead.
 
     Returns the cursor bitmap, or a null bitmap if it is one of the
     standard cursors.
@@ -593,7 +592,7 @@ QBitmap QCursor::bitmap() const
 /*!
     \fn QBitmap QCursor::mask(Qt::ReturnByValueConstant) const
     \since 5.15
-    \obsolete Use the overload without argument instead.
+    \deprecated Use the overload without argument instead.
 
     Returns the cursor bitmap mask, or a null bitmap if it is one of the
     standard cursors.

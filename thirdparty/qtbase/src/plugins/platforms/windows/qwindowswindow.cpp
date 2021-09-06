@@ -360,20 +360,11 @@ static inline bool windowIsAccelerated(const QWindow *w)
 
 static bool applyBlurBehindWindow(HWND hwnd)
 {
-    BOOL compositionEnabled;
-    if (DwmIsCompositionEnabled(&compositionEnabled) != S_OK)
-        return false;
-
     DWM_BLURBEHIND blurBehind = {0, 0, nullptr, 0};
 
-    if (compositionEnabled) {
-        blurBehind.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
-        blurBehind.fEnable = TRUE;
-        blurBehind.hRgnBlur = CreateRectRgn(0, 0, -1, -1);
-    } else {
-        blurBehind.dwFlags = DWM_BB_ENABLE;
-        blurBehind.fEnable = FALSE;
-    }
+    blurBehind.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
+    blurBehind.fEnable = TRUE;
+    blurBehind.hRgnBlur = CreateRectRgn(0, 0, -1, -1);
 
     const bool result = DwmEnableBlurBehindWindow(hwnd, &blurBehind) == S_OK;
 
@@ -1428,6 +1419,8 @@ void QWindowsWindow::initialize()
         if (obtainedScreen && screen() != obtainedScreen)
             QWindowSystemInterface::handleWindowScreenChanged<QWindowSystemInterface::SynchronousDelivery>(w, obtainedScreen->screen());
     }
+    QWindowsWindow::setSavedDpi(QWindowsContext::user32dll.getDpiForWindow ?
+        QWindowsContext::user32dll.getDpiForWindow(handle()) : 96);
 }
 
 QSurfaceFormat QWindowsWindow::format() const
@@ -2006,10 +1999,6 @@ void QWindowsWindow::handleGeometryChange()
 {
     const QRect previousGeometry = m_data.geometry;
     m_data.geometry = geometry_sys();
-    if (testFlag(WithinDpiChanged)
-        && QWindowsContext::instance()->screenManager().screenForHwnd(m_data.hwnd) != screen()) {
-        return; // QGuiApplication will send resize when screen actually changes
-    }
     QWindowSystemInterface::handleGeometryChange(window(), m_data.geometry);
     // QTBUG-32121: OpenGL/normal windows (with exception of ANGLE
     // which we no longer support in Qt 6) do not receive expose
@@ -2104,12 +2093,6 @@ void QWindowsWindow::releaseDC()
     }
 }
 
-static inline bool dwmIsCompositionEnabled()
-{
-    BOOL dWmCompositionEnabled = FALSE;
-    return SUCCEEDED(DwmIsCompositionEnabled(&dWmCompositionEnabled)) && dWmCompositionEnabled == TRUE;
-}
-
 static inline bool isSoftwareGl()
 {
 #if QT_CONFIG(dynamicgl)
@@ -2133,21 +2116,12 @@ bool QWindowsWindow::handleWmPaint(HWND hwnd, UINT message,
         return false;
     PAINTSTRUCT ps;
 
-    // GL software rendering (QTBUG-58178) and Windows 7/Aero off with some AMD cards
+    // GL software rendering (QTBUG-58178) with some AMD cards
     // (QTBUG-60527) need InvalidateRect() to suppress artifacts while resizing.
-    if (testFlag(OpenGLSurface) && (isSoftwareGl() || !dwmIsCompositionEnabled()))
+    if (testFlag(OpenGLSurface) && isSoftwareGl())
         InvalidateRect(hwnd, nullptr, false);
 
     BeginPaint(hwnd, &ps);
-
-    // Observed painting problems with Aero style disabled (QTBUG-7865).
-    if (Q_UNLIKELY(!dwmIsCompositionEnabled())
-        && ((testFlag(OpenGLSurface) && testFlag(OpenGLDoubleBuffered))
-            || testFlag(VulkanSurface)
-            || testFlag(Direct3DSurface)))
-    {
-        SelectClipRgn(ps.hdc, nullptr);
-    }
 
     // If the a window is obscured by another window (such as a child window)
     // we still need to send isExposed=true, for compatibility.
@@ -2721,11 +2695,6 @@ static int getBorderWidth(const QPlatformScreen *screen)
 
 void QWindowsWindow::getSizeHints(MINMAXINFO *mmi) const
 {
-    // We don't apply the min/max size hint as we change the dpi, because we did not adjust the
-    // QScreen of the window yet so we don't have the min/max with the right ratio
-    if (!testFlag(QWindowsWindow::WithinDpiChanged))
-        QWindowsGeometryHint::applyToMinMaxInfo(window(), fullFrameMargins(), mmi);
-
     // This block fixes QTBUG-8361, QTBUG-4362: Frameless/title-less windows shouldn't cover the
     // taskbar when maximized
     if ((testFlag(WithinMaximize) || window()->windowStates().testFlag(Qt::WindowMinimized))

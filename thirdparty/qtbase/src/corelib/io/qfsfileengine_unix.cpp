@@ -56,7 +56,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <errno.h>
-#if !defined(QWS) && defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
 # include <private/qcore_mac_p.h>
 #endif
 
@@ -475,6 +475,8 @@ QString QFSFileEngine::fileName(FileName file) const
             QFileSystemEntry entry = QFileSystemEngine::getLinkTarget(d->fileEntry, d->metaData);
             return entry.filePath();
         }
+        return QString();
+    case JunctionName:
         return QString();
     case DefaultName:
     case NFileNames:

@@ -709,7 +709,8 @@ bool QOpenGLContext::makeCurrent(QSurface *surface)
                         || qstrcmp(rendererString, "GC800 core") == 0
                         || qstrcmp(rendererString, "GC1000 core") == 0
                         || strstr(rendererString, "GC2000") != nullptr
-                        || qstrcmp(rendererString, "Immersion.16") == 0;
+                        || qstrcmp(rendererString, "Immersion.16") == 0
+                        || qstrncmp(rendererString, "Apple Mx", 7) == 0;
         }
         needsWorkaroundSet = true;
     }
@@ -1308,6 +1309,31 @@ QDebug operator<<(QDebug debug, const QOpenGLContextGroup *cg)
     return debug;
 }
 #endif // QT_NO_DEBUG_STREAM
+
+using namespace QNativeInterface;
+
+void *QOpenGLContext::resolveInterface(const char *name, int revision) const
+{
+    Q_UNUSED(name); Q_UNUSED(revision);
+
+    auto *platformContext = handle();
+    Q_UNUSED(platformContext);
+
+#if defined(Q_OS_MACOS)
+    QT_NATIVE_INTERFACE_RETURN_IF(QCocoaGLContext, platformContext);
+#endif
+#if defined(Q_OS_WIN)
+    QT_NATIVE_INTERFACE_RETURN_IF(QWGLContext, platformContext);
+#endif
+#if QT_CONFIG(xcb_glx_plugin)
+    QT_NATIVE_INTERFACE_RETURN_IF(QGLXContext, platformContext);
+#endif
+#if QT_CONFIG(egl)
+    QT_NATIVE_INTERFACE_RETURN_IF(QEGLContext, platformContext);
+#endif
+
+    return nullptr;
+}
 
 #include "moc_qopenglcontext.cpp"
 

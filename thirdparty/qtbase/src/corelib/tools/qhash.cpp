@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2020 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2021 Intel Corporation.
 ** Copyright (C) 2012 Giuseppe D'Angelo <dangelog@gmail.com>.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -60,6 +60,7 @@
 #include <qdatetime.h>
 #include <qbasicatomic.h>
 #include <qendian.h>
+#include <private/qrandom_p.h>
 #include <private/qsimd_p.h>
 
 #ifndef QT_BOOTSTRAPPED
@@ -389,7 +390,7 @@ static uint siphash(const uint8_t *in, uint inlen, const uint seed)
 
 #if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)  // GCC
 #  define QHASH_AES_SANITIZER_BUILD
-#elif QT_HAS_FEATURE(address_sanitizer) || QT_HAS_FEATURE(thread_sanitizer)  // Clang
+#elif __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)  // Clang
 #  define QHASH_AES_SANITIZER_BUILD
 #endif
 
@@ -527,6 +528,139 @@ lt16:
 }
 #endif
 
+#if defined(Q_PROCESSOR_ARM) && QT_COMPILER_SUPPORTS_HERE(AES) && !defined(QHASH_AES_SANITIZER_BUILD) && !defined(QT_BOOTSTRAPPED)
+QT_FUNCTION_TARGET(AES)
+static size_t aeshash(const uchar *p, size_t len, size_t seed) noexcept
+{
+    uint8x16_t key;
+#  if QT_POINTER_SIZE == 8
+    quint64 seededlen = seed ^ len;
+    uint64x2_t vseed = vcombine_u64(vcreate_u64(seed), vcreate_u64(seededlen));
+    key = vreinterpretq_u8_u64(vseed);
+#  else
+    quint32 replicated_len = quint16(len) | (quint32(quint16(len)) << 16);
+    uint32x2_t vseed = vmov_n_u32(seed);
+    vseed = vset_lane_u32(replicated_len, vseed, 1);
+    key = vreinterpretq_u8_u32(vcombine_u32(vseed, vseed));
+#  endif
+
+    // Compared to x86 AES, ARM splits each round into two instructions
+    // and includes the pre-xor instead of the post-xor.
+    const auto hash16bytes = [](uint8x16_t &state0, uint8x16_t data) {
+        auto state1 = state0;
+        state0 = vaeseq_u8(state0, data);
+        state0 = vaesmcq_u8(state0);
+        auto state2 = state0;
+        state0 = vaeseq_u8(state0, state1);
+        state0 = vaesmcq_u8(state0);
+        auto state3 = state0;
+        state0 = vaeseq_u8(state0, state2);
+        state0 = vaesmcq_u8(state0);
+        state0 = veorq_u8(state0, state3);
+    };
+
+    uint8x16_t state0 = key;
+
+    if (len < 8)
+        goto lt8;
+    if (len < 16)
+        goto lt16;
+    if (len < 32)
+        goto lt32;
+
+    // rounds of 32 bytes
+    {
+        // Make state1 = ~state0:
+        uint8x16_t state1 = veorq_u8(state0, vdupq_n_u8(255));
+
+        // do simplified rounds of 32 bytes: unlike the Go code, we only
+        // scramble twice and we keep 256 bits of state
+        const auto *e = p + len - 31;
+        while (p < e) {
+            uint8x16_t data0 = vld1q_u8(p);
+            uint8x16_t data1 = vld1q_u8(p + 16);
+            auto oldstate0 = state0;
+            auto oldstate1 = state1;
+            state0 = vaeseq_u8(state0, data0);
+            state1 = vaeseq_u8(state1, data1);
+            state0 = vaesmcq_u8(state0);
+            state1 = vaesmcq_u8(state1);
+            auto laststate0 = state0;
+            auto laststate1 = state1;
+            state0 = vaeseq_u8(state0, oldstate0);
+            state1 = vaeseq_u8(state1, oldstate1);
+            state0 = vaesmcq_u8(state0);
+            state1 = vaesmcq_u8(state1);
+            state0 = veorq_u8(state0, laststate0);
+            state1 = veorq_u8(state1, laststate1);
+            p += 32;
+        }
+        state0 = veorq_u8(state0, state1);
+    }
+    len &= 0x1f;
+
+    // do we still have 16 or more bytes?
+    if (len & 0x10) {
+lt32:
+        uint8x16_t data = vld1q_u8(p);
+        hash16bytes(state0, data);
+        p += 16;
+    }
+    len &= 0xf;
+
+    if (len & 0x08) {
+lt16:
+        uint8x8_t data8 = vld1_u8(p);
+        uint8x16_t data = vcombine_u8(data8, vdup_n_u8(0));
+        hash16bytes(state0, data);
+        p += 8;
+    }
+    len &= 0x7;
+
+lt8:
+    if (len) {
+        // load the last chunk of data
+        // We're going to load 8 bytes and mask zero the part we don't care
+        // (the hash of a short string is different from the hash of a longer
+        // including NULLs at the end because the length is in the key)
+        // WARNING: this may produce valgrind warnings, but it's safe
+
+        uint8x8_t data8;
+
+        if (Q_LIKELY(quintptr(p + 8) & 0xff8)) {
+            // same page, we definitely can't fault:
+            // load all 8 bytes and mask off the bytes past the end of the source
+            static const qint8 maskarray[] = {
+                -1, -1, -1, -1, -1, -1, -1,
+                 0,  0,  0,  0,  0,  0,  0,
+            };
+            uint8x8_t mask = vld1_u8(reinterpret_cast<const quint8 *>(maskarray) + 7 - len);
+            data8 = vld1_u8(p);
+            data8 = vand_u8(data8, mask);
+        } else {
+            // too close to the end of the page, it could fault:
+            // load 8 bytes ending at the data end, then shuffle them to the beginning
+            static const qint8 shufflecontrol[] = {
+                 1,  2,  3,  4,  5,  6,  7,
+                -1, -1, -1, -1, -1, -1, -1,
+            };
+            uint8x8_t control = vld1_u8(reinterpret_cast<const quint8 *>(shufflecontrol) + 7 - len);
+            data8 = vld1_u8(p - 8 + len);
+            data8 = vtbl1_u8(data8, control);
+        }
+        uint8x16_t data = vcombine_u8(data8, vdup_n_u8(0));
+        hash16bytes(state0, data);
+    }
+
+    // extract state0
+#  if QT_POINTER_SIZE == 8
+    return vgetq_lane_u64(vreinterpretq_u64_u8(state0), 0);
+#  else
+    return vgetq_lane_u32(vreinterpretq_u32_u8(state0), 0);
+#  endif
+}
+#endif
+
 size_t qHashBits(const void *p, size_t size, size_t seed) noexcept
 {
 #ifdef QT_BOOTSTRAPPED
@@ -536,6 +670,15 @@ size_t qHashBits(const void *p, size_t size, size_t seed) noexcept
 #endif
 #ifdef AESHASH
     if (seed && qCpuHasFeature(AES) && qCpuHasFeature(SSE4_2))
+        return aeshash(reinterpret_cast<const uchar *>(p), size, seed);
+#elif defined(Q_PROCESSOR_ARM) && QT_COMPILER_SUPPORTS_HERE(AES) && !defined(QHASH_AES_SANITIZER_BUILD) && !defined(QT_BOOTSTRAPPED)
+# if defined(Q_OS_LINUX)
+    // Do specific runtime-only check as Yocto hard enables Crypto extension for
+    // all armv8 configs
+    if (seed && (qCpuFeatures() & CpuFeatureAES))
+# else
+    if (seed && qCpuHasFeature(AES))
+# endif
         return aeshash(reinterpret_cast<const uchar *>(p), size, seed);
 #endif
     if (size <= QT_POINTER_SIZE)
@@ -579,24 +722,34 @@ size_t qHash(QLatin1String key, size_t seed) noexcept
 
 /*!
     \internal
-*/
-static uint qt_create_qhash_seed()
-{
-    uint seed = 0;
 
-#ifndef QT_BOOTSTRAPPED
-    QByteArray envSeed = qgetenv("QT_HASH_SEED");
-    if (!envSeed.isNull()) {
-        uint seed = envSeed.toUInt();
+    Note: not \c{noexcept}, but called from a \c{noexcept} function and thus
+    will cause termination if any of the functions here throw.
+*/
+enum HashCreationMode { Initial, Reseed };
+static size_t qt_create_qhash_seed(HashCreationMode mode)
+{
+    size_t seed = 0;
+
+#ifdef QT_BOOTSTRAPPED
+    Q_UNUSED(mode)
+#else
+    bool ok;
+    seed = qEnvironmentVariableIntValue("QT_HASH_SEED", &ok);
+    if (ok) {
         if (seed) {
             // can't use qWarning here (reentrancy)
-            fprintf(stderr, "QT_HASH_SEED: forced seed value is not 0, cannot guarantee that the "
-                     "hashing functions will produce a stable value.");
+            fprintf(stderr, "QT_HASH_SEED: forced seed value is not 0; ignored.\n");
         }
-        return seed;
+        seed = 1;   // QHashSeed::globalSeed subtracts 1
+    } else if (mode == Initial) {
+        auto data = qt_initial_random_value();
+        seed = data.data[0] ^ data.data[1];
+    } else if (sizeof(seed) > sizeof(uint)) {
+        seed = QRandomGenerator::system()->generate64();
+    } else {
+        seed = QRandomGenerator::system()->generate();
     }
-
-    seed = QRandomGenerator::system()->generate();
 #endif // QT_BOOTSTRAPPED
 
     return seed;
@@ -604,47 +757,143 @@ static uint qt_create_qhash_seed()
 
 /*
     The QHash seed itself.
+
+    We store the seed value plus one, so the value zero is used to indicate the
+    seed is not initialized. This is corrected before passing to the user.
 */
-static QBasicAtomicInt qt_qhash_seed = Q_BASIC_ATOMIC_INITIALIZER(-1);
+static QBasicAtomicInteger<size_t> qt_qhash_seed = Q_BASIC_ATOMIC_INITIALIZER(0);
 
 /*!
     \internal
+    \threadsafe
 
-    Seed == -1 means it that it was not initialized yet.
-
-    We let qt_create_qhash_seed return any unsigned integer,
-    but convert it to signed in order to initialize the seed.
-
-    We don't actually care about the fact that different calls to
-    qt_create_qhash_seed() might return different values,
-    as long as in the end everyone uses the very same value.
+    Initializes the seed and returns it.
 */
-static void qt_initialize_qhash_seed()
+static size_t qt_initialize_qhash_seed()
 {
-    if (qt_qhash_seed.loadRelaxed() == -1) {
-        int x(qt_create_qhash_seed() & INT_MAX);
-        qt_qhash_seed.testAndSetRelaxed(-1, x);
-    }
+    size_t theirSeed;               // another thread's seed
+    size_t ourSeed = qt_create_qhash_seed(Initial);
+    if (qt_qhash_seed.testAndSetRelaxed(0, ourSeed, theirSeed))
+        return ourSeed;
+    return theirSeed;
 }
 
+/*!
+    \class QHashSeed
+    \since 6.2
+
+    The QHashSeed class is used to convey the QHash seed. This is used
+    internally by QHash and provides three static member functions to allow
+    users to obtain the hash and to reset it.
+
+    QHash and the qHash() functions implement what is called as "salted hash".
+    The intent is that different applications and different instances of the
+    same application will produce different hashing values for the same input,
+    thus causing the ordering of elements in QHash to be unpredictable by
+    external observers. This improves the applications' resilience against
+    attacks that attempt to force hashing tables into degenerate mode.
+
+    Most applications will not need to deal directly with the hash seed, as
+    QHash will do so when needed. However, applications may wish to use this
+    for their own purposes in the same way as QHash does: as an
+    application-global random value (but see \l QRandomGenerator too). Note
+    that the global hash seed may change during the application's lifetime, if
+    the resetRandomGlobalSeed() function is called. Users of the global hash
+    need to store the value they are using and not rely on getting it again.
+
+    This class also implements functionality to set the hash seed to a
+    deterministic value, which the qHash() functions will take to mean that
+    they should use a fixed hashing function on their data too. This
+    functionality is only meant to be used in debugging applications. This
+    behavior can also be controlled by setting the \c QT_HASH_SEED environment
+    variable to the value zero (any other value is ignored).
+
+    \sa QHash, QRandomGenerator
+*/
+
+/*!
+    \fn QHashSeed::QHashSeed(size_t data)
+
+    Constructs a new QHashSeed object using \a data as the seed.
+ */
+
+/*!
+    \fn QHashSeed::operator size_t() const
+
+    Converts the returned hash seed into a \c size_t.
+ */
+
+/*!
+    \threadsafe
+
+    Returns the current global QHash seed. The value returned by this function
+    will be zero if setDeterministicGlobalSeed() has been called or if the
+    \c{QT_HASH_SEED} environment variable is set to zero.
+ */
+QHashSeed QHashSeed::globalSeed() noexcept
+{
+    size_t seed = qt_qhash_seed.loadRelaxed();
+    if (Q_UNLIKELY(seed == 0))
+        seed = qt_initialize_qhash_seed();
+
+    return { seed - 1 };
+}
+
+/*!
+    \threadsafe
+
+    Forces the Qt hash seed to a deterministic value (zero) and asks the
+    qHash() functions to use a pre-determined hashing function. This mode is
+    only useful for debugging and should not be used in production code.
+
+    Regular operation can be restored by calling resetRandomGlobalSeed().
+ */
+void QHashSeed::setDeterministicGlobalSeed()
+{
+    qt_qhash_seed.storeRelease(1);
+}
+
+/*!
+    \threadsafe
+
+    Reseeds the Qt hashing seed to a new, random value. Calling this function
+    is not necessary, but long-running applications may want to do so after a
+    long period of time in which information about its hash may have been
+    exposed to potential attackers.
+
+    If the environment variable \c QT_HASH_SEED is set to zero, calling this
+    function will result in a no-op.
+
+    Qt never calls this function during the execution of the application, but
+    unless the \c QT_HASH_SEED variable is set to 0, the hash seed returned by
+    globalSeed() will be a random value as if this function had been called.
+ */
+void QHashSeed::resetRandomGlobalSeed()
+{
+    size_t seed = qt_create_qhash_seed(Reseed);
+    qt_qhash_seed.storeRelaxed(seed + 1);
+}
+
+#if QT_DEPRECATED_SINCE(6,6)
 /*! \relates QHash
     \since 5.6
+    \deprecated [6.6] Use QHashSeed::globalSeed() instead.
 
     Returns the current global QHash seed.
 
     The seed is set in any newly created QHash. See \l{qHash} about how this seed
     is being used by QHash.
 
-    \sa qSetGlobalQHashSeed
+    \sa QHashSeed, QHashSeed::globalSeed()
  */
 int qGlobalQHashSeed()
 {
-    qt_initialize_qhash_seed();
-    return qt_qhash_seed.loadRelaxed();
+    return int(QHashSeed::globalSeed() & INT_MAX);
 }
 
 /*! \relates QHash
     \since 5.6
+    \deprecated [6.6] Use QHashSeed instead.
 
     Sets the global QHash seed to \a newSeed.
 
@@ -664,24 +913,21 @@ int qGlobalQHashSeed()
     If the environment variable \c QT_HASH_SEED is set, calling this function will
     result in a no-op.
 
-    \sa qGlobalQHashSeed
+    \sa qHashSeed::globalSeed, QHashSeed
  */
 void qSetGlobalQHashSeed(int newSeed)
 {
-    if (qEnvironmentVariableIsSet("QT_HASH_SEED"))
-        return;
-    if (newSeed == -1) {
-        int x(qt_create_qhash_seed() & INT_MAX);
-        qt_qhash_seed.storeRelaxed(x);
+    if (Q_LIKELY(newSeed == 0 || newSeed == -1)) {
+        if (newSeed == 0)
+            QHashSeed::setDeterministicGlobalSeed();
+        else
+            QHashSeed::resetRandomGlobalSeed();
     } else {
-        if (newSeed) {
-            // can't use qWarning here (reentrancy)
-            fprintf(stderr, "qSetGlobalQHashSeed: forced seed value is not 0, cannot guarantee that the "
-                            "hashing functions will produce a stable value.");
-        }
-        qt_qhash_seed.storeRelaxed(newSeed & INT_MAX);
+        // can't use qWarning here (reentrancy)
+        fprintf(stderr, "qSetGlobalQHashSeed: forced seed value is not 0; ignoring call\n");
     }
 }
+#endif  // QT_DEPRECATED_SINCE(6,6)
 
 /*!
     \internal
@@ -1300,7 +1546,7 @@ size_t qHash(long double key, size_t seed) noexcept
     where you temporarily need deterministic behavior, for example for debugging or
     regression testing. To disable the randomization, define the environment
     variable \c QT_HASH_SEED to have the value 0. Alternatively, you can call
-    the qSetGlobalQHashSeed() function with the value 0.
+    the QHashSeed::setDeterministicGlobalSeed() function.
 
     \sa QHashIterator, QMutableHashIterator, QMap, QSet
 */
@@ -2442,11 +2688,10 @@ size_t qHash(long double key, size_t seed) noexcept
     hashes. A multi-valued hash is a hash that allows multiple values
     with the same key.
 
-    Because QMultiHash inherits QHash, all of QHash's functionality also
-    applies to QMultiHash. For example, you can use isEmpty() to test
+    QMultiHash mostly mirrors QHash's API. For example, you can use isEmpty() to test
     whether the hash is empty, and you can traverse a QMultiHash using
     QHash's iterator classes (for example, QHashIterator). But opposed to
-    QHash, it provides an insert() function will allow the insertion of
+    QHash, it provides an insert() function that allows the insertion of
     multiple items with the same key. The replace() function corresponds to
     QHash::insert(). It also provides convenient operator+() and
     operator+=().

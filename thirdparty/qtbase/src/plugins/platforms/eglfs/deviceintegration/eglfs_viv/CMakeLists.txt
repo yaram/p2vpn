@@ -6,7 +6,7 @@
 
 qt_internal_add_plugin(QEglFSVivIntegrationPlugin
     OUTPUT_NAME qeglfs-viv-integration
-    TYPE egldeviceintegrations
+    PLUGIN_TYPE egldeviceintegrations
     SOURCES
         qeglfsvivintegration.cpp qeglfsvivintegration.h
         qeglfsvivmain.cpp
@@ -15,7 +15,7 @@ qt_internal_add_plugin(QEglFSVivIntegrationPlugin
         LINUX=1
     INCLUDE_DIRECTORIES
         ../../api
-    PUBLIC_LIBRARIES
+    LIBRARIES
         Qt::Core
         Qt::CorePrivate
         Qt::EglFSDeviceIntegrationPrivate

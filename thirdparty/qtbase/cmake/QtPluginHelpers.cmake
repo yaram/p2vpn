@@ -20,11 +20,9 @@ macro(qt_internal_get_internal_add_plugin_keywords option_args single_args multi
 endmacro()
 
 # This is the main entry point for defining Qt plugins.
-# A CMake target is created with the given target. The TYPE parameter is needed to place the
+# A CMake target is created with the given target. The PLUGIN_TYPE parameter is needed to place the
 # plugin into the correct plugins/ sub-directory.
 function(qt_internal_add_plugin target)
-    qt_internal_module_info(module "${target}")
-
     qt_internal_set_qt_known_plugins("${QT_KNOWN_PLUGINS}" "${target}")
 
     _qt_internal_get_add_plugin_keywords(
@@ -50,7 +48,7 @@ function(qt_internal_add_plugin target)
 
     # Put this behind a cache option for now. It's too noisy for general use
     # until most repos are updated.
-    option(QT_WARN_PLUGIN_PUBLIC_KEYWORDS "Warn if a plugin specifies a PUBLIC keyword")
+    option(QT_WARN_PLUGIN_PUBLIC_KEYWORDS "Warn if a plugin specifies a PUBLIC keyword" ON)
     if(QT_WARN_PLUGIN_PUBLIC_KEYWORDS)
         foreach(publicKeyword IN LISTS __default_public_args)
             if(NOT "${arg_${publicKeyword}}" STREQUAL "")
@@ -78,16 +76,27 @@ function(qt_internal_add_plugin target)
             ${ARGN}
     )
     qt6_add_plugin(${target} ${plugin_args})
+    qt_internal_mark_as_internal_library(${target})
 
-    qt_get_sanitized_plugin_type("${arg_TYPE}" plugin_type_escaped)
+    set(plugin_type "")
+    # TODO: Transitional: Remove the TYPE option handling after all repos have been converted to use
+    # PLUGIN_TYPE.
+    if(arg_TYPE)
+        set(plugin_type "${arg_TYPE}")
+    elseif(arg_PLUGIN_TYPE)
+        set(plugin_type "${arg_PLUGIN_TYPE}")
+    endif()
 
-    set(output_directory_default "${QT_BUILD_DIR}/${INSTALL_PLUGINSDIR}/${arg_TYPE}")
-    set(install_directory_default "${INSTALL_PLUGINSDIR}/${arg_TYPE}")
+    qt_get_sanitized_plugin_type("${plugin_type}" plugin_type_escaped)
 
-    qt_internal_check_directory_or_type(OUTPUT_DIRECTORY "${arg_OUTPUT_DIRECTORY}" "${arg_TYPE}"
+    set(output_directory_default "${QT_BUILD_DIR}/${INSTALL_PLUGINSDIR}/${plugin_type}")
+    set(install_directory_default "${INSTALL_PLUGINSDIR}/${plugin_type}")
+
+    qt_internal_check_directory_or_type(OUTPUT_DIRECTORY "${arg_OUTPUT_DIRECTORY}" "${plugin_type}"
         "${output_directory_default}" output_directory)
     if (NOT arg_SKIP_INSTALL)
-        qt_internal_check_directory_or_type(INSTALL_DIRECTORY "${arg_INSTALL_DIRECTORY}" "${arg_TYPE}"
+        qt_internal_check_directory_or_type(INSTALL_DIRECTORY "${arg_INSTALL_DIRECTORY}"
+            "${plugin_type}"
             "${install_directory_default}" install_directory)
         set(archive_install_directory ${arg_ARCHIVE_INSTALL_DIRECTORY})
         if (NOT archive_install_directory AND install_directory)
@@ -121,17 +130,13 @@ function(qt_internal_add_plugin target)
     qt_skip_warnings_are_errors_when_repo_unclean("${target}")
     _qt_internal_apply_strict_cpp("${target}")
 
-    # Disable linking of plugins against other plugins during static regular and
-    # super builds. The latter causes cyclic dependencies otherwise.
-    _qt_internal_disable_static_default_plugins("${target}")
-
     set_target_properties("${target}" PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${output_directory}"
         RUNTIME_OUTPUT_DIRECTORY "${output_directory}"
         ARCHIVE_OUTPUT_DIRECTORY "${output_directory}"
         QT_PLUGIN_TYPE "${plugin_type_escaped}"
         # Save the non-sanitized plugin type values for qmake consumption via .pri files.
-        QT_QMAKE_PLUGIN_TYPE "${arg_TYPE}"
+        QT_QMAKE_PLUGIN_TYPE "${plugin_type}"
     )
 
     qt_handle_multi_config_output_dirs("${target}")
@@ -259,7 +264,7 @@ function(qt_internal_add_plugin target)
     if(TARGET qt_plugins)
         add_dependencies(qt_plugins "${target}")
     endif()
-    if(arg_TYPE STREQUAL "platforms")
+    if(plugin_type STREQUAL "platforms")
         if(TARGET qpa_plugins)
             add_dependencies(qpa_plugins "${target}")
         endif()
@@ -276,7 +281,7 @@ function(qt_internal_add_plugin target)
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_CURRENT_BINARY_DIR}"
          # For the syncqt headers
-        "$<BUILD_INTERFACE:${module_repo_include_dir}>"
+        "$<BUILD_INTERFACE:${QT_BUILD_DIR}/include>"
          ${arg_INCLUDE_DIRECTORIES}
     )
 
@@ -324,8 +329,18 @@ function(qt_internal_add_plugin target)
     endforeach()
 
     qt_register_target_dependencies("${target}" "${arg_PUBLIC_LIBRARIES}" "${qt_libs_private}")
+    set(plugin_init_target "")
     if (NOT BUILD_SHARED_LIBS)
-        qt_generate_plugin_pri_file("${target}" pri_file)
+
+        # There's no point in generating pri files for qml plugins. We didn't do it in Qt5 times.
+        if(NOT plugin_type_escaped STREQUAL "qml_plugin")
+            qt_generate_plugin_pri_file("${target}" pri_file)
+        endif()
+
+        if(qt_module_target)
+            __qt_internal_add_static_plugin_init_object_library("${target}" plugin_init_target)
+            qt_internal_link_internal_platform_for_object_library("${plugin_init_target}")
+        endif()
     endif()
 
     if (NOT arg_SKIP_INSTALL)
@@ -344,7 +359,7 @@ function(qt_internal_add_plugin target)
         qt_path_join(config_install_dir ${QT_CONFIG_INSTALL_DIR} ${path_suffix})
 
         qt_internal_export_additional_targets_file(
-            TARGETS ${target}
+            TARGETS ${target} ${plugin_init_target}
             EXPORT_NAME_PREFIX ${INSTALL_CMAKE_NAMESPACE}${target}
             CONFIG_INSTALL_DIR "${config_install_dir}")
 
@@ -374,17 +389,22 @@ function(qt_internal_add_plugin target)
         # Make the export name of plugins be consistent with modules, so that
         # qt_add_resource adds its additional targets to the same export set in a static Qt build.
         set(export_name "${INSTALL_CMAKE_NAMESPACE}${target}Targets")
-        qt_install(TARGETS "${target}"
+        qt_install(TARGETS
+                   "${target}"
+                   ${plugin_init_target}
                    EXPORT ${export_name}
                    RUNTIME DESTINATION "${install_directory}"
                    LIBRARY DESTINATION "${install_directory}"
+                   OBJECTS DESTINATION "${install_directory}"
                    ARCHIVE DESTINATION "${archive_install_directory}"
         )
         qt_install(EXPORT ${export_name}
                    NAMESPACE ${QT_CMAKE_EXPORT_NAMESPACE}::
                    DESTINATION "${config_install_dir}"
         )
-        qt_apply_rpaths(TARGET "${target}" INSTALL_PATH "${install_directory}" RELATIVE_RPATH)
+        if(BUILD_SHARED_LIBS)
+            qt_apply_rpaths(TARGET "${target}" INSTALL_PATH "${install_directory}" RELATIVE_RPATH)
+        endif()
     endif()
 
     if (NOT arg_ALLOW_UNDEFINED_SYMBOLS)

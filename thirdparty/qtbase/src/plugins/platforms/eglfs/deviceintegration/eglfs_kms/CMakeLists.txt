@@ -1,10 +1,10 @@
 # Generated from eglfs_kms.pro.
 
 #####################################################################
-## EglFsKmsGbmSupport Module:
+## EglFsKmsGbmSupportPrivate Module:
 #####################################################################
 
-qt_internal_add_module(EglFsKmsGbmSupport
+qt_internal_add_module(EglFsKmsGbmSupportPrivate
     CONFIG_MODULE_NAME eglfs_kms_gbm_support
     INTERNAL_MODULE
     SOURCES
@@ -30,12 +30,12 @@ qt_internal_add_module(EglFsKmsGbmSupport
 
 qt_internal_add_plugin(QEglFSKmsGbmIntegrationPlugin
     OUTPUT_NAME qeglfs-kms-integration
-    TYPE egldeviceintegrations
+    PLUGIN_TYPE egldeviceintegrations
     SOURCES
         qeglfskmsgbmmain.cpp
     DEFINES
         QT_EGL_NO_X11
-    PUBLIC_LIBRARIES
+    LIBRARIES
         Libdrm::Libdrm
         Qt::CorePrivate
         Qt::EglFSDeviceIntegrationPrivate

@@ -425,7 +425,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
             - methods.count(); // ditto
 
     QDBusMetaObjectPrivate *header = reinterpret_cast<QDBusMetaObjectPrivate *>(idata.data());
-    static_assert(QMetaObjectPrivate::OutputRevision == 9, "QtDBus meta-object generator should generate the same version as moc");
+    static_assert(QMetaObjectPrivate::OutputRevision == 10, "QtDBus meta-object generator should generate the same version as moc");
     header->revision = QMetaObjectPrivate::OutputRevision;
     header->className = 0;
     header->classInfoCount = 0;
@@ -462,6 +462,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
     idata[typeidOffset++] = 0;                           // eod
 
     int totalMetaTypeCount = properties.count();
+    ++totalMetaTypeCount; // + 1 for metatype of dynamic metaobject
     for (const auto& methodContainer: {signals_, methods}) {
         for (const auto& method: methodContainer) {
             int argc = method.inputTypes.size() + qMax(qsizetype(0), method.outputTypes.size() - 1);
@@ -472,7 +473,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
     int propertyId = 0;
 
     // add each method:
-    int currentMethodMetaTypeOffset = properties.count();
+    int currentMethodMetaTypeOffset = properties.count() + 1;
     for (int x = 0; x < 2; ++x) {
         // Signals must be added before other methods, to match moc.
         QMap<QByteArray, Method> &map = (x == 0) ? signals_ : methods;
@@ -562,6 +563,7 @@ void QDBusMetaObjectGenerator::write(QDBusMetaObject *obj)
 
         metaTypes[propertyId++] = QMetaType(mp.type);
     }
+    metaTypes[propertyId] = QMetaType(); // we can't know our own metatype
 
     Q_ASSERT(offset == header->propertyDBusData);
     Q_ASSERT(signatureOffset == header->methodDBusData);

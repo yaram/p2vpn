@@ -285,10 +285,9 @@ bool Moc::parseEnum(EnumDef *def)
             return IncludeState::NoInclude;
     };
     do {
+        handleInclude();
         if (lookup() == RBRACE) // accept trailing comma
             break;
-        if ( handleInclude() == IncludeState::IncludeEnd)
-            continue;
         next(IDENTIFIER);
         def->values += lexem();
         handleInclude();
@@ -1242,9 +1241,10 @@ void Moc::parseSignals(ClassDef *def)
     }
 }
 
-void Moc::createPropertyDef(PropertyDef &propDef)
+void Moc::createPropertyDef(PropertyDef &propDef, int propertyIndex)
 {
     propDef.location = index;
+    propDef.relativeIndex = propertyIndex;
 
     QByteArray type = parseType().name;
     if (type.isEmpty())
@@ -1401,7 +1401,7 @@ void Moc::parseProperty(ClassDef *def)
 {
     next(LPAREN);
     PropertyDef propDef;
-    createPropertyDef(propDef);
+    createPropertyDef(propDef, int(def->propertyList.size()));
     next(RPAREN);
 
     def->propertyList += propDef;
@@ -1495,7 +1495,7 @@ void Moc::parsePrivateProperty(ClassDef *def)
 
     next(COMMA);
 
-    createPropertyDef(propDef);
+    createPropertyDef(propDef, int(def->propertyList.size()));
 
     def->propertyList += propDef;
 }
@@ -2068,7 +2068,7 @@ QJsonObject PropertyDef::toJson() const
     prop[QLatin1String("constant")] = constant;
     prop[QLatin1String("final")] = final;
     prop[QLatin1String("required")] = required;
-
+    prop[QLatin1String("index")] = relativeIndex;
     if (revision > 0)
         prop[QLatin1String("revision")] = revision;
 

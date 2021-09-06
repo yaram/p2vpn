@@ -54,6 +54,7 @@
 #include <QtGui/private/qtguiglobal_p.h>
 
 #include <QtCore/qpointer.h>
+#include <QtCore/qnativeinterface.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -72,7 +73,7 @@ namespace QNativeInterface::Private {
 #if QT_CONFIG(xcb) || defined(Q_CLANG_QDOC)
 struct Q_GUI_EXPORT QXcbScreen
 {
-    QT_DECLARE_NATIVE_INTERFACE(QXcbScreen)
+    QT_DECLARE_NATIVE_INTERFACE(QXcbScreen, 1, QScreen)
     virtual int virtualDesktopNumber() const = 0;
 };
 #endif
@@ -80,13 +81,26 @@ struct Q_GUI_EXPORT QXcbScreen
 #if QT_CONFIG(vsp2) || defined(Q_CLANG_QDOC)
 struct Q_GUI_EXPORT QVsp2Screen
 {
-    QT_DECLARE_NATIVE_INTERFACE(QVsp2Screen)
+    QT_DECLARE_NATIVE_INTERFACE(QVsp2Screen, 1, QScreen)
     virtual int addLayer(int dmabufFd, const QSize &size, const QPoint &position, uint drmPixelFormat, uint bytesPerLine) = 0;
     virtual void setLayerBuffer(int id, int dmabufFd) = 0;
     virtual void setLayerPosition(int id, const QPoint &position) = 0;
     virtual void setLayerAlpha(int id, qreal alpha) = 0;
     virtual bool removeLayer(int id) = 0;
     virtual void addBlendListener(void (*callback)()) = 0;
+};
+#endif
+
+#if defined(Q_OS_WEBOS) || defined(Q_CLANG_QDOC)
+struct Q_GUI_EXPORT QWebOSScreen
+{
+    QT_DECLARE_NATIVE_INTERFACE(QWebOSScreen, 1, QScreen)
+    virtual int addLayer(void *gbm_bo, const QRectF &geometry) = 0;
+    virtual void setLayerBuffer(int id, void *gbm_bo) = 0;
+    virtual void setLayerGeometry(int id, const QRectF &geometry) = 0;
+    virtual void setLayerAlpha(int id, qreal alpha) = 0;
+    virtual bool removeLayer(int id) = 0;
+    virtual void addFlipListener(void (*callback)()) = 0;
 };
 #endif
 

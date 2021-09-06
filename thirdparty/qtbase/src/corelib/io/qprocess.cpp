@@ -43,47 +43,6 @@
 #include <qdebug.h>
 #include <qdir.h>
 #include <qscopedvaluerollback.h>
-#if defined(Q_OS_WIN)
-#include <qtimer.h>
-#endif
-#if defined QPROCESS_DEBUG
-#include <qstring.h>
-#include <ctype.h>
-
-QT_BEGIN_NAMESPACE
-/*
-    Returns a human readable representation of the first \a len
-    characters in \a data.
-*/
-static QByteArray qt_prettyDebug(const char *data, int len, int maxSize)
-{
-    if (!data) return "(null)";
-    QByteArray out;
-    for (int i = 0; i < len && i < maxSize; ++i) {
-        char c = data[i];
-        if (isprint(c)) {
-            out += c;
-        } else switch (c) {
-        case '\n': out += "\\n"; break;
-        case '\r': out += "\\r"; break;
-        case '\t': out += "\\t"; break;
-        default:
-            char buf[5];
-            qsnprintf(buf, sizeof(buf), "\\%3o", c);
-            buf[4] = '\0';
-            out += QByteArray(buf);
-        }
-    }
-
-    if (len < maxSize)
-        out += "...";
-
-    return out;
-}
-
-QT_END_NAMESPACE
-
-#endif
 
 #include "qprocess.h"
 #include "qprocess_p.h"
@@ -91,14 +50,7 @@ QT_END_NAMESPACE
 #include <qbytearray.h>
 #include <qdeadlinetimer.h>
 #include <qcoreapplication.h>
-#include <qsocketnotifier.h>
 #include <qtimer.h>
-
-#ifdef Q_OS_WIN
-#include <qwineventnotifier.h>
-#else
-#include <private/qcore_unix_p.h>
-#endif
 
 #if __has_include(<paths.h>)
 #include <paths.h>
@@ -427,6 +379,8 @@ void QProcessPrivate::Channel::clear()
         Q_ASSERT(process);
         process->stdoutChannel.type = Normal;
         process->stdoutChannel.process = nullptr;
+        break;
+    default:
         break;
     }
 
@@ -845,46 +799,6 @@ QProcessPrivate::~QProcessPrivate()
 /*!
     \internal
 */
-void QProcessPrivate::cleanup()
-{
-    q_func()->setProcessState(QProcess::NotRunning);
-#ifdef Q_OS_WIN
-    if (stdinWriteTrigger) {
-        delete stdinWriteTrigger;
-        stdinWriteTrigger = 0;
-    }
-    if (processFinishedNotifier) {
-        delete processFinishedNotifier;
-        processFinishedNotifier = 0;
-    }
-    if (pid) {
-        CloseHandle(pid->hThread);
-        CloseHandle(pid->hProcess);
-        delete pid;
-        pid = nullptr;
-    }
-#else
-    pid = 0;
-#endif
-
-    if (stateNotifier) {
-        delete stateNotifier;
-        stateNotifier = nullptr;
-    }
-    closeChannel(&stdoutChannel);
-    closeChannel(&stderrChannel);
-    closeChannel(&stdinChannel);
-    destroyPipe(childStartedPipe);
-#ifdef Q_OS_UNIX
-    if (forkfd != -1)
-        qt_safe_close(forkfd);
-    forkfd = -1;
-#endif
-}
-
-/*!
-    \internal
-*/
 void QProcessPrivate::setError(QProcess::ProcessError error, const QString &description)
 {
     processError = error;
@@ -958,6 +872,16 @@ bool QProcessPrivate::openChannels()
     }
 
     return true;
+}
+
+/*!
+    \internal
+*/
+void QProcessPrivate::closeChannels()
+{
+    closeChannel(&stdoutChannel);
+    closeChannel(&stderrChannel);
+    closeChannel(&stdinChannel);
 }
 
 /*!
@@ -1094,29 +1018,6 @@ bool QProcessPrivate::_q_canReadStandardError()
 /*!
     \internal
 */
-bool QProcessPrivate::_q_canWrite()
-{
-    if (writeBuffer.isEmpty()) {
-        if (stdinChannel.notifier)
-            stdinChannel.notifier->setEnabled(false);
-#if defined QPROCESS_DEBUG
-        qDebug("QProcessPrivate::canWrite(), not writing anything (empty write buffer).");
-#endif
-        return false;
-    }
-
-    const bool writeSucceeded = writeToStdin();
-
-    if (writeBuffer.isEmpty() && stdinChannel.closed)
-        closeWriteChannel();
-    else if (stdinChannel.notifier)
-        stdinChannel.notifier->setEnabled(!writeBuffer.isEmpty());
-    return writeSucceeded;
-}
-
-/*!
-    \internal
-*/
 void QProcessPrivate::_q_processDied()
 {
 #if defined QPROCESS_DEBUG
@@ -1211,11 +1112,6 @@ void QProcessPrivate::closeWriteChannel()
     qDebug("QProcessPrivate::closeWriteChannel()");
 #endif
 
-#ifdef Q_OS_WIN
-    // ### Find a better fix, feeding the process little by little
-    // instead.
-    flushPipeWriter();
-#endif
     closeChannel(&stdinChannel);
 }
 
@@ -1373,7 +1269,7 @@ void QProcess::closeWriteChannel()
 {
     Q_D(QProcess);
     d->stdinChannel.closed = true; // closing
-    if (d->writeBuffer.isEmpty())
+    if (bytesToWrite() == 0)
         d->closeWriteChannel();
 }
 
@@ -1928,44 +1824,6 @@ qint64 QProcess::readData(char *data, qint64 maxlen)
     if (d->processState == QProcess::NotRunning)
         return -1;              // EOF
     return 0;
-}
-
-/*! \reimp
-*/
-qint64 QProcess::writeData(const char *data, qint64 len)
-{
-    Q_D(QProcess);
-
-    if (d->stdinChannel.closed) {
-#if defined QPROCESS_DEBUG
-    qDebug("QProcess::writeData(%p \"%s\", %lld) == 0 (write channel closing)",
-           data, qt_prettyDebug(data, len, 16).constData(), len);
-#endif
-        return 0;
-    }
-
-#if defined(Q_OS_WIN)
-    if (!d->stdinWriteTrigger) {
-        d->stdinWriteTrigger = new QTimer;
-        d->stdinWriteTrigger->setSingleShot(true);
-        QObjectPrivate::connect(d->stdinWriteTrigger, &QTimer::timeout,
-                                d, &QProcessPrivate::_q_canWrite);
-    }
-#endif
-
-    d->write(data, len);
-#ifdef Q_OS_WIN
-    if (!d->stdinWriteTrigger->isActive())
-        d->stdinWriteTrigger->start();
-#else
-    if (d->stdinChannel.notifier)
-        d->stdinChannel.notifier->setEnabled(true);
-#endif
-#if defined QPROCESS_DEBUG
-    qDebug("QProcess::writeData(%p \"%s\", %lld) == %lld (written to buffer)",
-           data, qt_prettyDebug(data, len, 16).constData(), len, len);
-#endif
-    return len;
 }
 
 /*!

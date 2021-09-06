@@ -123,10 +123,11 @@
    \snippet code/src_qtestlib_qtestcase.cpp 2
 
    When comparing floating-point types (\c float, \c double, and \c qfloat16),
-   \l qFuzzyCompare() is used for finite values. If qFuzzyIsNull() is true for
-   both values, they are also considered equal. Infinities match if they have
-   the same sign, and any NaN as actual value matches with any NaN as expected
-   value (even though NaN != NaN, even when they're identical).
+   \l {qFuzzyCompare()} is used for finite values. If \l {<QtGlobal>::}{qFuzzyIsNull()}
+   is true for both values, they are also considered equal. Infinities
+   match if they have the same sign, and any NaN as actual value matches
+   with any NaN as expected value (even though NaN != NaN, even when
+   they're identical).
 
    When comparing QList, arrays and initializer lists of the value type
    can be passed as expected value:
@@ -336,6 +337,7 @@
 
    \relates QTest
    \threadsafe
+   \deprecated Use qWarning() instead.
 
    Appends \a message as a warning to the test log. This macro can be used anywhere
    in your tests.
@@ -521,6 +523,10 @@
    point to the working directory from which the compiler is invoked, or only
    absolute paths to the source files are passed to the compiler. Otherwise, the
    absolute path of the source directory cannot be determined.
+
+   \note The \c{QT_TESTCASE_BUILDDIR} macro is also implicitly defined if CMake is used
+   and the QtTest module is linked to the target. You can change the default
+   \c{QT_TESTCASE_BUILDDIR} by setting the QT_TESTCASE_BUILDDIR property on the target.
 
    \note For tests that use the \l QTEST_APPLESS_MAIN() macro to generate a
    \c{main()} function, \c{QFINDTESTDATA} will not attempt to find test data

@@ -61,7 +61,7 @@ QT_BEGIN_NAMESPACE
 
   \value AI_Type
 
-  \value AI_Description
+  \value AI_Message
 
   \value AI_PropertyValue
 
@@ -97,7 +97,7 @@ QT_BEGIN_NAMESPACE
 
   \value LET_Failure
 
-  \value LET_Error
+  \value LET_Message
 
   \value LET_TestCase
 
@@ -106,6 +106,8 @@ QT_BEGIN_NAMESPACE
   \value LET_Benchmark
 
   \value LET_SystemError
+
+  \value LET_SystemOutput
 */
 
 QTestElementAttribute::QTestElementAttribute() = default;
@@ -130,7 +132,7 @@ const char *QTestElementAttribute::name() const
         "failures",
         "errors",
         "type",
-        "description",
+        "message",
         "value",
         "qtestversion",
         "qtversion",
@@ -141,7 +143,10 @@ const char *QTestElementAttribute::name() const
         "value",
         "iterations",
         "time",
-        "timestamp"
+        "timestamp",
+        "hostname",
+        "classname",
+        "skipped"
     };
 
     if (attributeIndex != QTest::AI_Undefined)

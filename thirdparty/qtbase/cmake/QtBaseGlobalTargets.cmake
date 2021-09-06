@@ -3,6 +3,7 @@ qt_path_join(__GlobalConfig_build_dir ${QT_CONFIG_BUILD_DIR} ${__GlobalConfig_pa
 qt_path_join(__GlobalConfig_install_dir ${QT_CONFIG_INSTALL_DIR} ${__GlobalConfig_path_suffix})
 set(__GlobalConfig_install_dir_absolute "${__GlobalConfig_install_dir}")
 set(__qt_bin_dir_absolute "${QT_INSTALL_DIR}/${INSTALL_BINDIR}")
+set(__qt_libexec_dir_absolute "${QT_INSTALL_DIR}/${INSTALL_LIBEXECDIR}")
 if(QT_WILL_INSTALL)
     # Need to prepend the install prefix when doing prefix builds, because the config install dir
     # is relative then.
@@ -11,34 +12,14 @@ if(QT_WILL_INSTALL)
                  ${__GlobalConfig_install_dir_absolute})
     qt_path_join(__qt_bin_dir_absolute
                  ${QT_BUILD_INTERNALS_RELOCATABLE_INSTALL_PREFIX} ${__qt_bin_dir_absolute})
+    qt_path_join(__qt_libexec_dir_absolute
+                 ${QT_BUILD_INTERNALS_RELOCATABLE_INSTALL_PREFIX} ${__qt_libexec_dir_absolute})
 endif()
 # Compute relative path from $qt_prefix/bin dir to global CMake config install dir, to use in the
 # unix-y qt-cmake shell script, to make it work even if the installed Qt is relocated.
 file(RELATIVE_PATH
      __GlobalConfig_relative_path_from_bin_dir_to_cmake_config_dir
      ${__qt_bin_dir_absolute} ${__GlobalConfig_install_dir_absolute})
-
-# Generate and install Qt6 config file.
-qt_internal_get_min_new_policy_cmake_version(min_new_policy_version)
-qt_internal_get_max_new_policy_cmake_version(max_new_policy_version)
-configure_package_config_file(
-    "${PROJECT_SOURCE_DIR}/cmake/QtConfig.cmake.in"
-    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}Config.cmake"
-    INSTALL_DESTINATION "${__GlobalConfig_install_dir}"
-)
-
-write_basic_package_version_file(
-    ${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}ConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY AnyNewerVersion
-)
-
-qt_install(FILES
-    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}Config.cmake"
-    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}ConfigVersion.cmake"
-    DESTINATION "${__GlobalConfig_install_dir}"
-    COMPONENT Devel
-)
 
 # Configure and install the QtBuildInternals package.
 set(__build_internals_path_suffix "${INSTALL_CMAKE_NAMESPACE}BuildInternals")
@@ -91,11 +72,25 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/configure.cmake")
 
 # Do what mkspecs/features/uikit/default_pre.prf does, aka enable sse2 for
 # simulator_and_device_builds.
-if(UIKIT AND NOT QT_UIKIT_SDK)
+
+qt_internal_get_first_osx_arch(__qt_osx_first_arch)
+set(__qt_apple_silicon_arches "arm64;arm64e")
+if((UIKIT AND NOT QT_UIKIT_SDK)
+        OR (MACOS AND QT_IS_MACOS_UNIVERSAL
+            AND __qt_osx_first_arch IN_LIST __qt_apple_silicon_arches))
+    set(QT_FORCE_FEATURE_sse2 ON CACHE INTERNAL "Force enable sse2 due to platform requirements.")
     set(__QtFeature_custom_enabled_cache_variables
         TEST_subarch_sse2
         FEATURE_sse2
         QT_FEATURE_sse2)
+endif()
+
+if(MACOS AND QT_IS_MACOS_UNIVERSAL AND __qt_osx_first_arch STREQUAL "x86_64")
+    set(QT_FORCE_FEATURE_neon ON CACHE INTERNAL "Force enable neon due to platform requirements.")
+    set(__QtFeature_custom_enabled_cache_variables
+        TEST_subarch_neon
+        FEATURE_neon
+        QT_FEATURE_neon)
 endif()
 
 qt_feature_module_end(GlobalConfig OUT_VAR_PREFIX "__GlobalConfig_")
@@ -117,11 +112,16 @@ target_include_directories(GlobalConfigPrivate INTERFACE
 )
 add_library(Qt::GlobalConfigPrivate ALIAS GlobalConfigPrivate)
 
-include(QtPublicTargetsHelpers)
+include(QtPlatformTargetHelpers)
 qt_internal_setup_public_platform_target()
 
 # defines PlatformCommonInternal PlatformModuleInternal PlatformPluginInternal PlatformToolInternal
 include(QtInternalTargets)
+qt_internal_run_common_config_tests()
+
+# Setup sanitizer options for qtbase directory scope based on features computed above.
+qt_internal_set_up_sanitizer_options()
+include("${CMAKE_CURRENT_LIST_DIR}/3rdparty/extra-cmake-modules/modules/ECMEnableSanitizers.cmake")
 
 set(__export_targets Platform
                      GlobalConfig
@@ -142,7 +142,45 @@ qt_internal_export_modern_cmake_config_targets_file(TARGETS ${__export_targets}
                                                     CONFIG_INSTALL_DIR
                                                     ${__GlobalConfig_install_dir})
 
-## Install some QtBase specific CMake files:
+# Save minimum required CMake version to use Qt.
+qt_internal_get_supported_min_cmake_version_for_using_qt(supported_min_version_for_using_qt)
+qt_internal_get_computed_min_cmake_version_for_using_qt(computed_min_version_for_using_qt)
+
+# Get the lower and upper policy range to embed into the Qt6 config file.
+qt_internal_get_min_new_policy_cmake_version(min_new_policy_version)
+qt_internal_get_max_new_policy_cmake_version(max_new_policy_version)
+
+# Generate and install Qt6 config file. Make sure it happens after the global feature evaluation so
+# they can be accessed in the Config file if needed.
+configure_package_config_file(
+    "${PROJECT_SOURCE_DIR}/cmake/QtConfig.cmake.in"
+    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}Config.cmake"
+    INSTALL_DESTINATION "${__GlobalConfig_install_dir}"
+)
+
+configure_file(
+    "${PROJECT_SOURCE_DIR}/cmake/QtConfigExtras.cmake.in"
+    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}ConfigExtras.cmake"
+    @ONLY
+)
+
+write_basic_package_version_file(
+    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}ConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY AnyNewerVersion
+)
+
+qt_install(FILES
+    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}Config.cmake"
+    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}ConfigExtras.cmake"
+    "${__GlobalConfig_build_dir}/${INSTALL_CMAKE_NAMESPACE}ConfigVersion.cmake"
+    DESTINATION "${__GlobalConfig_install_dir}"
+    COMPONENT Devel
+)
+
+# Install internal CMake files.
+# The functions defined inside can not be used in public projects.
+# They can only be used while building Qt itself.
 qt_copy_or_install(FILES
                    cmake/ModuleDescription.json.in
                    cmake/Qt3rdPartyLibraryConfig.cmake.in
@@ -154,7 +192,6 @@ qt_copy_or_install(FILES
                    cmake/QtBuildInformation.cmake
                    cmake/QtCMakeHelpers.cmake
                    cmake/QtCMakeVersionHelpers.cmake
-                   cmake/QtCompatibilityHelpers.cmake
                    cmake/QtCompilerFlags.cmake
                    cmake/QtCompilerOptimization.cmake
                    cmake/QtConfigDependencies.cmake.in
@@ -162,8 +199,6 @@ qt_copy_or_install(FILES
                    cmake/QtDbusHelpers.cmake
                    cmake/QtDocsHelpers.cmake
                    cmake/QtExecutableHelpers.cmake
-                   cmake/QtFeature.cmake
-                   cmake/QtFeatureCommon.cmake
                    cmake/QtFileConfigure.txt.in
                    cmake/QtFindPackageHelpers.cmake
                    cmake/QtFindWrapConfigExtra.cmake.in
@@ -197,7 +232,7 @@ qt_copy_or_install(FILES
                    cmake/QtPrecompiledHeadersHelpers.cmake
                    cmake/QtPriHelpers.cmake
                    cmake/QtPrlHelpers.cmake
-                   cmake/QtPublicTargetsHelpers.cmake
+                   cmake/QtPlatformTargetHelpers.cmake
                    cmake/QtProcessConfigureArgs.cmake
                    cmake/QtQmakeHelpers.cmake
                    cmake/QtResourceHelpers.cmake
@@ -208,21 +243,59 @@ qt_copy_or_install(FILES
                    cmake/QtSeparateDebugInfo.cmake
                    cmake/QtSetup.cmake
                    cmake/QtSimdHelpers.cmake
+                   cmake/QtSingleRepoTargetSetBuildHelpers.cmake
                    cmake/QtStandaloneTestsConfig.cmake.in
                    cmake/QtSyncQtHelpers.cmake
                    cmake/QtTargetHelpers.cmake
                    cmake/QtTestHelpers.cmake
                    cmake/QtToolchainHelpers.cmake
                    cmake/QtToolHelpers.cmake
+                   cmake/QtWasmHelpers.cmake
                    cmake/QtWrapperScriptHelpers.cmake
                    cmake/QtWriteArgsFile.cmake
     DESTINATION "${__GlobalConfig_install_dir}"
 )
 
-file(COPY cmake/QtFeature.cmake DESTINATION "${__GlobalConfig_build_dir}")
+# Install public config.tests files.
+qt_copy_or_install(DIRECTORY
+    "config.tests/static_link_order"
+    DESTINATION "${__GlobalConfig_install_dir}/config.tests"
+)
+
+# Install public CMake files.
+# The functions defined inside can be used in both public projects and while building Qt.
+# Usually we put such functions into Qt6CoreMacros.cmake, but that's getting bloated.
+# These files will be included by Qt6Config.cmake.
+set(__public_cmake_helpers
+    cmake/QtFeature.cmake
+    cmake/QtFeatureCommon.cmake
+    cmake/QtPublicCMakeVersionHelpers.cmake
+    cmake/QtPublicFinalizerHelpers.cmake
+    cmake/QtPublicPluginHelpers.cmake
+    cmake/QtPublicTargetHelpers.cmake
+    cmake/QtPublicWalkLibsHelpers.cmake
+    cmake/QtPublicFindPackageHelpers.cmake
+    cmake/QtPublicDependencyHelpers.cmake
+)
+
+qt_copy_or_install(FILES ${__public_cmake_helpers} DESTINATION "${__GlobalConfig_install_dir}")
+
+# In prefix builds we also need to copy the files into the build config directory, so that the
+# build-dir Qt6Config.cmake finds the files when building examples in-tree.
+if(QT_WILL_INSTALL)
+    foreach(_public_cmake_helper ${__public_cmake_helpers})
+        file(COPY "${_public_cmake_helper}" DESTINATION "${__GlobalConfig_build_dir}")
+    endforeach()
+endif()
 
 # TODO: Check whether this is the right place to install these
-qt_copy_or_install(DIRECTORY cmake/3rdparty DESTINATION "${__GlobalConfig_install_dir}")
+qt_copy_or_install(DIRECTORY "cmake/3rdparty" DESTINATION "${__GlobalConfig_install_dir}")
+
+# In prefix builds we also need to copy the files into the build config directory, so that the
+# build-dir Qt6Config.cmake finds the files when building other repos in a top-level build.
+if(QT_WILL_INSTALL)
+    file(COPY "cmake/3rdparty" DESTINATION "${__GlobalConfig_build_dir}")
+endif()
 
 # Install our custom Find modules, which will be used by the find_dependency() calls
 # inside the generated ModuleDependencies cmake files.

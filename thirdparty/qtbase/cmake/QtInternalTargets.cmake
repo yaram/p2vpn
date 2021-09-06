@@ -1,7 +1,7 @@
 
 function(qt_internal_set_warnings_are_errors_flags target)
     set(flags "")
-    if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND NOT MSVC)
         # Regular clang 3.0+
         if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "3.0.0")
             list(APPEND flags -Werror -Wno-error=\#warnings -Wno-error=deprecated-declarations)
@@ -48,7 +48,8 @@ function(qt_internal_set_warnings_are_errors_flags target)
         if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "11.0.0" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.2.0")
             # GCC 11.1 has a regression in the integrated preprocessor, so disable it as a workaround (QTBUG-93360)
             # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=100796
-            list(APPEND flags -no-integrated-cpp)
+            # This in turn triggers a fallthrough warning in cborparser.c, so we disable this warning.
+            list(APPEND flags -no-integrated-cpp -Wno-implicit-fallthrough)
         endif()
 
         # Work-around for bug https://code.google.com/p/android/issues/detail?id=58135
@@ -70,10 +71,9 @@ function(qt_internal_set_warnings_are_errors_flags target)
             endif()
         endif()
     elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-        # In qmake land, currently warnings as errors are only enabled for
-        # MSVC 2012, 2013, 2015.
-        # Respectively MSVC_VERRSIONs are: 1700-1799, 1800-1899, 1900-1909.
-        if(MSVC_VERSION GREATER_EQUAL 1700 AND MSVC_VERSION LESS_EQUAL 1909)
+        # Only enable for versions of MSVC that are known to work
+        # 1929 is Visual Studio 2019 version 16.0
+        if(MSVC_VERSION LESS_EQUAL 1929)
             list(APPEND flags /WX)
         endif()
     endif()
@@ -91,6 +91,7 @@ endfunction()
 
 add_library(PlatformCommonInternal INTERFACE)
 add_library(Qt::PlatformCommonInternal ALIAS PlatformCommonInternal)
+target_link_libraries(PlatformCommonInternal INTERFACE Platform)
 
 add_library(PlatformModuleInternal INTERFACE)
 add_library(Qt::PlatformModuleInternal ALIAS PlatformModuleInternal)
@@ -324,8 +325,22 @@ function(qt_handle_apple_app_extension_api_only)
         # Build Qt libraries with -fapplication-extension. Needed to avoid linker warnings
         # transformed into errors on darwin platforms.
         set(flags "-fapplication-extension")
-        set(genex_condition "$<NOT:$<BOOL:$<TARGET_PROPERTY:QT_NO_APP_EXTENSION_ONLY_API>>>")
-        set(flags "$<${genex_condition}:${flags}>")
+
+        # The flags should only be applied to internal Qt libraries like modules and plugins.
+        # The reason why we use a custom property to apply the flags is because there's no other
+        # way to prevent the link options spilling out into user projects if the target that links
+        # against PlatformXInternal is a static library.
+        # The exported static library's INTERFACE_LINK_LIBRARIES property would contain
+        # $<LINK_ONLY:PlatformXInternal> and PlatformXInternal's INTERFACE_LINK_OPTIONS would be
+        # applied to a user project target.
+        # So to contain the spilling out of the flags, we ensure the link options are only added
+        # to internal Qt libraries that are marked with the property.
+        set(not_disabled "$<NOT:$<BOOL:$<TARGET_PROPERTY:QT_NO_APP_EXTENSION_ONLY_API>>>")
+        set(is_qt_internal_library "$<BOOL:$<TARGET_PROPERTY:_qt_is_internal_library>>")
+
+        set(condition "$<AND:${not_disabled},${is_qt_internal_library}>")
+
+        set(flags "$<${condition}:${flags}>")
         target_compile_options(PlatformModuleInternal INTERFACE ${flags})
         target_link_options(PlatformModuleInternal INTERFACE ${flags})
         target_compile_options(PlatformPluginInternal INTERFACE ${flags})

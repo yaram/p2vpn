@@ -58,7 +58,8 @@ class Q_GUI_EXPORT QInputDevice : public QObject
     Q_PROPERTY(Capabilities capabilities READ capabilities CONSTANT)
     Q_PROPERTY(qint64 systemId READ systemId CONSTANT)
     Q_PROPERTY(QString seatName READ seatName CONSTANT)
-    Q_PROPERTY(QRect availableVirtualGeometry READ availableVirtualGeometry NOTIFY availableVirtualGeometryChanged)
+    Q_PROPERTY(QRect availableVirtualGeometry READ availableVirtualGeometry
+               NOTIFY availableVirtualGeometryChanged)
 
 public:
     enum class DeviceType {
@@ -83,6 +84,7 @@ public:
         Velocity = 0x0008,
         NormalizedPosition = 0x0020,
         MouseEmulation = 0x0040,
+        PixelScroll = 0x0080,
         Scroll      = 0x0100,
         Hover       = 0x0200,
         Rotation    = 0x0400,

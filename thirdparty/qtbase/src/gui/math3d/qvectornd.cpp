@@ -56,6 +56,10 @@ QT_BEGIN_NAMESPACE
     \ingroup painting-3D
     \inmodule QtGui
 
+    Vectors are one of the main building blocks of 2D representation and
+    drawing. They consist of two finite floating-point coordinates,
+    traditionally called x and y.
+
     The QVector2D class can also be used to represent vertices in 2D space.
     We therefore do not need to provide a separate vertex class.
 
@@ -80,6 +84,7 @@ QT_BEGIN_NAMESPACE
     \fn QVector2D::QVector2D(float xpos, float ypos)
 
     Constructs a vector with coordinates (\a xpos, \a ypos).
+    Both coordinates must be finite.
 */
 
 /*!
@@ -146,7 +151,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn void QVector2D::setX(float x)
 
-    Sets the x coordinate of this point to the given \a x coordinate.
+    Sets the x coordinate of this point to the given finite \a x coordinate.
 
     \sa x(), setY()
 */
@@ -154,7 +159,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn void QVector2D::setY(float y)
 
-    Sets the y coordinate of this point to the given \a y coordinate.
+    Sets the y coordinate of this point to the given finite \a y coordinate.
 
     \sa y(), setX()
 */
@@ -260,24 +265,29 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn QVector2D &QVector2D::operator*=(float factor)
 
-    Multiplies this vector's coordinates by the given \a factor, and
+    Multiplies this vector's coordinates by the given finite \a factor and
     returns a reference to this vector.
 
-    \sa operator/=()
+    \sa operator/=(), operator*()
 */
 
 /*!
     \fn QVector2D &QVector2D::operator*=(QVector2D vector)
 
-    Multiplies the components of this vector by the corresponding
-    components in \a vector.
+    Multiplies each component of this vector by the corresponding component of
+    \a vector and returns a reference to this vector.
+
+    \note This is not a cross product of this vector with \a vector. (Its
+    components add up to the dot product of this vector and \a vector.)
+
+    \sa operator/=(), operator*()
 */
 
 /*!
     \fn QVector2D &QVector2D::operator/=(float divisor)
 
-    Divides this vector's coordinates by the given \a divisor, and
-    returns a reference to this vector.
+    Divides this vector's coordinates by the given \a divisor and returns a
+    reference to this vector. The \a divisor must not be either zero or NaN.
 
     \sa operator*=()
 */
@@ -286,10 +296,12 @@ QT_BEGIN_NAMESPACE
     \fn QVector2D &QVector2D::operator/=(QVector2D vector)
     \since 5.5
 
-    Divides the components of this vector by the corresponding
-    components in \a vector.
+    Divides each component of this vector by the corresponding component of \a
+    vector and returns a reference to this vector.
 
-    \sa operator*=()
+    The \a vector must have no component that is either zero or NaN.
+
+    \sa operator*=(), operator/()
 */
 
 /*!
@@ -333,7 +345,7 @@ QT_BEGIN_NAMESPACE
 /*! //! friend
     \fn const QVector2D QVector2D::operator*(float factor, QVector2D vector)
 
-    Returns a copy of the given \a vector,  multiplied by the given \a factor.
+    Returns a copy of the given \a vector, multiplied by the given finite \a factor.
 
     \sa QVector2D::operator*=()
 */
@@ -341,7 +353,7 @@ QT_BEGIN_NAMESPACE
 /*! //! friend
     \fn const QVector2D QVector2D::operator*(QVector2D vector, float factor)
 
-    Returns a copy of the given \a vector,  multiplied by the given \a factor.
+    Returns a copy of the given \a vector, multiplied by the given finite \a factor.
 
     \sa QVector2D::operator*=()
 */
@@ -349,16 +361,21 @@ QT_BEGIN_NAMESPACE
 /*! //! friend
     \fn const QVector2D QVector2D::operator*(QVector2D v1, QVector2D v2)
 
-    Multiplies the components of \a v1 by the corresponding
-    components in \a v2.
+    Returns the QVector2D object formed by multiplying each component of \a v1
+    by the corresponding component of \a v2.
+
+    \note This is not a cross product of \a v1 and \a v2 in any sense.
+    (Its components add up to the dot product of \a v1 and \a v2.)
+
+    \sa QVector2D::operator*=()
 */
 
 /*! //! friend
     \fn const QVector2D QVector2D::operator-(QVector2D vector)
     \overload
 
-    Returns a QVector2D object that is formed by changing the sign of
-    the components of the given \a vector.
+    Returns a QVector2D object that is formed by changing the sign of each
+    component of the given \a vector.
 
     Equivalent to \c {QVector2D(0,0) - vector}.
 */
@@ -366,8 +383,10 @@ QT_BEGIN_NAMESPACE
 /*! //! friend
     \fn const QVector2D QVector2D::operator/(QVector2D vector, float divisor)
 
-    Returns the QVector2D object formed by dividing all three components of
-    the given \a vector by the given \a divisor.
+    Returns the QVector2D object formed by dividing each component of the given
+    \a vector by the given \a divisor.
+
+    The \a divisor must not be either zero or NaN.
 
     \sa QVector2D::operator/=()
 */
@@ -376,8 +395,10 @@ QT_BEGIN_NAMESPACE
     \fn const QVector2D QVector2D::operator/(QVector2D vector, QVector2D divisor)
     \since 5.5
 
-    Returns the QVector2D object formed by dividing components of the given
-    \a vector by a respective components of the given \a divisor.
+    Returns the QVector2D object formed by dividing each component of the given
+    \a vector by the corresponding component of the given \a divisor.
+
+    The \a divisor must have no component that is either zero or NaN.
 
     \sa QVector2D::operator/=()
 */
@@ -417,6 +438,7 @@ bool qFuzzyCompare(QVector2D v1, QVector2D v2) noexcept
     \fn QPoint QVector2D::toPoint() const
 
     Returns the QPoint form of this 2D vector.
+    Each coordinate is rounded to the nearest integer.
 
     \sa toPointF(), toVector3D()
 */
@@ -481,6 +503,7 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
     float x, y;
     stream >> x;
     stream >> y;
+    Q_ASSERT(qIsFinite(x) && qIsFinite(y));
     vector.setX(x);
     vector.setY(y);
     return stream;
@@ -502,8 +525,8 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
     \inmodule QtGui
 
     Vectors are one of the main building blocks of 3D representation and
-    drawing. They consist of three coordinates, traditionally called
-    x, y, and z.
+    drawing. They consist of three finite floating-point coordinates,
+    traditionally called x, y, and z.
 
     The QVector3D class can also be used to represent vertices in 3D space.
     We therefore do not need to provide a separate vertex class.
@@ -529,6 +552,7 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
     \fn QVector3D::QVector3D(float xpos, float ypos, float zpos)
 
     Constructs a vector with coordinates (\a xpos, \a ypos, \a zpos).
+    All parameters must be finite.
 */
 
 /*!
@@ -560,7 +584,7 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
     \fn QVector3D::QVector3D(QVector2D vector, float zpos)
 
     Constructs a 3D vector from the specified 2D \a vector. The z
-    coordinate is set to \a zpos.
+    coordinate is set to \a zpos, which must be finite.
 
     \sa toVector2D()
 */
@@ -613,7 +637,7 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
 /*!
     \fn void QVector3D::setX(float x)
 
-    Sets the x coordinate of this point to the given \a x coordinate.
+    Sets the x coordinate of this point to the given finite \a x coordinate.
 
     \sa x(), setY(), setZ()
 */
@@ -621,7 +645,7 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
 /*!
     \fn void QVector3D::setY(float y)
 
-    Sets the y coordinate of this point to the given \a y coordinate.
+    Sets the y coordinate of this point to the given finite \a y coordinate.
 
     \sa y(), setX(), setZ()
 */
@@ -629,7 +653,7 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
 /*!
     \fn void QVector3D::setZ(float z)
 
-    Sets the z coordinate of this point to the given \a z coordinate.
+    Sets the z coordinate of this point to the given finite \a z coordinate.
 
     \sa z(), setX(), setY()
 */
@@ -695,42 +719,45 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
 /*!
     \fn QVector3D &QVector3D::operator*=(float factor)
 
-    Multiplies this vector's coordinates by the given \a factor, and
+    Multiplies this vector's coordinates by the given finite \a factor and
     returns a reference to this vector.
 
-    \sa operator/=()
+    \sa operator/=(), operator*()
 */
 
 /*!
     \fn QVector3D &QVector3D::operator*=(QVector3D vector)
     \overload
 
-    Multiplies the components of this vector by the corresponding
-    components in \a vector.
+    Multiplies each component of this vector by the corresponding component in
+    \a vector and returns a reference to this vector.
 
-    Note: this is not the same as the crossProduct() of this
-    vector and \a vector.
+    Note: this is not the same as the crossProduct() of this vector and
+    \a vector. (Its components add up to the dot product of this vector and
+    \a vector.)
 
-    \sa crossProduct()
+    \sa crossProduct(), operator/=(), operator*()
 */
 
 /*!
     \fn QVector3D &QVector3D::operator/=(float divisor)
 
-    Divides this vector's coordinates by the given \a divisor, and
-    returns a reference to this vector.
+    Divides this vector's coordinates by the given \a divisor, and returns a
+    reference to this vector. The \a divisor must not be either zero or NaN.
 
-    \sa operator*=()
+    \sa operator*=(), operator/()
 */
 
 /*!
     \fn QVector3D &QVector3D::operator/=(QVector3D vector)
     \since 5.5
 
-    Divides the components of this vector by the corresponding
-    components in \a vector.
+    Divides each component of this vector by the corresponding component in \a
+    vector and returns a reference to this vector.
 
-    \sa operator*=()
+    The \a vector must have no component that is either zero or NaN.
+
+    \sa operator*=(), operator/()
 */
 
 /*!
@@ -742,8 +769,9 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
 /*!
     \fn QVector3D QVector3D::crossProduct(QVector3D v1, QVector3D v2)
 
-    Returns the cross-product of vectors \a v1 and \a v2, which corresponds
-    to the normal vector of a plane defined by \a v1 and \a v2.
+    Returns the cross-product of vectors \a v1 and \a v2, which is normal to the
+    plane spanned by \a v1 and \a v2. It will be zero if the two vectors are
+    parallel.
 
     \sa normal()
 */
@@ -751,8 +779,8 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
 /*!
     \fn QVector3D QVector3D::normal(QVector3D v1, QVector3D v2)
 
-    Returns the normal vector of a plane defined by vectors \a v1 and \a v2,
-    normalized to be a unit vector.
+    Returns the unit normal vector of a plane spanned by vectors \a v1 and \a
+    v2, which must not be parallel to one another.
 
     Use crossProduct() to compute the cross-product of \a v1 and \a v2 if you
     do not need the result to be normalized to a unit vector.
@@ -763,8 +791,8 @@ QDataStream &operator>>(QDataStream &stream, QVector2D &vector)
 /*!
     \fn QVector3D QVector3D::normal(QVector3D v1, QVector3D v2, QVector3D v3)
 
-    Returns the normal vector of a plane defined by vectors
-    \a v2 - \a v1 and \a v3 - \a v1, normalized to be a unit vector.
+    Returns the unit normal vector of a plane spanned by vectors \a v2 - \a v1
+    and \a v3 - \a v1, which must not be parallel to one another.
 
     Use crossProduct() to compute the cross-product of \a v2 - \a v1 and
     \a v3 - \a v1 if you do not need the result to be normalized to a
@@ -922,7 +950,7 @@ QVector3D QVector3D::unproject(const QMatrix4x4 &modelView, const QMatrix4x4 &pr
 /*! //! friend
     \fn const QVector3D QVector3D::operator*(float factor, QVector3D vector)
 
-    Returns a copy of the given \a vector,  multiplied by the given \a factor.
+    Returns a copy of the given \a vector, multiplied by the given finite \a factor.
 
     \sa QVector3D::operator*=()
 */
@@ -930,7 +958,7 @@ QVector3D QVector3D::unproject(const QMatrix4x4 &modelView, const QMatrix4x4 &pr
 /*! //! friend
     \fn const QVector3D QVector3D::operator*(QVector3D vector, float factor)
 
-    Returns a copy of the given \a vector,  multiplied by the given \a factor.
+    Returns a copy of the given \a vector, multiplied by the given finite \a factor.
 
     \sa QVector3D::operator*=()
 */
@@ -938,9 +966,11 @@ QVector3D QVector3D::unproject(const QMatrix4x4 &modelView, const QMatrix4x4 &pr
 /*! //! friend
     \fn const QVector3D QVector3D::operator*(QVector3D v1, QVector3D v2)
 
-    Multiplies the components of \a v1 by the corresponding components in \a v2.
+    Returns the QVector3D object formed by multiplying each component of \a v1
+    by the corresponding component of \a v2.
 
     \note This is not the same as the crossProduct() of \a v1 and \a v2.
+    (Its components add up to the dot product of \a v1 and \a v2.)
 
     \sa QVector3D::crossProduct()
 */
@@ -949,8 +979,8 @@ QVector3D QVector3D::unproject(const QMatrix4x4 &modelView, const QMatrix4x4 &pr
     \fn const QVector3D QVector3D::operator-(QVector3D vector)
     \overload
 
-    Returns a QVector3D object that is formed by changing the sign of
-    all three components of the given \a vector.
+    Returns a QVector3D object that is formed by changing the sign of each
+    component of the given \a vector.
 
     Equivalent to \c {QVector3D(0,0,0) - vector}.
 */
@@ -958,8 +988,10 @@ QVector3D QVector3D::unproject(const QMatrix4x4 &modelView, const QMatrix4x4 &pr
 /*! //! friend
     \fn const QVector3D QVector3D::operator/(QVector3D vector, float divisor)
 
-    Returns the QVector3D object formed by dividing all three components of
-    the given \a vector by the given \a divisor.
+    Returns the QVector3D object formed by dividing each component of the given
+    \a vector by the given \a divisor.
+
+    The \a divisor must not be either zero or NaN.
 
     \sa QVector3D::operator/=()
 */
@@ -968,8 +1000,10 @@ QVector3D QVector3D::unproject(const QMatrix4x4 &modelView, const QMatrix4x4 &pr
     \fn const QVector3D QVector3D::operator/(QVector3D vector, QVector3D divisor)
     \since 5.5
 
-    Returns the QVector3D object formed by dividing components of the given
-    \a vector by a respective components of the given \a divisor.
+    Returns the QVector3D object formed by dividing each component of the given
+    \a vector by the corresponding component of the given \a divisor.
+
+    The \a divisor must have no component that is either zero or NaN.
 
     \sa QVector3D::operator/=()
 */
@@ -1014,8 +1048,8 @@ bool qFuzzyCompare(QVector3D v1, QVector3D v2) noexcept
 /*!
     \fn QPoint QVector3D::toPoint() const
 
-    Returns the QPoint form of this 3D vector. The z coordinate
-    is dropped.
+    Returns the QPoint form of this 3D vector. The z coordinate is dropped. The
+    x and y coordinates are rounded to nearest integers.
 
     \sa toPointF(), toVector2D()
 */
@@ -1100,6 +1134,7 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
     stream >> x;
     stream >> y;
     stream >> z;
+    Q_ASSERT(qIsFinite(x) && qIsFinite(y) && qIsFinite(z));
     vector.setX(x);
     vector.setY(y);
     vector.setZ(z);
@@ -1120,6 +1155,10 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
     \since 4.6
     \ingroup painting-3D
     \inmodule QtGui
+
+    Vectors are one of the main building blocks of 4D affine representations of
+    3D space. They consist of four finite floating-point coordinates,
+    traditionally called x, y, z and w.
 
     The QVector4D class can also be used to represent vertices in 4D space.
     We therefore do not need to provide a separate vertex class.
@@ -1145,6 +1184,7 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
     \fn QVector4D::QVector4D(float xpos, float ypos, float zpos, float wpos)
 
     Constructs a vector with coordinates (\a xpos, \a ypos, \a zpos, \a wpos).
+    All parameters must be finite.
 */
 
 /*!
@@ -1176,7 +1216,8 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
     \fn QVector4D::QVector4D(QVector2D vector, float zpos, float wpos)
 
     Constructs a 4D vector from the specified 2D \a vector. The z
-    and w coordinates are set to \a zpos and \a wpos respectively.
+    and w coordinates are set to \a zpos and \a wpos respectively,
+    each of which must be finite.
 
     \sa toVector2D()
 */
@@ -1198,7 +1239,7 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
     \fn QVector4D::QVector4D(QVector3D vector, float wpos)
 
     Constructs a 4D vector from the specified 3D \a vector. The w
-    coordinate is set to \a wpos.
+    coordinate is set to \a wpos, which must be finite.
 
     \sa toVector3D()
 */
@@ -1247,7 +1288,7 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
 /*!
     \fn void QVector4D::setX(float x)
 
-    Sets the x coordinate of this point to the given \a x coordinate.
+    Sets the x coordinate of this point to the given finite \a x coordinate.
 
     \sa x(), setY(), setZ(), setW()
 */
@@ -1255,7 +1296,7 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
 /*!
     \fn void QVector4D::setY(float y)
 
-    Sets the y coordinate of this point to the given \a y coordinate.
+    Sets the y coordinate of this point to the given finite \a y coordinate.
 
     \sa y(), setX(), setZ(), setW()
 */
@@ -1263,7 +1304,7 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
 /*!
     \fn void QVector4D::setZ(float z)
 
-    Sets the z coordinate of this point to the given \a z coordinate.
+    Sets the z coordinate of this point to the given finite \a z coordinate.
 
     \sa z(), setX(), setY(), setW()
 */
@@ -1271,7 +1312,7 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
 /*!
     \fn void QVector4D::setW(float w)
 
-    Sets the w coordinate of this point to the given \a w coordinate.
+    Sets the w coordinate of this point to the given finite \a w coordinate.
 
     \sa w(), setX(), setY(), setZ()
 */
@@ -1355,24 +1396,26 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
 /*!
     \fn QVector4D &QVector4D::operator*=(float factor)
 
-    Multiplies this vector's coordinates by the given \a factor, and
+    Multiplies this vector's coordinates by the given finite \a factor, and
     returns a reference to this vector.
 
-    \sa operator/=()
+    \sa operator/=(), operator*()
 */
 
 /*!
     \fn QVector4D &QVector4D::operator*=(QVector4D vector)
 
-    Multiplies the components of this vector by the corresponding
-    components in \a vector.
+    Multiplies each component of this vector by the corresponding component of
+    \a vector and returns a reference to this vector.
+
+    \sa operator/=(), operator*()
 */
 
 /*!
     \fn QVector4D &QVector4D::operator/=(float divisor)
 
-    Divides this vector's coordinates by the given \a divisor, and
-    returns a reference to this vector.
+    Divides this vector's coordinates by the given \a divisor, and returns a
+    reference to this vector. The \a divisor must not be either zero or NaN.
 
     \sa operator*=()
 */
@@ -1381,10 +1424,12 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
     \fn QVector4D &QVector4D::operator/=(QVector4D vector)
     \since 5.5
 
-    Divides the components of this vector by the corresponding
-    components in \a vector.
+    Divides each component of this vector by the corresponding component of \a
+    vector and returns a reference to this vector.
 
-    \sa operator*=()
+    The \a vector must have no component that is either zero or NaN.
+
+    \sa operator*=(), operator/()
 */
 
 /*!
@@ -1444,8 +1489,11 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
 /*! //! friend
     \fn const QVector4D QVector4D::operator*(QVector4D v1, QVector4D v2)
 
-    Returns the vector consisting of the multiplication of the
-    components from \a v1 and \a v2.
+    Returns the QVector4D object formed by multiplying each component of \a v1
+    by the corresponding component of \a v2.
+
+    \note This is not a cross product of \a v1 and \a v2 in any sense.
+    (Its components add up to the dot product of \a v1 and \a v2.)
 
     \sa QVector4D::operator*=()
 */
@@ -1463,8 +1511,10 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
 /*! //! friend
     \fn const QVector4D QVector4D::operator/(QVector4D vector, float divisor)
 
-    Returns the QVector4D object formed by dividing all four components of
-    the given \a vector by the given \a divisor.
+    Returns the QVector4D object formed by dividing each component of the given
+    \a vector by the given \a divisor.
+
+    The \a divisor must not be either zero or NaN.
 
     \sa QVector4D::operator/=()
 */
@@ -1473,8 +1523,10 @@ QDataStream &operator>>(QDataStream &stream, QVector3D &vector)
     \fn const QVector4D QVector4D::operator/(QVector4D vector, QVector4D divisor)
     \since 5.5
 
-    Returns the QVector4D object formed by dividing components of the given
-    \a vector by a respective components of the given \a divisor.
+    Returns the QVector4D object formed by dividing each component of the given
+    \a vector by the corresponding component of the given \a divisor.
+
+    The \a divisor must have no component that is either zero or NaN.
 
     \sa QVector4D::operator/=()
 */
@@ -1539,8 +1591,8 @@ bool qFuzzyCompare(QVector4D v1, QVector4D v2) noexcept
 /*!
     \fn QPoint QVector4D::toPoint() const
 
-    Returns the QPoint form of this 4D vector. The z and w coordinates
-    are dropped.
+    Returns the QPoint form of this 4D vector. The z and w coordinates are
+    dropped. The x and y coordinates are rounded to nearest integers.
 
     \sa toPointF(), toVector2D()
 */
@@ -1611,6 +1663,7 @@ QDataStream &operator>>(QDataStream &stream, QVector4D &vector)
     stream >> y;
     stream >> z;
     stream >> w;
+    Q_ASSERT(qIsFinite(x) && qIsFinite(y) && qIsFinite(z) && qIsFinite(w));
     vector.setX(x);
     vector.setY(y);
     vector.setZ(z);

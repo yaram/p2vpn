@@ -64,6 +64,7 @@ QT_BEGIN_NAMESPACE
 static_assert(sizeof(QMutableTouchEvent) == sizeof(QTouchEvent));
 static_assert(sizeof(QMutableSinglePointEvent) == sizeof(QSinglePointEvent));
 static_assert(sizeof(QMouseEvent) == sizeof(QSinglePointEvent));
+static_assert(sizeof(QVector2D) == sizeof(quint64));
 
 /*!
     \class QEnterEvent
@@ -98,55 +99,55 @@ QEnterEvent::~QEnterEvent()
 
 /*!
    \fn QPoint QEnterEvent::globalPos() const
-   \deprecated Use globalPosition() instead.
+   \deprecated [6.0] Use globalPosition() instead.
 
    Returns the global position of the mouse cursor \e{at the time of the event}.
 */
 /*!
    \fn int QEnterEvent::globalX() const
-   \deprecated Use globalPosition().x() instead.
+   \deprecated [6.0] Use globalPosition().x() instead.
 
    Returns the global position on the X-axis of the mouse cursor \e{at the time of the event}.
 */
 /*!
    \fn int QEnterEvent::globalY() const
-   \deprecated Use globalPosition().y() instead.
+   \deprecated [6.0] Use globalPosition().y() instead.
 
    Returns the global position on the Y-axis of the mouse cursor \e{at the time of the event}.
 */
 /*!
    \fn QPointF QEnterEvent::localPos() const
-   \deprecated Use position() instead.
+   \deprecated [6.0] Use position() instead.
 
    Returns the mouse cursor's position relative to the receiving widget.
 */
 /*!
    \fn QPoint QEnterEvent::pos() const
-   \deprecated Use position().toPoint() instead.
+   \deprecated [6.0] Use position().toPoint() instead.
 
    Returns the position of the mouse cursor relative to the receiving widget.
 */
 /*!
    \fn QPointF QEnterEvent::screenPos() const
-   \deprecated Use globalPosition() instead.
+   \deprecated [6.0] Use globalPosition() instead.
 
    Returns the position of the mouse cursor relative to the receiving screen.
 */
 /*!
    \fn QPointF QEnterEvent::windowPos() const
-   \deprecated Use scenePosition() instead.
+   \deprecated [6.0] Use scenePosition() instead.
 
    Returns the position of the mouse cursor relative to the receiving window.
 */
 /*!
    \fn int QEnterEvent::x() const
-   \deprecated Use position().x() instead.
+   \deprecated [6.0] Use position().x() instead.
 
    Returns the x position of the mouse cursor relative to the receiving widget.
 */
 /*!
    \fn int QEnterEvent::y() const
-   \deprecated Use position().y() instead.
+   \deprecated [6.0] Use position().y() instead.
 
    Returns the y position of the mouse cursor relative to the receiving widget.
 */
@@ -786,7 +787,7 @@ QMouseEvent::~QMouseEvent()
 
 /*!
     \since 5.3
-    \deprecated Use pointingDevice() instead.
+    \deprecated [6.0] Use pointingDevice() instead.
 
     Returns information about the mouse event source.
 
@@ -825,7 +826,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn QPointF QMouseEvent::localPos() const
-    \deprecated Use position() instead.
+    \deprecated [6.0] Use position() instead.
 
     \since 5.0
 
@@ -853,7 +854,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn QPointF QMouseEvent::windowPos() const
-    \deprecated Use scenePosition() instead.
+    \deprecated [6.0] Use scenePosition() instead.
 
     \since 5.0
 
@@ -869,7 +870,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn QPointF QMouseEvent::screenPos() const
-    \deprecated Use globalPosition() instead.
+    \deprecated [6.0] Use globalPosition() instead.
 
     \since 5.0
 
@@ -894,7 +895,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn QPoint QMouseEvent::globalPos() const
-    \deprecated Use globalPosition().toPoint() instead.
+    \deprecated [6.0] Use globalPosition().toPoint() instead.
 
     Returns the global position of the mouse cursor \e{at the time
     of the event}. This is important on asynchronous window systems
@@ -908,7 +909,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn int QMouseEvent::x() const
-    \deprecated Use position().x() instead.
+    \deprecated [6.0] Use position().x() instead.
 
     Returns the x position of the mouse cursor, relative to the
     widget that received the event.
@@ -918,7 +919,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn int QMouseEvent::y() const
-    \deprecated Use position().y() instead.
+    \deprecated [6.0] Use position().y() instead.
 
     Returns the y position of the mouse cursor, relative to the
     widget that received the event.
@@ -928,7 +929,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn int QMouseEvent::globalX() const
-    \deprecated Use globalPosition().x() instead.
+    \deprecated [6.0] Use globalPosition().x() instead.
 
     Returns the global x position of the mouse cursor at the time of
     the event.
@@ -938,7 +939,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn int QMouseEvent::globalY() const
-    \deprecated Use globalPosition().y() instead.
+    \deprecated [6.0] Use globalPosition().y() instead.
 
     Returns the global y position of the mouse cursor at the time of
     the event.
@@ -996,7 +997,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn QPoint QHoverEvent::pos() const
-    \deprecated Use position().toPoint() instead.
+    \deprecated [6.0] Use position().toPoint() instead.
 
     Returns the position of the mouse cursor, relative to the widget
     that received the event.
@@ -1022,7 +1023,7 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 
 /*!
     \fn const QPointF &QHoverEvent::posF() const
-    \deprecated Use position() instead.
+    \deprecated [6.0] Use position() instead.
 
     Returns the position of the mouse cursor, relative to the widget
     that received the event.
@@ -1114,7 +1115,7 @@ QHoverEvent::~QHoverEvent()
 /*!
     \fn Qt::MouseEventSource QWheelEvent::source() const
     \since 5.5
-    \deprecated Use pointingDevice() instead.
+    \deprecated [6.0] Use pointingDevice() instead.
 
     Returns information about the wheel event source.
 
@@ -1792,7 +1793,7 @@ QPlatformSurfaceEvent::~QPlatformSurfaceEvent()
 
 /*!
     \fn const QRegion &QExposeEvent::region() const
-    \deprecated Use QPaintEvent instead.
+    \deprecated [6.0] Use QPaintEvent instead.
 
     Returns the window area that has been exposed. The region is given in local coordinates.
 */
@@ -1952,11 +1953,6 @@ QIconDragEvent::~QIconDragEvent()
 
     When this event occurs it is customary to show a QMenu with a
     context menu, if this is relevant to the context.
-
-    Context menu events contain a special accept flag that indicates
-    whether the receiver accepted the event. If the event handler does
-    not accept the event then, if possible, whatever triggered the event will be
-    handled as a regular input event.
 */
 
 #ifndef QT_NO_CONTEXTMENU
@@ -2629,7 +2625,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn QPoint QTabletEvent::pos() const
-    \deprecated Use position().toPoint() instead.
+    \deprecated [6.0] Use position().toPoint() instead.
 
     Returns the position of the device, relative to the widget that
     received the event.
@@ -2642,7 +2638,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn int QTabletEvent::x() const
-    \deprecated Use position().x() instead.
+    \deprecated [6.0] Use position().x() instead.
 
     Returns the x position of the device, relative to the widget that
     received the event.
@@ -2652,7 +2648,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn int QTabletEvent::y() const
-    \deprecated Use position().y() instead.
+    \deprecated [6.0] Use position().y() instead.
 
     Returns the y position of the device, relative to the widget that
     received the event.
@@ -2674,7 +2670,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn QPoint QTabletEvent::globalPos() const
-    \deprecated Use globalPosition().toPoint() instead.
+    \deprecated [6.0] Use globalPosition().toPoint() instead.
 
     Returns the global position of the device \e{at the time of the
     event}. This is important on asynchronous windows systems like X11;
@@ -2687,7 +2683,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn int QTabletEvent::globalX() const
-    \deprecated Use globalPosition().x() instead.
+    \deprecated [6.0] Use globalPosition().x() instead.
 
     Returns the global x position of the mouse pointer at the time of
     the event.
@@ -2697,7 +2693,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn int QTabletEvent::globalY() const
-    \deprecated Use globalPosition().y() instead.
+    \deprecated [6.0] Use globalPosition().y() instead.
 
     Returns the global y position of the tablet device at the time of
     the event.
@@ -2707,7 +2703,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn qint64 QTabletEvent::uniqueId() const
-    \deprecated Use pointingDevice().uniqueId() instead.
+    \deprecated [6.0] Use pointingDevice().uniqueId() instead.
 
     Returns a unique ID for the current device, making it possible
     to differentiate between multiple devices being used at the same
@@ -2731,7 +2727,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn const QPointF &QTabletEvent::posF() const
-    \deprecated Use position() instead.
+    \deprecated [6.0] Use position() instead.
 
     Returns the position of the device, relative to the widget that
     received the event.
@@ -2744,7 +2740,7 @@ QTabletEvent::~QTabletEvent()
 
 /*!
     \fn const QPointF &QTabletEvent::globalPosF() const
-    \deprecated Use globalPosition() instead.
+    \deprecated [6.0] Use globalPosition() instead.
     Returns the global position of the device \e{at the time of the
     event}. This is important on asynchronous windows systems like X11;
     whenever you move your widgets around in response to mouse events,
@@ -2765,8 +2761,10 @@ QTabletEvent::~QTabletEvent()
     \ingroup events
 
     Native gesture events are generated by the operating system, typically by
-    interpreting touch events. Gesture events are high-level events such
-    as zoom or rotate.
+    interpreting trackpad touch events. Gesture events are high-level events
+    such as zoom, rotate or pan. Several types hold incremental values: that is,
+    value() and delta() provide the difference from the previous event to the
+    current event.
 
     \table
     \header
@@ -2776,7 +2774,7 @@ QTabletEvent::~QTabletEvent()
     \row
         \li Qt::ZoomNativeGesture
         \li Magnification delta in percent.
-        \li \macos: Two-finger pinch.
+        \li \macos and Wayland: Two-finger pinch.
     \row
         \li Qt::SmartZoomNativeGesture
         \li Boolean magnification state.
@@ -2784,9 +2782,16 @@ QTabletEvent::~QTabletEvent()
     \row
         \li Qt::RotateNativeGesture
         \li Rotation delta in degrees.
-        \li \macos: Two-finger rotate.
+        \li \macos and Wayland: Two-finger rotate.
+    \row
+        \li Qt::SwipeNativeGesture
+        \li Swipe angle in degrees.
+        \li \macos: Configurable in trackpad settings.
+    \row
+        \li Qt::PanNativeGesture
+        \li Displacement delta in pixels.
+        \li Wayland: Three or more fingers moving as a group, in any direction.
     \endtable
-
 
     In addition, BeginNativeGesture and EndNativeGesture are sent before and after
     gesture event streams:
@@ -2797,10 +2802,26 @@ QTabletEvent::~QTabletEvent()
         ZoomNativeGesture
         EndNativeGesture
 
-    \sa Qt::NativeGestureType, QGestureEvent
+    The event stream may include interleaved gestures of different types:
+    for example the two-finger pinch gesture generates a stream of Zoom and
+    Rotate events, and PanNativeGesture may sometimes be interleaved with
+    those, depending on the platform.
+
+    Other types are standalone events: SmartZoomNativeGesture and
+    SwipeNativeGesture occur only once each time the gesture is detected.
+
+    \note On a touchpad, moving two fingers as a group (the two-finger flick gesture)
+    is usually reserved for scrolling; in that case, Qt generates QWheelEvents.
+    This is the reason that three or more fingers are needed to generate a
+    PanNativeGesture.
+
+    \sa Qt::NativeGestureType, QGestureEvent, QWheelEvent
 */
 
+#if QT_DEPRECATED_SINCE(6, 2)
 /*!
+    \deprecated [6.2] Use the other constructor, because \a intValue is no longer stored separately.
+
     Constructs a native gesture event of type \a type originating from \a device.
 
     The points \a localPos, \a scenePos and \a globalPos specify the
@@ -2809,6 +2830,11 @@ QTabletEvent::~QTabletEvent()
 
     \a realValue is the \macos event parameter, \a sequenceId and \a intValue are the Windows event parameters.
     \since 5.10
+
+    \note It's not possible to store realValue and \a intValue simultaneously:
+    one or the other must be zero. If \a realValue == 0 and \a intValue != 0,
+    it is stored in the same variable, such that value() returns the value
+    given as \a intValue.
 */
 QNativeGestureEvent::QNativeGestureEvent(Qt::NativeGestureType type, const QPointingDevice *device,
                                         const QPointF &localPos, const QPointF &scenePos,
@@ -2816,8 +2842,45 @@ QNativeGestureEvent::QNativeGestureEvent(Qt::NativeGestureType type, const QPoin
                                         quint64 intValue)
     : QSinglePointEvent(QEvent::NativeGesture, device, localPos, scenePos, globalPos, Qt::NoButton,
                         Qt::NoButton, Qt::NoModifier),
-      m_sequenceId(sequenceId), m_intValue(intValue), m_realValue(realValue), m_gestureType(type)
+      m_sequenceId(sequenceId), m_realValue(realValue), m_gestureType(type)
 {
+    if (qIsNull(realValue) && intValue != 0)
+        m_realValue = intValue;
+}
+#endif // deprecated
+
+/*!
+    Constructs a native gesture event of type \a type originating from \a device
+    describing a gesture at \a scenePos in which \a fingerCount fingers are involved.
+
+    The points \a localPos, \a scenePos and \a globalPos specify the gesture
+    position relative to the receiving widget or item, window, and screen or
+    desktop, respectively.
+
+    \a value has a gesture-dependent interpretation: for RotateNativeGesture or
+    SwipeNativeGesture, it's an angle in degrees. For ZoomNativeGesture,
+    \a value is an incremental scaling factor, usually much less than 1,
+    indicating that the target item should have its scale adjusted like this:
+    item.scale = item.scale * (1 + event.value)
+
+    For PanNativeGesture, \a delta gives the distance in pixels that the
+    viewport, widget or item should be moved or panned.
+
+    \note The \a delta is stored in single precision (QVector2D), so \l delta()
+    may return slightly different values in some cases. This is subject to change
+    in future versions of Qt.
+
+    \since 6.2
+*/
+QNativeGestureEvent::QNativeGestureEvent(Qt::NativeGestureType type, const QPointingDevice *device, int fingerCount,
+                                         const QPointF &localPos, const QPointF &scenePos,
+                                         const QPointF &globalPos, qreal value, const QPointF &delta,
+                                         quint64 sequenceId)
+    : QSinglePointEvent(QEvent::NativeGesture, device, localPos, scenePos, globalPos, Qt::NoButton,
+                        Qt::NoButton, Qt::NoModifier),
+      m_sequenceId(sequenceId), m_delta(delta), m_realValue(value), m_gestureType(type), m_fingerCount(fingerCount)
+{
+    Q_ASSERT(fingerCount < 16); // we store it in 4 bits unsigned
 }
 
 QNativeGestureEvent::~QNativeGestureEvent() = default;
@@ -2830,20 +2893,40 @@ QNativeGestureEvent::~QNativeGestureEvent() = default;
 */
 
 /*!
+    \fn QNativeGestureEvent::fingerCount() const
+    \since 6.2
+
+    Returns the number of fingers participating in the gesture, if known.
+    When gestureType() is Qt::BeginNativeGesture or Qt::EndNativeGesture, often
+    this information is unknown, and fingerCount() returns \c 0.
+*/
+
+/*!
     \fn QNativeGestureEvent::value() const
     \since 5.2
 
     Returns the gesture value. The value should be interpreted based on the
-    gesture type. For example, a Zoom gesture provides a scale factor while a Rotate
+    gesture type. For example, a Zoom gesture provides a scale factor delta while a Rotate
     gesture provides a rotation delta.
 
     \sa QNativeGestureEvent, gestureType()
 */
 
 /*!
+    \fn QNativeGestureEvent::delta() const
+    \since 6.2
+
+    Returns the distance moved since the previous event, in pixels.
+    A Pan gesture provides the distance in pixels by which the target widget,
+    item or viewport contents should be moved.
+
+    \sa QPanGesture::delta()
+*/
+
+/*!
     \fn QPoint QNativeGestureEvent::globalPos() const
     \since 5.2
-    \deprecated Use globalPosition().toPoint() instead.
+    \deprecated [6.0] Use globalPosition().toPoint() instead.
 
     Returns the position of the gesture as a QPointF in screen coordinates
 */
@@ -2851,7 +2934,7 @@ QNativeGestureEvent::~QNativeGestureEvent() = default;
 /*!
     \fn QPoint QNativeGestureEvent::pos() const
     \since 5.2
-    \deprecated Use position().toPoint() instead.
+    \deprecated [6.0] Use position().toPoint() instead.
 
     Returns the position of the mouse cursor, relative to the widget
     or item that received the event.
@@ -2860,7 +2943,7 @@ QNativeGestureEvent::~QNativeGestureEvent() = default;
 /*!
     \fn QPointF QNativeGestureEvent::localPos() const
     \since 5.2
-    \deprecated Use position() instead.
+    \deprecated [6.0] Use position() instead.
 
     Returns the position of the gesture as a QPointF, relative to the
     widget or item that received the event.
@@ -2869,7 +2952,7 @@ QNativeGestureEvent::~QNativeGestureEvent() = default;
 /*!
     \fn QPointF QNativeGestureEvent::screenPos() const
     \since 5.2
-    \deprecated Use globalPosition() instead.
+    \deprecated [6.0] Use globalPosition() instead.
 
     Returns the position of the gesture as a QPointF in screen coordinates.
 */
@@ -2877,7 +2960,7 @@ QNativeGestureEvent::~QNativeGestureEvent() = default;
 /*!
     \fn QPointF QNativeGestureEvent::windowPos() const
     \since 5.2
-    \deprecated Use scenePosition() instead.
+    \deprecated [6.0] Use scenePosition() instead.
 
     Returns the position of the gesture as a QPointF, relative to the
     window that received the event.
@@ -3055,28 +3138,28 @@ void QDropEvent::setDropAction(Qt::DropAction action)
 
 /*!
     \fn QPoint QDropEvent::pos() const
-    \deprecated Use position().toPoint() instead.
+    \deprecated [6.0] Use position().toPoint() instead.
 
     Returns the position where the drop was made.
 */
 
 /*!
     \fn const QPointF& QDropEvent::posF() const
-    \deprecated Use position() instead.
+    \deprecated [6.0] Use position() instead.
 
     Returns the position where the drop was made.
 */
 
 /*!
     \fn Qt::MouseButtons QDropEvent::mouseButtons() const
-    \deprecated Use buttons() instead.
+    \deprecated [6.0] Use buttons() instead.
 
     Returns the mouse buttons that are pressed..
 */
 
 /*!
     \fn Qt::KeyboardModifiers QDropEvent::keyboardModifiers() const
-    \deprecated Use modifiers() instead.
+    \deprecated [6.0] Use modifiers() instead.
 
     Returns the modifier keys that are pressed.
 */
@@ -4007,6 +4090,7 @@ QDebug operator<<(QDebug dbg, const QEvent *e)
     }
     // More useful event output could be added here
     const QEvent::Type type = e->type();
+    bool isMouse = false;
     switch (type) {
     case QEvent::Expose:
 QT_WARNING_PUSH
@@ -4025,31 +4109,41 @@ QT_WARNING_POP
     case QEvent::NonClientAreaMouseMove:
     case QEvent::NonClientAreaMouseButtonRelease:
     case QEvent::NonClientAreaMouseButtonDblClick:
+        isMouse = true;
+        Q_FALLTHROUGH();
+    case QEvent::HoverEnter:
+    case QEvent::HoverMove:
+    case QEvent::HoverLeave:
     {
-        const QMouseEvent *me = static_cast<const QMouseEvent*>(e);
-        const Qt::MouseButton button = me->button();
-        const Qt::MouseButtons buttons = me->buttons();
-        dbg << "QMouseEvent(";
+        const QSinglePointEvent *spe = static_cast<const QSinglePointEvent*>(e);
+        const Qt::MouseButton button = spe->button();
+        const Qt::MouseButtons buttons = spe->buttons();
+        dbg << eventClassName(type) << '(';
         QtDebugUtils::formatQEnum(dbg, type);
-        if (type != QEvent::MouseMove && type != QEvent::NonClientAreaMouseMove) {
-            dbg << ' ';
-            QtDebugUtils::formatQEnum(dbg, button);
+        if (isMouse) {
+            if (type != QEvent::MouseMove && type != QEvent::NonClientAreaMouseMove) {
+                dbg << ' ';
+                QtDebugUtils::formatQEnum(dbg, button);
+            }
+            if (buttons && button != buttons) {
+                dbg << " btns=";
+                QtDebugUtils::formatQFlags(dbg, buttons);
+            }
         }
-        if (buttons && button != buttons) {
-            dbg << " btns=";
-            QtDebugUtils::formatQFlags(dbg, buttons);
-        }
-        QtDebugUtils::formatNonNullQFlags(dbg, ", ", me->modifiers());
+        QtDebugUtils::formatNonNullQFlags(dbg, ", ", spe->modifiers());
         dbg << " pos=";
-        QtDebugUtils::formatQPoint(dbg, me->position());
+        QtDebugUtils::formatQPoint(dbg, spe->position());
         dbg << " scn=";
-        QtDebugUtils::formatQPoint(dbg, me->scenePosition());
+        QtDebugUtils::formatQPoint(dbg, spe->scenePosition());
         dbg << " gbl=";
-        QtDebugUtils::formatQPoint(dbg, me->globalPosition());
-        dbg << " dev=" << me->device() << ')';
-        if (me->source() != Qt::MouseEventNotSynthesized) {
-            dbg << " source=";
-            QtDebugUtils::formatQEnum(dbg, me->source());
+        QtDebugUtils::formatQPoint(dbg, spe->globalPosition());
+        dbg << " dev=" << spe->device() << ')';
+        if (isMouse) {
+            auto src = static_cast<const QMouseEvent*>(e)->source();
+            if (src != Qt::MouseEventNotSynthesized) {
+                dbg << " source=";
+                QtDebugUtils::formatQEnum(dbg, src);
+            }
         }
     }
         break;
@@ -4147,9 +4241,15 @@ QT_WARNING_POP
         const QNativeGestureEvent *ne = static_cast<const QNativeGestureEvent *>(e);
         dbg << "QNativeGestureEvent(";
         QtDebugUtils::formatQEnum(dbg, ne->gestureType());
-        dbg << ", localPos=";
+        dbg << ", fingerCount=" << ne->fingerCount() << ", localPos=";
         QtDebugUtils::formatQPoint(dbg, ne->position());
-        dbg << ", value=" << ne->value() << ')';
+        if (!qIsNull(ne->value()))
+            dbg << ", value=" << ne->value();
+        if (!ne->delta().isNull()) {
+            dbg << ", delta=";
+            QtDebugUtils::formatQPoint(dbg, ne->delta());
+        }
+        dbg << ')';
     }
          break;
 #  endif // !QT_NO_GESTURES
@@ -4419,7 +4519,7 @@ QWindowStateChangeEvent::~QWindowStateChangeEvent()
 */
 
 /*!
-    \deprecated Use another constructor.
+    \deprecated [6.2] Use another constructor.
 
     Constructs a QTouchEvent with the given \a eventType, \a device,
     \a touchPoints, and current keyboard \a modifiers at the time of the event.
@@ -4439,7 +4539,7 @@ QTouchEvent::QTouchEvent(QEvent::Type eventType,
 }
 
 /*!
-    \deprecated Use another constructor.
+    \deprecated [6.0] Use another constructor.
 
     Constructs a QTouchEvent with the given \a eventType, \a device, and
     \a touchPoints. The \a touchPointStates and \a modifiers are the current
@@ -4502,7 +4602,7 @@ bool QTouchEvent::isEndEvent() const
 */
 
 /*! \fn const QList<QEventPoint> &QTouchEvent::touchPoints() const
-    \deprecated Use points() instead.
+    \deprecated [6.0] Use points() instead.
 
     Returns a reference to the list of touch points contained in the touch event.
 

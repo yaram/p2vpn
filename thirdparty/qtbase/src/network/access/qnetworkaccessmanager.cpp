@@ -255,7 +255,7 @@ static void ensureInitialized()
     \fn void QNetworkAccessManager::networkSessionConnected()
 
     \since 4.7
-    \obsolete
+    \deprecated
 
     \internal
 
@@ -1211,6 +1211,7 @@ QNetworkReply *QNetworkAccessManager::createRequest(QNetworkAccessManager::Opera
         }
     }
 #ifdef Q_OS_WASM
+    Q_UNUSED(isLocalFile);
     // Support http, https, and relative urls
     if (scheme == QLatin1String("http") || scheme == QLatin1String("https") || scheme.isEmpty()) {
         QNetworkReplyWasmImpl *reply = new QNetworkReplyWasmImpl(this);
@@ -1299,7 +1300,7 @@ QStringList QNetworkAccessManager::supportedSchemes() const
 
 /*!
     \since 5.2
-    \obsolete
+    \deprecated
 
     Lists all the URL schemes supported by the access manager.
 

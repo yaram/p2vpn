@@ -40,17 +40,18 @@
 #ifndef QFUTUREINTERFACE_H
 #define QFUTUREINTERFACE_H
 
-#include <QtCore/qrunnable.h>
 #include <QtCore/qmutex.h>
-#include <QtCore/qexception.h>
 #include <QtCore/qresultstore.h>
+#ifndef QT_NO_EXCEPTIONS
+#include <exception>
+#endif
 
 #include <utility>
-#include <vector>
-#include <mutex>
 
 QT_REQUIRE_CONFIG(future);
 
+QT_FORWARD_DECLARE_CLASS(QRunnable)
+QT_FORWARD_DECLARE_CLASS(QException)
 QT_BEGIN_NAMESPACE
 
 
@@ -63,6 +64,8 @@ class QFutureWatcherBasePrivate;
 namespace QtPrivate {
 template<typename Function, typename ResultType, typename ParentResultType>
 class Continuation;
+
+class ExceptionStore;
 
 template<class Function, class ResultType>
 class CanceledHandler;
@@ -91,6 +94,10 @@ public:
 
     QFutureInterfaceBase(State initialState = NoState);
     QFutureInterfaceBase(const QFutureInterfaceBase &other);
+    QFutureInterfaceBase(QFutureInterfaceBase &&other) noexcept
+        : d(std::exchange(other.d, nullptr)) {}
+    QFutureInterfaceBase &operator=(const QFutureInterfaceBase &other);
+    QT_MOVE_ASSIGNMENT_OPERATOR_IMPL_VIA_MOVE_AND_SWAP(QFutureInterfaceBase)
     virtual ~QFutureInterfaceBase();
 
     // reporting functions available to the engine author:
@@ -99,7 +106,11 @@ public:
     void reportCanceled();
 #ifndef QT_NO_EXCEPTIONS
     void reportException(const QException &e);
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
     void reportException(std::exception_ptr e);
+#else
+    void reportException(const std::exception_ptr &e);
+#endif
 #endif
     void reportResultsReady(int beginIndex, int endIndex);
 
@@ -161,14 +172,16 @@ public:
 
     inline bool operator==(const QFutureInterfaceBase &other) const { return d == other.d; }
     inline bool operator!=(const QFutureInterfaceBase &other) const { return d != other.d; }
-    QFutureInterfaceBase &operator=(const QFutureInterfaceBase &other);
 
+    // ### Qt 7: inline
     void swap(QFutureInterfaceBase &other) noexcept;
 
 protected:
-    bool refT() const;
-    bool derefT() const;
+    // ### Qt 7: remove const from refT/derefT
+    bool refT() const noexcept;
+    bool derefT() const noexcept;
     void reset();
+    void rethrowPossibleException();
 public:
 
 #ifndef QFUTURE_TEST
@@ -201,6 +214,11 @@ protected:
     bool isRunningOrPending() const;
 };
 
+inline void swap(QFutureInterfaceBase &lhs, QFutureInterfaceBase &rhs) noexcept
+{
+    lhs.swap(rhs);
+}
+
 template <typename T>
 class QFutureInterface : public QFutureInterfaceBase
 {
@@ -216,6 +234,16 @@ public:
         refT();
     }
     QFutureInterface(const QFutureInterfaceBase &dd) : QFutureInterfaceBase(dd) { refT(); }
+    QFutureInterface(QFutureInterfaceBase &&dd) noexcept : QFutureInterfaceBase(std::move(dd)) { refT(); }
+    QFutureInterface &operator=(const QFutureInterface &other)
+    {
+        QFutureInterface copy(other);
+        swap(copy);
+        return *this;
+    }
+    QFutureInterface(QFutureInterface &&other) = default;
+    QT_MOVE_ASSIGNMENT_OPERATOR_IMPL_VIA_MOVE_AND_SWAP(QFutureInterface)
+
     ~QFutureInterface()
     {
         if (!derefT())
@@ -224,15 +252,6 @@ public:
 
     static QFutureInterface canceledResult()
     { return QFutureInterface(State(Started | Finished | Canceled)); }
-
-    QFutureInterface &operator=(const QFutureInterface &other)
-    {
-        other.refT();
-        if (!derefT())
-            resultStoreBase().template clear<T>();
-        QFutureInterfaceBase::operator=(other);
-        return *this;
-    }
 
     inline QFuture<T> future(); // implemented in qfuture.h
 
@@ -262,7 +281,7 @@ public:
 template <typename T>
 inline bool QFutureInterface<T>::reportResult(const T *result, int index)
 {
-    std::lock_guard<QMutex> locker{mutex()};
+    QMutexLocker<QMutex> locker{&mutex()};
     if (this->queryState(Canceled) || this->queryState(Finished))
         return false;
 
@@ -283,7 +302,7 @@ inline bool QFutureInterface<T>::reportResult(const T *result, int index)
 template<typename T>
 bool QFutureInterface<T>::reportAndMoveResult(T &&result, int index)
 {
-    std::lock_guard<QMutex> locker{mutex()};
+    QMutexLocker<QMutex> locker{&mutex()};
     if (queryState(Canceled) || queryState(Finished))
         return false;
 
@@ -312,7 +331,7 @@ inline bool QFutureInterface<T>::reportResult(const T &result, int index)
 template<typename T>
 inline bool QFutureInterface<T>::reportResults(const QList<T> &_results, int beginIndex, int count)
 {
-    std::lock_guard<QMutex> locker{mutex()};
+    QMutexLocker<QMutex> locker{&mutex()};
     if (this->queryState(Canceled) || this->queryState(Finished))
         return false;
 
@@ -343,14 +362,14 @@ inline bool QFutureInterface<T>::reportFinished(const T *result)
 template <typename T>
 inline const T &QFutureInterface<T>::resultReference(int index) const
 {
-    std::lock_guard<QMutex> locker{mutex()};
+    QMutexLocker<QMutex> locker{&mutex()};
     return resultStoreBase().resultAt(index).template value<T>();
 }
 
 template <typename T>
 inline const T *QFutureInterface<T>::resultPointer(int index) const
 {
-    std::lock_guard<QMutex> locker{mutex()};
+    QMutexLocker<QMutex> locker{&mutex()};
     return resultStoreBase().resultAt(index).template pointer<T>();
 }
 
@@ -358,14 +377,14 @@ template <typename T>
 inline QList<T> QFutureInterface<T>::results()
 {
     if (this->isCanceled()) {
-        exceptionStore().throwPossibleException();
+        rethrowPossibleException();
         return QList<T>();
     }
 
     QFutureInterfaceBase::waitForResult(-1);
 
     QList<T> res;
-    std::lock_guard<QMutex> locker{mutex()};
+    QMutexLocker<QMutex> locker{&mutex()};
 
     QtPrivate::ResultIteratorBase it = resultStoreBase().begin();
     while (it != resultStoreBase().end()) {
@@ -385,7 +404,7 @@ T QFutureInterface<T>::takeResult()
     // not to mess with other unready results.
     waitForResult(-1);
 
-    const std::lock_guard<QMutex> locker{mutex()};
+    const QMutexLocker<QMutex> locker{&mutex()};
     QtPrivate::ResultIteratorBase position = resultStoreBase().resultAt(0);
     T ret(std::move_if_noexcept(position.value<T>()));
     reset();
@@ -404,7 +423,7 @@ std::vector<T> QFutureInterface<T>::takeResults()
     std::vector<T> res;
     res.reserve(resultCount());
 
-    const std::lock_guard<QMutex> locker{mutex()};
+    const QMutexLocker<QMutex> locker{&mutex()};
 
     QtPrivate::ResultIteratorBase it = resultStoreBase().begin();
     for (auto endIt = resultStoreBase().end(); it != endIt; ++it)

@@ -419,7 +419,7 @@ QRect QWidgetLineControl::rectForPos(int pos) const
     int w = m_cursorWidth;
     int ch = l.height() + 1;
 
-    return QRect(cix-5, 0, w+9, ch);
+    return QRect(cix - 5, 0, w + 9, ch);
 }
 
 /*!
@@ -573,7 +573,21 @@ void QWidgetLineControl::processInputMethodEvent(QInputMethodEvent *event)
         }
     }
 #ifndef QT_NO_IM
-    setPreeditArea(m_cursor, event->preeditString());
+    // in NoEcho mode, the cursor is always at the beginning of the lineedit
+    switch (m_echoMode) {
+    case QLineEdit::NoEcho:
+        setPreeditArea(0, QString());
+        break;
+    case QLineEdit::Password: {
+        QString preeditString = event->preeditString();
+        preeditString.fill(m_passwordCharacter);
+        setPreeditArea(m_cursor, preeditString);
+        break;
+    }
+    default:
+        setPreeditArea(m_cursor, event->preeditString());
+        break;
+    }
 #endif //QT_NO_IM
     const int oldPreeditCursor = m_preeditCursor;
     m_preeditCursor = event->preeditString().length();

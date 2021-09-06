@@ -42,7 +42,7 @@
 
 #include <QtCore/qsharedpointer.h>
 
-#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
+#if defined(Q_QDOC) || (defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED))
 #include <jni.h>
 #include <QtCore/qjnienvironment.h>
 
@@ -67,6 +67,9 @@ public:
         assertJniObjectType<T>();
         return static_cast<T>(javaObject());
     }
+
+    jclass objectClass() const;
+    QByteArray className() const;
 
     template <typename T>
     T callMethod(const char *methodName, const char *signature, ...) const
@@ -219,6 +222,36 @@ public:
         }
     }
 
+    template <typename T>
+    static T callStaticMethod(jclass clazz, jmethodID methodId, ...)
+    {
+        assertJniPrimitiveType<T>();
+        QJniEnvironment env;
+        T res{};
+        if (clazz && methodId) {
+            va_list args;
+            va_start(args, methodId);
+            callStaticMethodForType<T>(env.jniEnv(), res, clazz, methodId, args);
+            va_end(args);
+            if (env.checkAndClearExceptions())
+                res = {};
+        }
+        return res;
+    }
+
+    template <>
+    void callStaticMethod<void>(jclass clazz, jmethodID methodId, ...)
+    {
+        QJniEnvironment env;
+        if (clazz && methodId) {
+            va_list args;
+            va_start(args, methodId);
+            env->CallStaticVoidMethodV(clazz, methodId, args);
+            va_end(args);
+            env.checkAndClearExceptions();
+        }
+    }
+
     template <typename T> static T callStaticMethod(jclass clazz, const char *methodName)
     {
         assertJniPrimitiveType<T>();
@@ -253,6 +286,8 @@ public:
 
     static QJniObject callStaticObjectMethod(jclass clazz, const char *methodName,
                                              const char *signature, ...);
+
+    static QJniObject callStaticObjectMethod(jclass clazz, jmethodID methodId, ...);
 
     template <typename T> T getField(const char *fieldName) const
     {

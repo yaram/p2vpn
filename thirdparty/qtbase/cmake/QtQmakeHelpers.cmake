@@ -20,16 +20,10 @@ macro(qt_add_string_to_qconfig_cpp str)
     math(EXPR QT_CONFIG_STR_OFFSET "${QT_CONFIG_STR_OFFSET}+${length}+1")
 endmacro()
 
-function(qt_generate_qconfig_cpp)
+function(qt_generate_qconfig_cpp in_file out_file)
     set(QT_CONFIG_STR_OFFSET "0")
     set(QT_CONFIG_STR_OFFSETS "")
     set(QT_CONFIG_STRS "")
-
-    # Chop off the "/mkspecs" part of INSTALL_MKSPECSDIR
-    get_filename_component(hostdatadir "${INSTALL_MKSPECSDIR}" DIRECTORY)
-    if("${hostdatadir}" STREQUAL "")
-        set(hostdatadir ".")
-    endif()
 
     # Start first part.
     qt_add_string_to_qconfig_cpp("${INSTALL_DOCDIR}")
@@ -49,23 +43,6 @@ function(qt_generate_qconfig_cpp)
     set(QT_CONFIG_STR_OFFSETS_FIRST "${QT_CONFIG_STR_OFFSETS}")
     set(QT_CONFIG_STRS_FIRST "${QT_CONFIG_STRS}")
 
-    # Start second part.
-    set(QT_CONFIG_STR_OFFSETS "")
-    set(QT_CONFIG_STRS "")
-
-    qt_add_string_to_qconfig_cpp("") # config.input.sysroot
-    qt_add_string_to_qconfig_cpp("false") # qmake_sysrootify
-    qt_add_string_to_qconfig_cpp("${INSTALL_BINDIR}")
-    qt_add_string_to_qconfig_cpp("${INSTALL_LIBEXECDIR}")
-    qt_add_string_to_qconfig_cpp("${INSTALL_LIBDIR}")
-    qt_add_string_to_qconfig_cpp("${hostdatadir}")
-    qt_add_string_to_qconfig_cpp("${QT_QMAKE_TARGET_MKSPEC}")
-    qt_add_string_to_qconfig_cpp("${QT_QMAKE_HOST_MKSPEC}")
-
-    # Save second part.
-    set(QT_CONFIG_STR_OFFSETS_SECOND "${QT_CONFIG_STR_OFFSETS}")
-    set(QT_CONFIG_STRS_SECOND "${QT_CONFIG_STRS}")
-
     # Settings path / sysconf dir.
     set(QT_SYS_CONF_DIR "${INSTALL_SYSCONFDIR}")
 
@@ -82,15 +59,6 @@ function(qt_generate_qconfig_cpp)
     file(RELATIVE_PATH from_lib_location_to_prefix
          "${lib_location_absolute_path}" "${QT_BUILD_INTERNALS_RELOCATABLE_INSTALL_PREFIX}")
     set(QT_CONFIGURE_LIBLOCATION_TO_PREFIX_PATH "${from_lib_location_to_prefix}")
-
-    # The QT_CONFIGURE_HOSTBINDIR_TO_*PREFIX_PATH defines are exclusively used by qmake to determine
-    # the prefix from the location of the qmake executable. In our build of qmake host_prefix is
-    # always the same as ext_prefix, and we can just use CMAKE_INSTALL_PREFIX for the calculation of
-    # the relative path between <ext_prefix>/bin and <ext_prefix>.
-    set(bin_dir_absolute_path "${CMAKE_INSTALL_PREFIX}/${INSTALL_BINDIR}")
-    file(RELATIVE_PATH from_bin_dir_to_prefix "${bin_dir_absolute_path}" "${CMAKE_INSTALL_PREFIX}")
-    set(QT_CONFIGURE_HOSTBINDIR_TO_HOSTPREFIX_PATH "${from_bin_dir_to_prefix}")
-    set(QT_CONFIGURE_HOSTBINDIR_TO_EXTPREFIX_PATH "${from_bin_dir_to_prefix}")
 
     # Ensure Windows drive letter is prepended to the install prefix hardcoded
     # into qconfig.cpp, otherwise qmake can't find Qt modules in a static Qt
@@ -109,7 +77,7 @@ function(qt_generate_qconfig_cpp)
             "${QT_CONFIGURE_PREFIX_PATH_STR}" REALPATH)
     endif()
 
-    configure_file(global/qconfig.cpp.in global/qconfig.cpp @ONLY)
+    configure_file(${in_file} ${out_file} @ONLY)
 endfunction()
 
 # In the cross-compiling case, creates a wrapper around the host Qt's

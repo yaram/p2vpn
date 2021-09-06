@@ -129,14 +129,14 @@ _qt_library_map = [
     LibraryMapping(
         "devicediscovery",
         "Qt6",
-        "Qt::DeviceDiscoverySupport",
-        extra=["COMPONENTS", "DeviceDiscoverySupport"],
+        "Qt::DeviceDiscoverySupportPrivate",
+        extra=["COMPONENTS", "DeviceDiscoverySupportPrivate"],
     ),
     LibraryMapping(
         "devicediscovery_support",
         "Qt6",
-        "Qt::DeviceDiscoverySupport",
-        extra=["COMPONENTS", "DeviceDiscoverySupport"],
+        "Qt::DeviceDiscoverySupportPrivate",
+        extra=["COMPONENTS", "DeviceDiscoverySupportPrivate"],
     ),
     LibraryMapping("edid", "Qt6", "Qt::EdidSupport", extra=["COMPONENTS", "EdidSupport"]),
     LibraryMapping("edid_support", "Qt6", "Qt::EdidSupport", extra=["COMPONENTS", "EdidSupport"]),
@@ -144,17 +144,17 @@ _qt_library_map = [
     LibraryMapping(
         "eglfsdeviceintegration",
         "Qt6",
-        "Qt::EglFSDeviceIntegration",
-        extra=["COMPONENTS", "EglFSDeviceIntegration"],
+        "Qt::EglFSDeviceIntegrationPrivate",
+        extra=["COMPONENTS", "EglFSDeviceIntegrationPrivate"],
     ),
     LibraryMapping(
-        "eglfs_kms_support", "Qt6", "Qt::EglFsKmsSupport", extra=["COMPONENTS", "EglFsKmsSupport"]
+        "eglfs_kms_support", "Qt6", "Qt::EglFsKmsSupportPrivate", extra=["COMPONENTS", "EglFsKmsSupportPrivate"]
     ),
     LibraryMapping(
         "eglfs_kms_gbm_support",
         "Qt6",
-        "Qt::EglFsKmsGbmSupport",
-        extra=["COMPONENTS", "EglFsKmsGbmSupport"],
+        "Qt::EglFsKmsGbmSupportPrivate",
+        extra=["COMPONENTS", "EglFsKmsGbmSupportPrivate"],
     ),
     LibraryMapping("egl_support", "Qt6", "Qt::EglSupport", extra=["COMPONENTS", "EglSupport"]),
     # enginio: Not needed in Qt6!
@@ -170,8 +170,8 @@ _qt_library_map = [
         "Qt::EventDispatcherSupport",
         extra=["COMPONENTS", "EventDispatcherSupport"],
     ),
-    LibraryMapping("fbconvenience", "Qt6", "Qt::FbSupport", extra=["COMPONENTS", "FbSupport"]),
-    LibraryMapping("fb_support", "Qt6", "Qt::FbSupport", extra=["COMPONENTS", "FbSupport"]),
+    LibraryMapping("fbconvenience", "Qt6", "Qt::FbSupportPrivate", extra=["COMPONENTS", "FbSupportPrivate"]),
+    LibraryMapping("fb_support", "Qt6", "Qt::FbSupportPrivate", extra=["COMPONENTS", "FbSupportPrivate"]),
     LibraryMapping(
         "fontdatabase_support",
         "Qt6",
@@ -179,6 +179,7 @@ _qt_library_map = [
         extra=["COMPONENTS", "FontDatabaseSupport"],
     ),
     LibraryMapping("gamepad", "Qt6", "Qt::Gamepad", extra=["COMPONENTS", "Gamepad"]),
+    LibraryMapping("geniviextras", "Qt6", "Qt::GeniviExtras", extra=["COMPONENTS", "GeniviExtras"]),
     LibraryMapping(
         "global", "Qt6", "Qt::Core", extra=["COMPONENTS", "Core"]
     ),  # manually added special case
@@ -194,16 +195,19 @@ _qt_library_map = [
         "Qt::HunspellInputMethod",
         extra=["COMPONENTS", "HunspellInputMethod"],
     ),
-    LibraryMapping("input", "Qt6", "Qt::InputSupport", extra=["COMPONENTS", "InputSupport"]),
+    LibraryMapping("input", "Qt6", "Qt::InputSupportPrivate", extra=["COMPONENTS", "InputSupportPrivate"]),
     LibraryMapping(
-        "input_support", "Qt6", "Qt::InputSupport", extra=["COMPONENTS", "InputSupport"]
+        "input_support", "Qt6", "Qt::InputSupportPrivate", extra=["COMPONENTS", "InputSupportPrivate"]
     ),
     LibraryMapping(
         "installer-lib", "Qt6", "Qt::AppManInstaller", extra=["COMPONENTS", "AppManInstaller"]
     ),
+    LibraryMapping("ivi", "Qt6", "Qt::Ivi", extra=["COMPONENTS", "Ivi"]),
+    LibraryMapping("ivicore", "Qt6", "Qt::IviCore", extra=["COMPONENTS", "IviCore"]),
+    LibraryMapping("ivimedia", "Qt6", "Qt::IviMedia", extra=["COMPONENTS", "IviMedia"]),
     LibraryMapping("knx", "Qt6", "Qt::Knx", extra=["COMPONENTS", "Knx"]),
-    LibraryMapping("kmsconvenience", "Qt6", "Qt::KmsSupport", extra=["COMPONENTS", "KmsSupport"]),
-    LibraryMapping("kms_support", "Qt6", "Qt::KmsSupport", extra=["COMPONENTS", "KmsSupport"]),
+    LibraryMapping("kmsconvenience", "Qt6", "Qt::KmsSupportPrivate", extra=["COMPONENTS", "KmsSupportPrivate"]),
+    LibraryMapping("kms_support", "Qt6", "Qt::KmsSupportPrivate", extra=["COMPONENTS", "KmsSupportPrivate"]),
     LibraryMapping(
         "launcher-lib", "Qt6", "Qt::AppManLauncher", extra=["COMPONENTS", "AppManLauncher"]
     ),
@@ -274,8 +278,8 @@ _qt_library_map = [
     LibraryMapping(
         "qtmultimediaquicktools",
         "Qt6",
-        "Qt::MultimediaQuick",
-        extra=["COMPONENTS", "MultimediaQuick"],
+        "Qt::MultimediaQuickPrivate",
+        extra=["COMPONENTS", "MultimediaQuickPrivate"],
     ),
     LibraryMapping(
         "quick3dassetimport",
@@ -360,7 +364,7 @@ _qt_library_map = [
     LibraryMapping("window-lib", "Qt6", "Qt::AppManWindow", extra=["COMPONENTS", "AppManWindow"]),
     LibraryMapping("winextras", "Qt6", "Qt::WinExtras", extra=["COMPONENTS", "WinExtras"]),
     LibraryMapping("x11extras", "Qt6", "Qt::X11Extras", extra=["COMPONENTS", "X11Extras"]),
-    LibraryMapping("xcb_qpa_lib", "Qt6", "Qt::XcbQpa", extra=["COMPONENTS", "XcbQpa"]),
+    LibraryMapping("xcb_qpa_lib", "Qt6", "Qt::XcbQpaPrivate", extra=["COMPONENTS", "XcbQpaPrivate"]),
     LibraryMapping(
         "xkbcommon_support", "Qt6", "Qt::XkbCommonSupport", extra=["COMPONENTS", "XkbCommonSupport"]
     ),
@@ -398,6 +402,7 @@ _qt_library_map = [
 _library_map = [
     # 3rd party:
     LibraryMapping("atspi", "ATSPI2", "PkgConfig::ATSPI2"),
+    LibraryMapping("backtrace", "WrapBacktrace", "WrapBacktrace::WrapBacktrace", emit_if="config.unix"),
     LibraryMapping("bluez", "BlueZ", "PkgConfig::BlueZ"),
     LibraryMapping("brotli", "WrapBrotli", "WrapBrotli::WrapBrotliDec"),
     LibraryMapping("corewlan", None, None),
@@ -408,6 +413,7 @@ _library_map = [
     LibraryMapping(
         "doubleconversion", "WrapDoubleConversion", "WrapDoubleConversion::WrapDoubleConversion"
     ),
+    LibraryMapping("dlt", "DLT", "DLT::DLT"),
     LibraryMapping("drm", "Libdrm", "Libdrm::Libdrm"),
     LibraryMapping("egl", "EGL", "EGL::EGL"),
     LibraryMapping("flite", "Flite", "Flite::Flite"),
@@ -451,6 +457,7 @@ _library_map = [
     LibraryMapping("librt", "WrapRt", "WrapRt::WrapRt"),
     LibraryMapping("libudev", "Libudev", "PkgConfig::Libudev"),
     LibraryMapping("lttng-ust", "LTTngUST", "LTTng::UST", resultVariable="LTTNGUST"),
+    LibraryMapping("libmd4c", "WrapMd4c", "WrapMd4c::WrapMd4c", is_bundled_with_qt=True),
     LibraryMapping("mtdev", "Mtdev", "PkgConfig::Mtdev"),
     LibraryMapping("mysql", "MySQL", "MySQL::MySQL"),
     LibraryMapping("odbc", "ODBC", "ODBC::ODBC"),
@@ -489,10 +496,11 @@ _library_map = [
     LibraryMapping("sqlite2", None, None),  # No more sqlite2 support in Qt6!
     LibraryMapping("sqlite3", "SQLite3", "SQLite::SQLite3"),
     LibraryMapping("sqlite", "SQLite3", "SQLite::SQLite3"),
+    LibraryMapping("taglib", "WrapTagLib", "WrapTagLib::WrapTagLib", is_bundled_with_qt=True), # used in qtivi
     LibraryMapping("tslib", "Tslib", "PkgConfig::Tslib"),
     LibraryMapping("udev", "Libudev", "PkgConfig::Libudev"),
     LibraryMapping("udev", "Libudev", "PkgConfig::Libudev"),  # see also libudev!
-    LibraryMapping("vulkan", "Vulkan", "Vulkan::Vulkan"),
+    LibraryMapping("vulkan", "WrapVulkanHeaders", "WrapVulkanHeaders::WrapVulkanHeaders"),
     LibraryMapping("wayland_server", "Wayland", "Wayland::Server"),  # used in qtbase/src/gui
     LibraryMapping("wayland-server", "Wayland", "Wayland::Server"),  # used in qtwayland
     LibraryMapping("wayland-client", "Wayland", "Wayland::Client"),
@@ -624,14 +632,18 @@ _library_map = [
 
 
 def _adjust_library_map():
-    # Assign a Linux condition on all x and wayland related packages.
+    # Assign a Linux condition on all wayland related packages.
+    # Assign platforms that have X11 condition on all X11 related packages.
     # We don't want to get pages of package not found messages on
     # Windows and macOS, and this also improves configure time on
     # those platforms.
-    linux_package_prefixes = ["xcb", "x11", "xkb", "xrender", "xlib", "wayland"]
+    linux_package_prefixes = ["wayland"]
+    x11_package_prefixes = ["xcb", "x11", "xkb", "xrender", "xlib"]
     for i, _ in enumerate(_library_map):
         if any([_library_map[i].soName.startswith(p) for p in linux_package_prefixes]):
             _library_map[i].emit_if = "config.linux"
+        if any([_library_map[i].soName.startswith(p) for p in x11_package_prefixes]):
+            _library_map[i].emit_if = "X11_SUPPORTED"
 
 
 _adjust_library_map()

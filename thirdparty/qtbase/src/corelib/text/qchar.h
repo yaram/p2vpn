@@ -98,6 +98,7 @@ public:
         ByteOrderSwapped = 0xfffe,
         ParagraphSeparator = 0x2029,
         LineSeparator = 0x2028,
+        VisualTabCharacter = 0x2192,
         LastValidCodePoint = 0x10ffff
     };
 
@@ -638,7 +639,7 @@ private:
     char16_t ucs;
 };
 
-Q_DECLARE_TYPEINFO(QChar, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(QChar, Q_PRIMITIVE_TYPE);
 
 #ifndef QT_NO_DATASTREAM
 Q_CORE_EXPORT QDataStream &operator<<(QDataStream &, QChar);

@@ -168,7 +168,6 @@ extern "C" Q_CORE_EXPORT void qt_removeObject(QObject *)
 #endif
 
 void (*QAbstractDeclarativeData::destroyed)(QAbstractDeclarativeData *, QObject *) = nullptr;
-void (*QAbstractDeclarativeData::parentChanged)(QAbstractDeclarativeData *, QObject *, QObject *) = nullptr;
 void (*QAbstractDeclarativeData::signalEmitted)(QAbstractDeclarativeData *, QObject *, int, void **) = nullptr;
 int  (*QAbstractDeclarativeData::receivers)(QAbstractDeclarativeData *, const QObject *, int) = nullptr;
 bool (*QAbstractDeclarativeData::isSignalConnected)(QAbstractDeclarativeData *, const QObject *, int) = nullptr;
@@ -962,6 +961,11 @@ QObject::QObject(QObjectPrivate &dd, QObject *parent)
     Q_TRACE(QObject_ctor, this);
 }
 
+void QObjectPrivate::clearBindingStorage()
+{
+    bindingStorage.clear();
+}
+
 /*!
     Destroys the object, deleting all its child objects.
 
@@ -991,6 +995,10 @@ QObject::~QObject()
     Q_D(QObject);
     d->wasDeleted = true;
     d->blockSig = 0; // unblock signals so we always emit destroyed()
+
+    // If we reached this point, we need to clear the binding data
+    // as the corresponding properties are no longer useful
+    d->clearBindingStorage();
 
     QtSharedPointer::ExternalRefCountData *sharedRefcount = d->sharedRefcount.loadRelaxed();
     if (sharedRefcount) {
@@ -1070,13 +1078,28 @@ QObject::~QObject()
             }
 
             senderData->removeConnection(node);
+            /*
+              When we unlock, another thread has the chance to delete/modify sender data.
+              Thus we need to call cleanOrphanedConnections before unlocking. We use the
+              variant of the function which assumes that the lock is already held to avoid
+              a deadlock.
+              We need to hold m, the sender lock. Considering that we might execute arbitrary user
+              code, we should already release the signalSlotMutex here – unless they are the same.
+            */
+            const bool locksAreTheSame = signalSlotMutex == m;
+            if (!locksAreTheSame)
+                locker.unlock();
+            senderData->cleanOrphanedConnections(
+                        sender,
+                        QObjectPrivate::ConnectionData::AlreadyLockedAndTemporarilyReleasingLock
+                        );
             if (needToUnlock)
                 m->unlock();
 
-            locker.unlock();
+            if (locksAreTheSame) // otherwise already unlocked
+                locker.unlock();
             if (slotObj)
                 slotObj->destroyIfLastRef();
-            senderData->cleanOrphanedConnections(sender);
             locker.relock();
         }
 
@@ -1233,6 +1256,11 @@ QObjectPrivate::Connection::~Connection()
 QString QObject::objectName() const
 {
     Q_D(const QObject);
+    if (!d->extraData && QtPrivate::isAnyBindingEvaluating()) {
+        QObjectPrivate *dd = const_cast<QObjectPrivate *>(d);
+        // extraData is mutable, so this should be safe
+        dd->extraData = new QObjectPrivate::ExtraData(dd);
+    }
     return d->extraData ? d->extraData->objectName : QString();
 }
 
@@ -1242,13 +1270,26 @@ QString QObject::objectName() const
 void QObject::setObjectName(const QString &name)
 {
     Q_D(QObject);
+
     if (!d->extraData)
-        d->extraData = new QObjectPrivate::ExtraData;
+        d->extraData = new QObjectPrivate::ExtraData(d);
+
+    d->extraData->objectName.removeBindingUnlessInWrapper();
 
     if (d->extraData->objectName != name) {
-        d->extraData->objectName = name;
-        emit objectNameChanged(d->extraData->objectName, QPrivateSignal());
+        d->extraData->objectName.setValueBypassingBindings(name);
+        d->extraData->objectName.notify(); // also emits a signal
     }
+}
+
+QBindable<QString> QObject::bindableObjectName()
+{
+    Q_D(QObject);
+
+    if (!d->extraData)
+        d->extraData = new QObjectPrivate::ExtraData(d);
+
+    return QBindable<QString>(&d->extraData->objectName);
 }
 
 /*! \fn void QObject::objectNameChanged(const QString &objectName)
@@ -1750,7 +1791,7 @@ int QObject::startTimer(int interval, Qt::TimerType timerType)
     }
     int timerId = thisThreadData->eventDispatcher.loadRelaxed()->registerTimer(interval, timerType, this);
     if (!d->extraData)
-        d->extraData = new QObjectPrivate::ExtraData;
+        d->extraData = new QObjectPrivate::ExtraData(d);
     d->extraData->runningTimers.append(timerId);
     return timerId;
 }
@@ -1943,7 +1984,7 @@ void QObject::killTimer(int id)
     \fn template<typename T> T qFindChild(const QObject *obj, const QString &name)
     \relates QObject
     \overload qFindChildren()
-    \obsolete
+    \deprecated
 
     This function is equivalent to
     \a{obj}->\l{QObject::findChild()}{findChild}<T>(\a name).
@@ -1959,7 +2000,7 @@ void QObject::killTimer(int id)
     \fn template<typename T> QList<T> qFindChildren(const QObject *obj, const QString &name)
     \relates QObject
     \overload qFindChildren()
-    \obsolete
+    \deprecated
 
     This function is equivalent to
     \a{obj}->\l{QObject::findChildren()}{findChildren}<T>(\a name).
@@ -2128,8 +2169,6 @@ void QObjectPrivate::setParent_helper(QObject *o)
             }
         }
     }
-    if (!wasDeleted && !isDeletingChildren && declarativeData && QAbstractDeclarativeData::parentChanged)
-        QAbstractDeclarativeData::parentChanged(declarativeData, q, o);
 }
 
 /*!
@@ -2185,7 +2224,7 @@ void QObject::installEventFilter(QObject *obj)
     }
 
     if (!d->extraData)
-        d->extraData = new QObjectPrivate::ExtraData;
+        d->extraData = new QObjectPrivate::ExtraData(d);
 
     // clean up unused items in the list
     d->extraData->eventFilters.removeAll((QObject *)nullptr);
@@ -3642,6 +3681,37 @@ void QMetaObject::connectSlotsByName(QObject *o)
 }
 
 /*!
+     \internal
+     A small RAII helper for QSlotObjectBase.
+     Calls ref on construction and destroyLastRef in its dtor.
+     Allows construction from a nullptr in which case it does nothing.
+ */
+struct SlotObjectGuard {
+    SlotObjectGuard() = default;
+    // move would be fine, but we do not need it currently
+    Q_DISABLE_COPY_MOVE(SlotObjectGuard)
+    explicit SlotObjectGuard(QtPrivate::QSlotObjectBase *slotObject)
+        : m_slotObject(slotObject)
+    {
+        if (m_slotObject)
+            m_slotObject->ref();
+    }
+
+    QtPrivate::QSlotObjectBase const *operator->() const
+    { return m_slotObject; }
+
+    QtPrivate::QSlotObjectBase *operator->()
+    { return m_slotObject; }
+
+    ~SlotObjectGuard() {
+        if (m_slotObject)
+            m_slotObject->destroyIfLastRef();
+    }
+private:
+    QtPrivate::QSlotObjectBase *m_slotObject = nullptr;
+};
+
+/*!
     \internal
 
     \a signal must be in the signal index range (see QObjectPrivate::signalIndex()).
@@ -3672,8 +3742,8 @@ static void queued_activate(QObject *sender, int signal, QObjectPrivate::Connect
         // the connection has been disconnected before we got the lock
         return;
     }
-    if (c->isSlotObject)
-        c->slotObj->ref();
+
+    SlotObjectGuard slotObjectGuard { c->isSlotObject ? c->slotObj : nullptr };
     locker.unlock();
 
     QMetaCallEvent *ev = c->isSlotObject ?
@@ -3700,8 +3770,6 @@ static void queued_activate(QObject *sender, int signal, QObjectPrivate::Connect
     }
 
     locker.relock();
-    if (c->isSlotObject)
-        c->slotObj->destroyIfLastRef();
     if (!c->isSingleShot && !c->receiver.loadRelaxed()) {
         // the connection has been disconnected while we were unlocked
         locker.unlock();
@@ -3829,14 +3897,7 @@ void doActivate(QObject *sender, int signal_index, void **argv)
             QObjectPrivate::Sender senderData(receiverInSameThread ? receiver : nullptr, sender, signal_index);
 
             if (c->isSlotObject) {
-                c->slotObj->ref();
-
-                struct Deleter {
-                    void operator()(QtPrivate::QSlotObjectBase *slot) const {
-                        if (slot) slot->destroyIfLastRef();
-                    }
-                };
-                const std::unique_ptr<QtPrivate::QSlotObjectBase, Deleter> obj{c->slotObj};
+                SlotObjectGuard obj{c->slotObj};
 
                 {
                     Q_TRACE_SCOPE(QMetaObject_activate_slot_functor, obj.get());
@@ -3992,7 +4053,7 @@ bool QObject::setProperty(const char *name, const QVariant &value)
     int id = meta->indexOfProperty(name);
     if (id < 0) {
         if (!d->extraData)
-            d->extraData = new QObjectPrivate::ExtraData;
+            d->extraData = new QObjectPrivate::ExtraData(d);
 
         const int idx = d->extraData->propertyNames.indexOf(name);
 
@@ -4286,7 +4347,7 @@ QDebug operator<<(QDebug dbg, const QObject *o)
 /*!
     \macro Q_ENUMS(...)
     \relates QObject
-    \obsolete
+    \deprecated
 
     In new code, you should prefer the use of the Q_ENUM() macro, which makes the
     type available also to the meta type system.
@@ -4306,7 +4367,7 @@ QDebug operator<<(QDebug dbg, const QObject *o)
 /*!
     \macro Q_FLAGS(...)
     \relates QObject
-    \obsolete
+    \deprecated
 
     This macro registers one or several \l{QFlags}{flags types} with the
     meta-object system. It is typically used in a class definition to declare

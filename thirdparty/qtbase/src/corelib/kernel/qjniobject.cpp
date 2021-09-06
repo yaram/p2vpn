@@ -638,8 +638,6 @@ QJniObject::QJniObject(const char *className, const char *signature, const QVaLi
 }
 
 /*!
-    \fn QJniObject::QJniObject(jclass clazz, const char *signature, ...)
-
     Constructs a new JNI object from \a clazz by calling the constructor with
     \a signature specifying the types of any subsequent arguments.
 
@@ -672,8 +670,6 @@ QJniObject::QJniObject(jclass clazz, const char *signature, ...)
 }
 
 /*!
-    \fn QJniObject::QJniObject(jclass clazz)
-
     Constructs a new JNI object by calling the default constructor of \a clazz.
 
     \note The QJniObject will create a new reference to the class \a clazz
@@ -719,8 +715,6 @@ QJniObject::QJniObject(jclass clazz, const char *signature, const QVaListPrivate
 }
 
 /*!
-    \fn QJniObject::QJniObject(jobject object)
-
     Constructs a new JNI object around the Java object \a object.
 
     \note The QJniObject will hold a reference to the Java object \a object
@@ -732,15 +726,15 @@ QJniObject::QJniObject(jclass clazz, const char *signature, const QVaListPrivate
 
     \sa fromLocalRef()
 */
-QJniObject::QJniObject(jobject obj)
+QJniObject::QJniObject(jobject object)
     : d(new QJniObjectPrivate())
 {
-    if (!obj)
+    if (!object)
         return;
 
     QJniEnvironment env;
-    d->m_jobject = env->NewGlobalRef(obj);
-    jclass cls = env->GetObjectClass(obj);
+    d->m_jobject = env->NewGlobalRef(object);
+    jclass cls = env->GetObjectClass(object);
     d->m_jclass = static_cast<jclass>(env->NewGlobalRef(cls));
     env->DeleteLocalRef(cls);
 }
@@ -750,19 +744,19 @@ QJniObject::QJniObject(jobject obj)
     exception clearing and delete the local reference before returning.
     The JNI object can be null if there was an exception.
 */
-QJniObject QJniObject::getCleanJniObject(jobject obj)
+QJniObject QJniObject::getCleanJniObject(jobject object)
 {
-    if (!obj)
+    if (!object)
         return QJniObject();
 
     QJniEnvironment env;
     if (env.checkAndClearExceptions()) {
-        env->DeleteLocalRef(obj);
+        env->DeleteLocalRef(object);
         return QJniObject();
     }
 
-    QJniObject res(obj);
-    env->DeleteLocalRef(obj);
+    QJniObject res(object);
+    env->DeleteLocalRef(object);
     return res;
 }
 
@@ -775,18 +769,20 @@ QJniObject::~QJniObject()
 {}
 
 /*!
-    \fn jobject QJniObject::object() const
+    \fn template <typename T> T QJniObject::object() const
 
-    Returns the object held by the QJniObject as jobject.
+    Returns the object held by the QJniObject either as jobject or as type T.
+    T can be one of \l {Object Types}{JNI Object Types}.
 
     \code
-    jobject object = jniObject.object();
+    QJniObject string = QJniObject::fromString("Hello, JNI");
+    jstring jstring = string.object<jstring>();
     \endcode
 
-    \note The returned object is still kept live by this QJniObject. To keep the
-    object live beyond the lifetime of this QJniObject, for example to record it
+    \note The returned object is still kept alive by this QJniObject. To keep the
+    object alive beyond the lifetime of this QJniObject, for example to record it
     for later use, the easiest approach is to store it in another QJniObject with
-    a suitable lifetime. Alternatively, you can make a new global reference to the
+    a suitable lifetime. Alternatively, you may create a new global reference to the
     object and store it, taking care to free it when you are done with it.
 
     \snippet jni/src_qjniobject.cpp QJniObject scope
@@ -794,6 +790,36 @@ QJniObject::~QJniObject()
 jobject QJniObject::object() const
 {
     return javaObject();
+}
+
+/*!
+    \fn jclass QJniObject::objectClass() const
+
+    Returns the class object held by the QJniObject as a \c jclass.
+
+    \note The returned object is still kept alive by this QJniObject. To keep the
+    object alive beyond the lifetime of this QJniObject, for example to record it
+    for later use, the easiest approach is to store it in another QJniObject with
+    a suitable lifetime. Alternatively, you may create a new global reference to the
+    object and store it, taking care to free it when you are done with it.
+
+    \since 6.2
+*/
+jclass QJniObject::objectClass() const
+{
+    return d->m_jclass;
+}
+
+/*!
+    \fn QByteArray QJniObject::className() const
+
+    Returns the name of the class object held by the QJniObject as a \c QByteArray.
+
+    \since 6.2
+*/
+QByteArray QJniObject::className() const
+{
+    return d->m_className;
 }
 
 QJniObject QJniObject::callObjectMethodV(const char *methodName,
@@ -917,6 +943,25 @@ QJniObject QJniObject::callStaticObjectMethodV(jclass clazz,
 */
 
 /*!
+    \fn template <typename T> T QJniObject::callStaticMethod(jclass clazz, jmethodID methodId, ...)
+
+    Calls the static method identified by \a methodId from the class \a clazz
+    with any subsequent arguments. Useful when \a clazz and \a methodId are
+    already cached from previous operations.
+
+    \code
+    QJniEnvironment env;
+    jclass javaMathClass = env.findClass("java/lang/Math");
+    jmethodID methodId = env.findStaticMethod(javaMathClass, "max", "(II)I");
+    if (methodId != 0) {
+        jint a = 2;
+        jint b = 4;
+        jint max = QJniObject::callStaticMethod<jint>(javaMathClass, methodId, a, b);
+    }
+    \endcode
+*/
+
+/*!
     \fn template <typename T> T QJniObject::callStaticMethod(jclass clazz, const char *methodName)
 
     Calls the static method \a methodName on \a clazz and returns the value.
@@ -1014,6 +1059,35 @@ QJniObject QJniObject::callStaticObjectMethod(jclass clazz, const char *methodNa
 }
 
 /*!
+    \fn QJniObject QJniObject::callStaticObjectMethod(jclass clazz, jmethodID methodId, ...)
+
+    Calls the static method identified by \a methodId from the class \a clazz
+    with any subsequent arguments. Useful when \a clazz and \a methodId are
+    already cached from previous operations.
+
+    \code
+    QJniEnvironment env;
+    jclass clazz = env.findClass("java/lang/String");
+    jmethodID methodId = env.findStaticMethod(clazz, "valueOf", "(I)Ljava/lang/String;");
+    if (methodId != 0)
+        QJniObject str = QJniObject::callStaticObjectMethod(clazz, methodId, 10);
+    \endcode
+*/
+QJniObject QJniObject::callStaticObjectMethod(jclass clazz, jmethodID methodId, ...)
+{
+    QJniEnvironment env;
+    if (clazz && methodId) {
+        va_list args;
+        va_start(args, methodId);
+        QJniObject res = getCleanJniObject(env->CallStaticObjectMethodV(clazz, methodId, args));
+        va_end(args);
+        return res;
+    }
+
+    return QJniObject();
+}
+
+/*!
     \fn QJniObject QJniObject::callObjectMethod(const char *methodName) const
 
     Calls the Java objects method \a methodName and returns a new QJniObject for
@@ -1040,26 +1114,6 @@ QJniObject QJniObject::callStaticObjectMethod(jclass clazz, const char *methodNa
 
     Calls the static method with \a methodName on \a clazz.
 
-*/
-
-/*!
-    \fn template <typename T> T QJniObject::object() const
-
-    Returns the object held by the QJniObject as type T.
-    T can be one of \l {Object Types}{JNI Object Types}.
-
-    \code
-    QJniObject string = QJniObject::fromString("Hello, JNI");
-    jstring jstring = string.object<jstring>();
-    \endcode
-
-    \note The returned object is still kept live by this QJniObject. To keep the
-    object live beyond the lifetime of this QJniObject, for example to record it
-    for later use, the easiest approach is to store it in another QJniObject with
-    a suitable lifetime. Alternatively, you can make a new global reference to the
-    object and store it, taking care to free it when you are done with it.
-
-    \snippet jni/src_qjniobject.cpp QJniObject scope
 */
 
 /*!
@@ -1121,7 +1175,7 @@ QJniObject QJniObject::callStaticObjectMethod(jclass clazz, const char *methodNa
 /*!
     \fn QJniObject QJniObject::getStaticObjectField(const char *className, const char *fieldName, const char *signature)
 
-    Retrieves a JNI object from the field \a filedName with \a signature from
+    Retrieves a JNI object from the field \a fieldName with \a signature from
     class \a className.
 
     \note This function can be used without a template type.

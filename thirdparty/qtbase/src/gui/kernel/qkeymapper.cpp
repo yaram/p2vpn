@@ -135,4 +135,16 @@ QList<int> QKeyMapperPrivate::possibleKeys(QKeyEvent *e)
     return extractKeyFromEvent(e);
 }
 
+void *QKeyMapper::resolveInterface(const char *name, int revision) const
+{
+    Q_UNUSED(name); Q_UNUSED(revision);
+    using namespace QNativeInterface::Private;
+
+#if QT_CONFIG(evdev)
+    QT_NATIVE_INTERFACE_RETURN_IF(QEvdevKeyMapper, QGuiApplicationPrivate::platformIntegration());
+#endif
+
+    return nullptr;
+}
+
 QT_END_NAMESPACE

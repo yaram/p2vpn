@@ -59,6 +59,8 @@
 #include <QtGui/qopengl.h>
 #include <QtGui/qopenglcontext.h>
 
+#include <QtCore/qnativeinterface.h>
+
 QT_BEGIN_NAMESPACE
 
 
@@ -102,12 +104,6 @@ private:
     Q_DISABLE_COPY(QPlatformOpenGLContext)
 };
 
-template <typename NativeInterface>
-NativeInterface *QOpenGLContext::nativeInterface() const
-{
-    return dynamic_cast<NativeInterface*>(handle());
-}
-
 namespace QNativeInterface::Private {
 
 #if defined(Q_OS_MACOS)
@@ -127,7 +123,7 @@ struct Q_GUI_EXPORT QWindowsGLIntegration
 };
 #endif
 
-#if defined(Q_OS_LINUX)
+#if QT_CONFIG(xcb_glx_plugin)
 struct Q_GUI_EXPORT QGLXIntegration
 {
     QT_DECLARE_NATIVE_INTERFACE(QGLXIntegration)

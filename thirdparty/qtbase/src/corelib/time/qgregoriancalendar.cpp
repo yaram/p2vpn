@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -60,20 +60,17 @@ using namespace QRoundingDown;
     \sa QRomanCalendar, QJulianCalendar, QCalendar
 */
 
-QGregorianCalendar::QGregorianCalendar()
-    : QRomanCalendar(QStringLiteral("Gregorian"), QCalendar::System::Gregorian)
-{
-    registerAlias(QStringLiteral("gregory"));
-}
-
 QString QGregorianCalendar::name() const
 {
     return QStringLiteral("Gregorian");
 }
 
-QCalendar::System QGregorianCalendar::calendarSystem() const
+QStringList QGregorianCalendar::nameList()
 {
-    return QCalendar::System::Gregorian;
+    return {
+        QStringLiteral("Gregorian"),
+        QStringLiteral("gregory"),
+    };
 }
 
 bool QGregorianCalendar::isLeapYear(int year) const

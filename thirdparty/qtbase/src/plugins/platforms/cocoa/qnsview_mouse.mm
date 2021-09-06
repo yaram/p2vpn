@@ -103,21 +103,14 @@
     if (!m_platformWindow)
         return;
 
-    // get m_buttons in sync
-    // Don't send frme strut events if we are in the middle of a mouse drag.
-    if (m_buttons != Qt::NoButton)
-        return;
-
     switch (theEvent.type) {
     case NSEventTypeLeftMouseDown:
-    case NSEventTypeLeftMouseDragged:
         m_frameStrutButtons |= Qt::LeftButton;
         break;
     case NSEventTypeLeftMouseUp:
          m_frameStrutButtons &= ~Qt::LeftButton;
          break;
     case NSEventTypeRightMouseDown:
-    case NSEventTypeRightMouseDragged:
         m_frameStrutButtons |= Qt::RightButton;
         break;
     case NSEventTypeRightMouseUp:
@@ -130,6 +123,22 @@
         m_frameStrutButtons &= ~cocoaButton2QtButton(theEvent.buttonNumber);
     default:
         break;
+    }
+
+    // m_buttons can sometimes get out of sync with the button state in AppKit
+    // E.g if the QNSView where a drag starts is reparented to another window
+    // while the drag is ongoing, it will not get the corresponding mouseUp
+    // call. This will result in m_buttons to be stuck on Qt::LeftButton.
+    // Since we know which buttons was pressed/released directly on the frame
+    // strut, we can rectify m_buttons here so that we at least don't return early
+    // from the drag test underneath because of the faulty m_buttons state.
+    // FIXME: get m_buttons in sync with AppKit/NSEvent all over in QNSView.
+    m_buttons &= ~m_frameStrutButtons;
+
+    if (m_buttons != Qt::NoButton) {
+        // Don't send frame strut events if we are in the middle of
+        // a mouse drag that didn't start on the frame strut.
+        return;
     }
 
     NSWindow *window = [self window];
@@ -177,6 +186,36 @@
         timestamp, qtWindowPoint, qtScreenPoint, m_frameStrutButtons, button, eventType);
 }
 @end
+
+static const QPointingDevice *pointingDeviceFor(qint64 deviceID)
+{
+    // macOS will in many cases not report a deviceID (0 value).
+    // We can't pass this on directly, as the QInputDevicePrivate
+    // constructor will treat this as a request to assign a new Id.
+    // Instead we use the default Id of the primary pointing device.
+    static const int kDefaultPrimaryPointingDeviceId = 1;
+    if (!deviceID)
+        deviceID = kDefaultPrimaryPointingDeviceId;
+
+    if (const auto *device = QPointingDevicePrivate::pointingDeviceById(deviceID))
+        return device; // All good, already have the device registered
+
+    const auto *primaryDevice = QPointingDevice::primaryPointingDevice();
+    if (primaryDevice->systemId() == kDefaultPrimaryPointingDeviceId) {
+        // Adopt existing primary device instead of creating a new one
+        QPointingDevicePrivate::get(const_cast<QPointingDevice *>(primaryDevice))->systemId = deviceID;
+        qCDebug(lcInputDevices) << "primaryPointingDevice is now" << primaryDevice;
+        return primaryDevice;
+    } else {
+        // Register a new device. Name and capabilities may need updating later.
+        const auto *device = new QPointingDevice(QLatin1String("mouse"), deviceID,
+            QInputDevice::DeviceType::Mouse, QPointingDevice::PointerType::Generic,
+            QInputDevice::Capability::Scroll | QInputDevice::Capability::Position,
+            1, 3, QString(), QPointingDeviceUniqueId(), QCocoaIntegration::instance());
+        QWindowSystemInterface::registerInputDevice(device);
+        return device;
+    }
+}
 
 @implementation QNSView (Mouse)
 
@@ -284,6 +323,9 @@
     if (button == Qt::LeftButton && m_sendUpAsRightButton)
         button = Qt::RightButton;
     const auto eventType = cocoaEvent2QtMouseEvent(theEvent);
+
+    const QPointingDevice *device = pointingDeviceFor(theEvent.deviceID);
+    Q_ASSERT(device);
 
     if (eventType == QEvent::MouseMove)
         qCDebug(lcQpaMouse) << eventType << "at" << qtWindowPoint << "with" << m_buttons;
@@ -687,8 +729,21 @@
         << " pixelDelta=" << pixelDelta << " angleDelta=" << angleDelta
         << (isInverted ? " inverted=true" : "");
 
-    QWindowSystemInterface::handleWheelEvent(m_platformWindow->window(), qt_timestamp, qt_windowPoint,
-            qt_screenPoint, pixelDelta, angleDelta, m_currentWheelModifiers, phase, source, isInverted);
+    const QPointingDevice *device = pointingDeviceFor(theEvent.deviceID);
+    Q_ASSERT(device);
+
+    if (theEvent.hasPreciseScrollingDeltas) {
+        auto *devicePriv = QPointingDevicePrivate::get(const_cast<QPointingDevice *>(device));
+        if (!devicePriv->capabilities.testFlag(QInputDevice::Capability::PixelScroll)) {
+            devicePriv->name = QLatin1String("trackpad or magic mouse");
+            devicePriv->capabilities |= QInputDevice::Capability::PixelScroll;
+            qCDebug(lcInputDevices) << "mouse scrolling: updated capabilities" << device;
+        }
+    }
+
+    QWindowSystemInterface::handleWheelEvent(m_platformWindow->window(), qt_timestamp,
+        device, qt_windowPoint, qt_screenPoint, pixelDelta, angleDelta,
+        m_currentWheelModifiers, phase, source, isInverted);
 }
 #endif // QT_CONFIG(wheelevent)
 

@@ -788,6 +788,7 @@ void QWindowSystemInterface::handleScreenAdded(QPlatformScreen *ps, bool isPrima
         QGuiApplicationPrivate::screen_list.append(screen);
 
     QGuiApplicationPrivate::resetCachedDevicePixelRatio();
+    QHighDpiScaling::updateHighDpiScaling();
 
     emit qGuiApp->screenAdded(screen);
 
@@ -895,11 +896,7 @@ QPlatformDropQtResponse QWindowSystemInterface::handleDrop(QWindow *window, cons
     \note This function can only be called from the GUI thread.
 */
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool QWindowSystemInterface::handleNativeEvent(QWindow *window, const QByteArray &eventType, void *message, qintptr *result)
-#else
-bool QWindowSystemInterface::handleNativeEvent(QWindow *window, const QByteArray &eventType, void *message, long *result)
-#endif
 {
     return QGuiApplicationPrivate::processNativeEvent(window, eventType, message, result);
 }
@@ -1043,30 +1040,30 @@ void QWindowSystemInterface::handleTabletLeaveProximityEvent(int deviceType, int
 
 #ifndef QT_NO_GESTURES
 bool QWindowSystemInterface::handleGestureEvent(QWindow *window, ulong timestamp, const QPointingDevice *device,
-                                                Qt::NativeGestureType type, const QPointF &local, const QPointF &global)
+                                                Qt::NativeGestureType type, const QPointF &local, const QPointF &global, int fingerCount)
 {
     QWindowSystemInterfacePrivate::GestureEvent *e =
-        new QWindowSystemInterfacePrivate::GestureEvent(window, timestamp, type, device, local, global);
+        new QWindowSystemInterfacePrivate::GestureEvent(window, timestamp, type, device, fingerCount, local, global);
        return QWindowSystemInterfacePrivate::handleWindowSystemEvent(e);
 }
 
 bool QWindowSystemInterface::handleGestureEventWithRealValue(QWindow *window, ulong timestamp, const QPointingDevice *device,
-                                                             Qt::NativeGestureType type, qreal value, const QPointF &local, const QPointF &global)
+                                                             Qt::NativeGestureType type, qreal value, const QPointF &local, const QPointF &global, int fingerCount)
 {
     QWindowSystemInterfacePrivate::GestureEvent *e =
-        new QWindowSystemInterfacePrivate::GestureEvent(window, timestamp, type, device, local, global);
+        new QWindowSystemInterfacePrivate::GestureEvent(window, timestamp, type, device, fingerCount, local, global);
     e->realValue = value;
     return QWindowSystemInterfacePrivate::handleWindowSystemEvent(e);
 }
 
-bool QWindowSystemInterface::handleGestureEventWithSequenceIdAndValue(QWindow *window, ulong timestamp, const QPointingDevice *device,
-                                                                      Qt::NativeGestureType type, ulong sequenceId, quint64 value,
-                                                                      const QPointF &local, const QPointF &global)
+bool QWindowSystemInterface::handleGestureEventWithValueAndDelta(QWindow *window, ulong timestamp, const QPointingDevice *device,
+                                                                 Qt::NativeGestureType type, qreal value, const QPointF &delta,
+                                                                 const QPointF &local, const QPointF &global, int fingerCount)
 {
     QWindowSystemInterfacePrivate::GestureEvent *e =
-        new QWindowSystemInterfacePrivate::GestureEvent(window, timestamp, type, device, local, global);
-    e->sequenceId = sequenceId;
-    e->intValue = value;
+            new QWindowSystemInterfacePrivate::GestureEvent(window, timestamp, type, device, fingerCount, local, global);
+    e->realValue = value;
+    e->delta = delta;
     return QWindowSystemInterfacePrivate::handleWindowSystemEvent(e);
 }
 #endif // QT_NO_GESTURES

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2019 Crimson AS <info@crimson.no>
 ** Copyright (C) 2013 John Layt <jlayt@kde.org>
 ** Contact: https://www.qt.io/licensing/
@@ -69,7 +69,7 @@ QT_BEGIN_NAMESPACE
 */
 
 struct QTzTimeZone {
-    QLocale::Country country;
+    QLocale::Territory territory;
     QByteArray comment;
 };
 
@@ -88,19 +88,29 @@ static QTzTimeZoneHash loadTzTimeZones()
         return QTzTimeZoneHash();
 
     QTzTimeZoneHash zonesHash;
-    // TODO QTextStream inefficient, replace later
-    QTextStream ts(&tzif);
-    while (!ts.atEnd()) {
-        const QString line = ts.readLine();
-        // Comment lines are prefixed with a #
-        if (!line.isEmpty() && line.at(0) != u'#') {
-            // Data rows are tab-separated columns Region, Coordinates, ID, Optional Comments
-            const auto parts = QStringView{line}.split(QLatin1Char('\t'));
+    while (!tzif.atEnd()) {
+        const QByteArray line = tzif.readLine().trimmed();
+        if (line.isEmpty() || line.at(0) == '#') // Ignore empty or comment
+            continue;
+        // Data rows are tab-separated columns Region, Coordinates, ID, Optional Comments
+        QByteArrayView text(line);
+        int cut = text.indexOf('\t');
+        if (Q_LIKELY(cut > 0)) {
             QTzTimeZone zone;
-            zone.country = QLocalePrivate::codeToCountry(parts.at(0));
-            if (parts.size() > 3)
-                zone.comment = parts.at(3).toUtf8();
-            zonesHash.insert(parts.at(2).toUtf8(), zone);
+            // TODO: QLocale & friends could do this look-up without UTF8-conversion:
+            zone.territory = QLocalePrivate::codeToTerritory(QString::fromUtf8(text.first(cut)));
+            text = text.sliced(cut + 1);
+            cut = text.indexOf('\t');
+            if (Q_LIKELY(cut >= 0)) { // Skip over Coordinates, read ID and comment
+                text = text.sliced(cut + 1);
+                cut = text.indexOf('\t'); // < 0 if line has no comment
+                if (Q_LIKELY(cut)) {
+                    const QByteArray id = (cut > 0 ? text.first(cut) : text).toByteArray();
+                    if (cut > 0)
+                        zone.comment = text.sliced(cut + 1).toByteArray();
+                    zonesHash.insert(id, zone);
+                }
+            }
         }
     }
     return zonesHash;
@@ -383,19 +393,22 @@ static QDate calculatePosixDate(const QByteArray &dateRule, int year)
                 return calculateDowDate(year, month, dow, week);
         }
     } else if (dateRule.at(0) == 'J') {
-        // Day of Year ignores Feb 29
+        // Day of Year 1...365, ignores Feb 29.
+        // So March always starts on day 60.
         int doy = dateRule.mid(1).toInt(&ok);
         if (ok && doy > 0 && doy < 366) {
-            QDate date = QDate(year, 1, 1).addDays(doy - 1);
-            if (QDate::isLeapYear(date.year()) && date.month() > 2)
-                date = date.addDays(-1);
-            return date;
+            // Subtract 1 because we're adding days *after* the first of
+            // January, unless it's after February in a leap year, when the leap
+            // day cancels that out:
+            if (!QDate::isLeapYear(year) || doy < 60)
+                --doy;
+            return QDate(year, 1, 1).addDays(doy);
         }
     } else {
-        // Day of Year includes Feb 29
+        // Day of Year 0...365, includes Feb 29
         int doy = dateRule.toInt(&ok);
-        if (ok && doy > 0 && doy <= 366)
-            return QDate(year, 1, 1).addDays(doy - 1);
+        if (ok && doy >= 0 && doy < 366)
+            return QDate(year, 1, 1).addDays(doy);
     }
     return QDate();
 }
@@ -412,11 +425,11 @@ static int parsePosixTime(const char *begin, const char *end)
     // caller's responsibility to ensure that begin is part of a null-terminated
     // string.
 
-    const int maxHour = QTimeZone::MaxUtcOffsetSecs / 3600;
+    const int maxHour = 137; // POSIX's extended range.
     bool ok = false;
     const char *cut = begin;
     hour = qstrtoll(begin, &cut, 10, &ok);
-    if (!ok || hour < 0 || hour > maxHour || cut > begin + 2)
+    if (!ok || hour < -maxHour || hour > maxHour || cut > begin + 2)
         return INT_MIN;
     begin = cut;
     if (begin < end && *begin == ':') {
@@ -444,15 +457,9 @@ static int parsePosixTime(const char *begin, const char *end)
     return (hour * 60 + min) * 60 + sec;
 }
 
-static QTime parsePosixTransitionTime(const QByteArray &timeRule)
+static int parsePosixTransitionTime(const QByteArray &timeRule)
 {
-    // Format "hh[:mm[:ss]]"
-    int value = parsePosixTime(timeRule.constBegin(), timeRule.constEnd());
-    if (value == INT_MIN) {
-        // if we failed to parse, return 02:00
-        return QTime(2, 0, 0);
-    }
-    return QTime::fromMSecsSinceStartOfDay(value * 1000);
+    return parsePosixTime(timeRule.constBegin(), timeRule.constEnd());
 }
 
 static int parsePosixOffset(const char *begin, const char *end)
@@ -548,7 +555,52 @@ PosixZone PosixZone::parse(const char *&pos, const char *end)
     return {std::move(name), offset};
 }
 
-static QList<QTimeZonePrivate::Data> calculatePosixTransitions(const QByteArray &posixRule, int startYear, int endYear,
+static auto validatePosixRule(const QByteArray &posixRule)
+{
+    // Format is described here:
+    // http://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html
+    // See also calculatePosixTransition()'s reference.
+    const auto parts = posixRule.split(',');
+    const struct { bool isValid, hasDst; } fail{false, false}, good{true, parts.count() > 1};
+    const QByteArray &zoneinfo = parts.at(0);
+    if (zoneinfo.isEmpty())
+        return fail;
+
+    const char *begin = zoneinfo.begin();
+
+    // Updates begin to point after the name and offset it parses:
+    if (PosixZone::parse(begin, zoneinfo.end()).name.isEmpty())
+        return fail;
+
+    if (good.hasDst) {
+        if (begin >= zoneinfo.end())
+            return fail;
+        // Expect a second name and offset after the first:
+        if (PosixZone::parse(begin, zoneinfo.end()).name.isEmpty())
+            return fail;
+    }
+    if (begin < zoneinfo.end())
+        return fail;
+
+    if (good.hasDst) {
+        if (parts.count() != 3 || parts.at(1).isEmpty() || parts.at(2).isEmpty())
+            return fail;
+        for (int i = 1; i < 3; ++i) {
+            const auto tran = parts.at(i).split('/');
+            if (!calculatePosixDate(tran.at(0), 1972).isValid())
+                return fail;
+            if (tran.count() > 1) {
+                const auto time = tran.at(1);
+                if (parsePosixTime(time.begin(), time.end()) == INT_MIN)
+                    return fail;
+            }
+        }
+    }
+    return good;
+}
+
+static QList<QTimeZonePrivate::Data> calculatePosixTransitions(const QByteArray &posixRule,
+                                                               int startYear, int endYear,
                                                                qint64 lastTranMSecs)
 {
     QList<QTimeZonePrivate::Data> result;
@@ -557,6 +609,7 @@ static QList<QTimeZonePrivate::Data> calculatePosixTransitions(const QByteArray 
     // i.e. "std offset dst [offset],start[/time],end[/time]"
     // See the section about TZ at
     // http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html
+    // and the link in validatePosixRule(), above.
     QList<QByteArray> parts = posixRule.split(',');
 
     PosixZone stdZone, dstZone = PosixZone::invalid();
@@ -576,14 +629,14 @@ static QList<QTimeZonePrivate::Data> calculatePosixTransitions(const QByteArray 
         }
     }
 
-    // If only the name part then no transitions
-    if (parts.count() == 1) {
+    // If only the name part, or no DST specified, then no transitions
+    if (parts.count() == 1 || !dstZone.hasValidOffset()) {
         QTimeZonePrivate::Data data;
         data.atMSecsSinceEpoch = lastTranMSecs;
         data.offsetFromUtc = stdZone.offset;
         data.standardTimeOffset = stdZone.offset;
         data.daylightTimeOffset = 0;
-        data.abbreviation = stdZone.name;
+        data.abbreviation = stdZone.name.isEmpty() ? QString::fromUtf8(parts.at(0)) : stdZone.name;
         result << data;
         return result;
     }
@@ -591,24 +644,17 @@ static QList<QTimeZonePrivate::Data> calculatePosixTransitions(const QByteArray 
         return result; // Malformed.
 
     // Get the std to dst transtion details
-    QList<QByteArray> dstParts = parts.at(1).split('/');
-    QByteArray dstDateRule = dstParts.at(0);
-    QTime dstTime;
-    if (dstParts.count() > 1)
-        dstTime = parsePosixTransitionTime(dstParts.at(1));
-    else
-        dstTime = QTime(2, 0, 0);
+    const int twoOClock = 7200; // Default transition time, when none specified
+    const auto dstParts = parts.at(1).split('/');
+    const QByteArray dstDateRule = dstParts.at(0);
+    const int dstTime = dstParts.count() < 2 ? twoOClock : parsePosixTransitionTime(dstParts.at(1));
 
     // Get the dst to std transtion details
-    QList<QByteArray> stdParts = parts.at(2).split('/');
-    QByteArray stdDateRule = stdParts.at(0);
-    QTime stdTime;
-    if (stdParts.count() > 1)
-        stdTime = parsePosixTransitionTime(stdParts.at(1));
-    else
-        stdTime = QTime(2, 0, 0);
+    const auto stdParts = parts.at(2).split('/');
+    const QByteArray stdDateRule = stdParts.at(0);
+    const int stdTime = stdParts.count() < 2 ? twoOClock : parsePosixTransitionTime(stdParts.at(1));
 
-    if (dstDateRule.isEmpty() || stdDateRule.isEmpty() || !dstTime.isValid() || !stdTime.isValid())
+    if (dstDateRule.isEmpty() || stdDateRule.isEmpty() || dstTime == INT_MIN || stdTime == INT_MIN)
         return result; // Malformed.
 
     // Limit year to the range QDateTime can represent:
@@ -619,34 +665,59 @@ static QList<QTimeZonePrivate::Data> calculatePosixTransitions(const QByteArray 
     Q_ASSERT(startYear <= endYear);
 
     for (int year = startYear; year <= endYear; ++year) {
-        QTimeZonePrivate::Data dstData;
-        QDateTime dst(calculatePosixDate(dstDateRule, year), dstTime, Qt::UTC);
-        dstData.atMSecsSinceEpoch = dst.toMSecsSinceEpoch() - (stdZone.offset * 1000);
+        // Note: std and dst, despite being QDateTime(,, Qt::UTC), have the
+        // date() and time() of the *zone*'s description of the transition
+        // moments; the atMSecsSinceEpoch values computed from them are
+        // correctly offse to be UTC-based.
+
+        QTimeZonePrivate::Data dstData; // Transition to DST
+        QDateTime dst(calculatePosixDate(dstDateRule, year).startOfDay(Qt::UTC).addSecs(dstTime));
+        dstData.atMSecsSinceEpoch = dst.toMSecsSinceEpoch() - stdZone.offset * 1000;
         dstData.offsetFromUtc = dstZone.offset;
         dstData.standardTimeOffset = stdZone.offset;
         dstData.daylightTimeOffset = dstZone.offset - stdZone.offset;
         dstData.abbreviation = dstZone.name;
-        QTimeZonePrivate::Data stdData;
-        QDateTime std(calculatePosixDate(stdDateRule, year), stdTime, Qt::UTC);
-        stdData.atMSecsSinceEpoch = std.toMSecsSinceEpoch() - (dstZone.offset * 1000);
+        QTimeZonePrivate::Data stdData; // Transition to standard time
+        QDateTime std(calculatePosixDate(stdDateRule, year).startOfDay(Qt::UTC).addSecs(stdTime));
+        stdData.atMSecsSinceEpoch = std.toMSecsSinceEpoch() - dstZone.offset * 1000;
         stdData.offsetFromUtc = stdZone.offset;
         stdData.standardTimeOffset = stdZone.offset;
         stdData.daylightTimeOffset = 0;
         stdData.abbreviation = stdZone.name;
-        // Part of maxYear will overflow (likewise for minYear, below):
-        if (year == maxYear && (dstData.atMSecsSinceEpoch < 0 || stdData.atMSecsSinceEpoch < 0)) {
-            if (dstData.atMSecsSinceEpoch > 0) {
-                result << dstData;
-            } else if (stdData.atMSecsSinceEpoch > 0) {
-                result << stdData;
+
+        if (year == startYear) {
+            // Handle the special case of fixed state, which may be represented
+            // by fake transitions at start and end of each year:
+            if (dstData.atMSecsSinceEpoch < stdData.atMSecsSinceEpoch) {
+                if (dst <= QDate(year, 1, 1).startOfDay(Qt::UTC)
+                    && std >= QDate(year, 12, 31).endOfDay(Qt::UTC)) {
+                    // Permanent DST:
+                    dstData.atMSecsSinceEpoch = lastTranMSecs;
+                    result << dstData;
+                    return result;
+                }
+            } else {
+                if (std <= QDate(year, 1, 1).startOfDay(Qt::UTC)
+                    && dst >= QDate(year, 12, 31).endOfDay(Qt::UTC)) {
+                    // Permanent Standard time, perversely described:
+                    stdData.atMSecsSinceEpoch = lastTranMSecs;
+                    result << stdData;
+                    return result;
+                }
             }
-        } else if (year < 1970) { // We ignore DST before the epoch.
-            if (year > minYear || stdData.atMSecsSinceEpoch != QTimeZonePrivate::invalidMSecs())
-                result << stdData;
-        } else if (dst < std) {
-            result << dstData << stdData;
-        } else {
-            result << stdData << dstData;
+        }
+
+        const bool useStd = std.isValid() && std.date().year() == year && !stdZone.name.isEmpty();
+        const bool useDst = dst.isValid() && dst.date().year() == year && !dstZone.name.isEmpty();
+        if (useStd && useDst) {
+            if (dst < std)
+                result << dstData << stdData;
+            else
+                result << stdData << dstData;
+        } else if (useStd) {
+            result << stdData;
+        } else if (useDst) {
+            result << dstData;
         }
     }
     return result;
@@ -700,11 +771,9 @@ QTzTimeZoneCacheEntry QTzTimeZoneCache::findEntry(const QByteArray &ianaId)
             tzif.setFileName(QLatin1String("/usr/lib/zoneinfo/") + QString::fromLocal8Bit(ianaId));
             if (!tzif.open(QIODevice::ReadOnly)) {
                 // ianaId may be a POSIX rule, taken from $TZ or /etc/TZ
-                const QByteArray zoneInfo = ianaId.split(',').at(0);
-                const char *begin = zoneInfo.constBegin();
-                if (PosixZone::parse(begin, zoneInfo.constEnd()).hasValidOffset()
-                    && (begin == zoneInfo.constEnd()
-                        || PosixZone::parse(begin, zoneInfo.constEnd()).hasValidOffset())) {
+                auto check = validatePosixRule(ianaId);
+                if (check.isValid) {
+                    ret.m_hasDst = check.hasDst;
                     ret.m_posixRule = ianaId;
                 }
                 return ret;
@@ -716,6 +785,7 @@ QTzTimeZoneCacheEntry QTzTimeZoneCache::findEntry(const QByteArray &ianaId)
 
     // Parse the old version block of data
     bool ok = false;
+    QByteArray posixRule;
     QTzHeader hdr = parseTzHeader(ds, &ok);
     if (!ok || ds.status() != QDataStream::Ok)
         return ret;
@@ -756,14 +826,21 @@ QTzTimeZoneCacheEntry QTzTimeZoneCache::findEntry(const QByteArray &ianaId)
         typeList = parseTzIndicators(ds, typeList, hdr2.tzh_ttisstdcnt, hdr2.tzh_ttisgmtcnt);
         if (ds.status() != QDataStream::Ok)
             return ret;
-        ret.m_posixRule = parseTzPosixRule(ds);
+        posixRule = parseTzPosixRule(ds);
         if (ds.status() != QDataStream::Ok)
             return ret;
     }
+    // Translate the TZ file's raw data into our internal form:
 
-    // Translate the TZ file into internal format
+    if (!posixRule.isEmpty()) {
+        auto check = validatePosixRule(posixRule);
+        if (!check.isValid) // We got a POSIX rule, but it was malformed:
+            return ret;
+        ret.m_posixRule = posixRule;
+        ret.m_hasDst = check.hasDst;
+    }
 
-    // Translate the array index based tz_abbrind into list index
+    // Translate the array-index-based tz_abbrind into list index
     const int size = abbrevMap.size();
     ret.m_abbreviations.clear();
     ret.m_abbreviations.reserve(size);
@@ -773,12 +850,20 @@ QTzTimeZoneCacheEntry QTzTimeZoneCache::findEntry(const QByteArray &ianaId)
         ret.m_abbreviations.append(it.value());
         abbrindList.append(it.key());
     }
+    // Map tz_abbrind from map's keys (as initially read) to abbrindList's
+    // indices (used hereafter):
     for (int i = 0; i < typeList.size(); ++i)
         typeList[i].tz_abbrind = abbrindList.indexOf(typeList.at(i).tz_abbrind);
 
+    // TODO: is typeList[0] always the "before zones" data ? It seems to be ...
+    if (typeList.size())
+        ret.m_preZoneRule = { typeList.at(0).tz_gmtoff, 0, typeList.at(0).tz_abbrind };
+    else
+        ret.m_preZoneRule = { 0, 0, 0 };
+
     // Offsets are stored as total offset, want to know separate UTC and DST offsets
     // so find the first non-dst transition to use as base UTC Offset
-    int utcOffset = 0;
+    int utcOffset = ret.m_preZoneRule.stdOffset;
     for (const QTzTransition &tran : qAsConst(tranList)) {
         if (!typeList.at(tran.tz_typeind).tz_isdst) {
             utcOffset = typeList.at(tran.tz_typeind).tz_gmtoff;
@@ -844,6 +929,8 @@ QTzTimeZoneCacheEntry QTzTimeZoneCache::findEntry(const QByteArray &ianaId)
         // If the rule already exist then use that, otherwise add it
         int ruleIndex = ret.m_tranRules.indexOf(rule);
         if (ruleIndex == -1) {
+            if (rule.dstOffset != 0)
+                ret.m_hasDst = true;
             ret.m_tranRules.append(rule);
             tran.ruleIndex = ret.m_tranRules.size() - 1;
         } else {
@@ -898,9 +985,9 @@ void QTzTimeZonePrivate::init(const QByteArray &ianaId)
     }
 }
 
-QLocale::Country QTzTimeZonePrivate::country() const
+QLocale::Territory QTzTimeZonePrivate::territory() const
 {
-    return tzZones->value(m_id).country;
+    return tzZones->value(m_id).territory;
 }
 
 QString QTzTimeZonePrivate::comment() const
@@ -1016,12 +1103,7 @@ int QTzTimeZonePrivate::daylightTimeOffset(qint64 atMSecsSinceEpoch) const
 
 bool QTzTimeZonePrivate::hasDaylightTime() const
 {
-    // TODO Perhaps cache as frequently accessed?
-    for (const QTzTransitionRule &rule : cached_data.m_tranRules) {
-        if (rule.dstOffset != 0)
-            return true;
-    }
-    return false;
+    return cached_data.m_hasDst;
 }
 
 bool QTzTimeZonePrivate::isDaylightTime(qint64 atMSecsSinceEpoch) const
@@ -1031,14 +1113,14 @@ bool QTzTimeZonePrivate::isDaylightTime(qint64 atMSecsSinceEpoch) const
 
 QTimeZonePrivate::Data QTzTimeZonePrivate::dataForTzTransition(QTzTransitionTime tran) const
 {
-    QTimeZonePrivate::Data data;
-    data.atMSecsSinceEpoch = tran.atMSecsSinceEpoch;
-    QTzTransitionRule rule = cached_data.m_tranRules.at(tran.ruleIndex);
-    data.standardTimeOffset = rule.stdOffset;
-    data.daylightTimeOffset = rule.dstOffset;
-    data.offsetFromUtc = rule.stdOffset + rule.dstOffset;
-    data.abbreviation = QString::fromUtf8(cached_data.m_abbreviations.at(rule.abbreviationIndex));
-    return data;
+    return dataFromRule(cached_data.m_tranRules.at(tran.ruleIndex), tran.atMSecsSinceEpoch);
+}
+
+QTimeZonePrivate::Data QTzTimeZonePrivate::dataFromRule(QTzTransitionRule rule,
+                                                        qint64 msecsSinceEpoch) const
+{
+    return { QString::fromUtf8(cached_data.m_abbreviations.at(rule.abbreviationIndex)),
+             msecsSinceEpoch, rule.stdOffset + rule.dstOffset, rule.stdOffset, rule.dstOffset };
 }
 
 QList<QTimeZonePrivate::Data> QTzTimeZonePrivate::getPosixTransitions(qint64 msNear) const
@@ -1075,11 +1157,11 @@ QTimeZonePrivate::Data QTzTimeZonePrivate::data(qint64 forMSecsSinceEpoch) const
                                      [forMSecsSinceEpoch] (const QTzTransitionTime &at) {
                                          return at.atMSecsSinceEpoch <= forMSecsSinceEpoch;
                                      });
-    if (last > tranCache().cbegin())
-        --last;
-    Data data = dataForTzTransition(*last);
-    data.atMSecsSinceEpoch = forMSecsSinceEpoch;
-    return data;
+    if (last == tranCache().cbegin())
+        return dataFromRule(cached_data.m_preZoneRule, forMSecsSinceEpoch);
+
+    --last;
+    return dataFromRule(cached_data.m_tranRules.at(last->ruleIndex), forMSecsSinceEpoch);
 }
 
 bool QTzTimeZonePrivate::hasTransitions() const
@@ -1147,12 +1229,12 @@ QList<QByteArray> QTzTimeZonePrivate::availableTimeZoneIds() const
     return result;
 }
 
-QList<QByteArray> QTzTimeZonePrivate::availableTimeZoneIds(QLocale::Country country) const
+QList<QByteArray> QTzTimeZonePrivate::availableTimeZoneIds(QLocale::Territory territory) const
 {
-    // TODO AnyCountry
+    // TODO AnyTerritory
     QList<QByteArray> result;
     for (auto it = tzZones->cbegin(), end = tzZones->cend(); it != end; ++it) {
-        if (it.value().country == country)
+        if (it.value().territory == territory)
             result << it.key();
     }
     std::sort(result.begin(), result.end());

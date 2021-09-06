@@ -83,7 +83,7 @@ from helper import (
 
 
 cmake_version_string = "3.16"
-cmake_api_version = 2
+cmake_api_version = 3
 
 
 def _parse_commandline():
@@ -179,7 +179,7 @@ def _parse_commandline():
         "--api-version",
         dest="api_version",
         type=int,
-        help="Specify which cmake api version should be generated. 1 or 2, 2 is latest.",
+        help="Specify which cmake api version should be generated. 1, 2 or 3, 3 is latest.",
     )
 
     parser.add_argument(
@@ -3445,6 +3445,7 @@ def write_module(cm_fh: IO[str], scope: Scope, *, indent: int = 0) -> str:
         extra.append("STATIC")
     if "internal_module" in scope.get("CONFIG"):
         is_public_module = False
+        cmake_target_name += "Private" # Assume all internal modules have the 'Private' suffix
         extra.append("INTERNAL_MODULE")
     if "no_module_headers" in scope.get("CONFIG"):
         extra.append("NO_MODULE_HEADERS")
@@ -4353,7 +4354,7 @@ def create_top_level_cmake_conf():
     conf_file_name = ".cmake.conf"
     try:
         with open(conf_file_name, "x") as file:
-            file.write('set(QT_REPO_MODULE_VERSION "6.1.3")\n')
+            file.write('set(QT_REPO_MODULE_VERSION "6.2.0")\n')
     except FileExistsError:
         pass
 

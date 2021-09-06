@@ -1649,17 +1649,18 @@ void QRasterPaintEngine::stroke(const QVectorPath &path, const QPen &pen)
         const QLineF *lines = reinterpret_cast<const QLineF *>(path.points());
 
         for (int i = 0; i < lineCount; ++i) {
-            if (lines[i].p1() == lines[i].p2()) {
+            const QLineF line = s->matrix.map(lines[i]);
+            if (line.p1() == line.p2()) {
                 if (s->lastPen.capStyle() != Qt::FlatCap) {
                     QPointF p = lines[i].p1();
-                    QLineF line = s->matrix.map(QLineF(QPointF(p.x() - width*0.5, p.y()),
+                    QLineF mappedline = s->matrix.map(QLineF(QPointF(p.x() - width*0.5, p.y()),
                                                        QPointF(p.x() + width*0.5, p.y())));
-                    d->rasterizer->rasterizeLine(line.p1(), line.p2(), width / line.length());
+                    d->rasterizer->rasterizeLine(mappedline.p1(), mappedline.p2(),
+                                                 width / mappedline.length());
                 }
                 continue;
             }
 
-            const QLineF line = s->matrix.map(lines[i]);
             if (qpen_style(s->lastPen) == Qt::SolidLine) {
                 d->rasterizer->rasterizeLine(line.p1(), line.p2(),
                                             width / line.length(),
@@ -2369,7 +2370,8 @@ void QRasterPaintEngine::drawImage(const QRectF &r, const QImage &img, const QRe
             if (s->matrix.type() > QTransform::TxScale) {
                 SrcOverTransformFunc func = qTransformFunctions[d->rasterBuffer->format][img.format()];
                 // The fast transform methods doesn't really work on small targets, see QTBUG-93475
-                if (func && (!clip || clip->hasRectClip) && targetBounds.width() >= 16 && targetBounds.height() >= 16) {
+                // And it can't antialias the edges
+                if (func && (!clip || clip->hasRectClip) && !s->flags.antialiased && targetBounds.width() >= 16 && targetBounds.height() >= 16) {
                     func(d->rasterBuffer->buffer(), d->rasterBuffer->bytesPerLine(), img.bits(),
                          img.bytesPerLine(), r, sr, !clip ? d->deviceRect : clip->clipRect,
                          s->matrix, s->intOpacity);
@@ -3749,6 +3751,8 @@ QImage QRasterBuffer::colorizeBitmap(const QImage &image, const QColor &color)
 
     const QImage sourceImage = image.convertToFormat(QImage::Format_MonoLSB);
     QImage dest = QImage(sourceImage.size(), QImage::Format_ARGB32_Premultiplied);
+    if (sourceImage.isNull() || dest.isNull())
+        return image; // we must have run out of memory
 
     QRgb fg = qPremultiply(color.rgba());
     QRgb bg = 0;
@@ -3758,8 +3762,6 @@ QImage QRasterBuffer::colorizeBitmap(const QImage &image, const QColor &color)
     for (int y=0; y<height; ++y) {
         const uchar *source = sourceImage.constScanLine(y);
         QRgb *target = reinterpret_cast<QRgb *>(dest.scanLine(y));
-        if (!source || !target)
-            QT_THROW(std::bad_alloc()); // we must have run out of memory
         for (int x=0; x < width; ++x)
             target[x] = (source[x>>3] >> (x&7)) & 1 ? fg : bg;
     }
@@ -3787,6 +3789,7 @@ QImage::Format QRasterBuffer::prepare(QImage *image)
     bytes_per_line = image->bytesPerLine();
 
     format = image->format();
+    colorSpace = image->colorSpace();
     if (image->depth() == 1 && image->colorTable().size() == 2) {
         monoDestinationWithClut = true;
         const QList<QRgb> colorTable = image->colorTable();
@@ -4515,7 +4518,7 @@ void QSpanData::setup(const QBrush &brush, int alpha, QPainter::CompositionMode 
 
             auto cacheInfo = qt_gradient_cache()->getBuffer(*g, alpha);
             gradient.colorTable32 = cacheInfo->buffer32;
-#if QT_CONFIG(raster_64bit)
+#if QT_CONFIG(raster_64bit) || QT_CONFIG(raster_fp)
             gradient.colorTable64 = cacheInfo->buffer64;
 #endif
             cachedGradient = std::move(cacheInfo);
@@ -4539,7 +4542,7 @@ void QSpanData::setup(const QBrush &brush, int alpha, QPainter::CompositionMode 
 
             auto cacheInfo = qt_gradient_cache()->getBuffer(*g, alpha);
             gradient.colorTable32 = cacheInfo->buffer32;
-#if QT_CONFIG(raster_64bit)
+#if QT_CONFIG(raster_64bit) || QT_CONFIG(raster_fp)
             gradient.colorTable64 = cacheInfo->buffer64;
 #endif
             cachedGradient = std::move(cacheInfo);
@@ -4567,7 +4570,7 @@ void QSpanData::setup(const QBrush &brush, int alpha, QPainter::CompositionMode 
 
             auto cacheInfo = qt_gradient_cache()->getBuffer(*g, alpha);
             gradient.colorTable32 = cacheInfo->buffer32;
-#if QT_CONFIG(raster_64bit)
+#if QT_CONFIG(raster_64bit) || QT_CONFIG(raster_fp)
             gradient.colorTable64 = cacheInfo->buffer64;
 #endif
             cachedGradient = std::move(cacheInfo);

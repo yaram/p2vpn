@@ -107,7 +107,7 @@ struct QSystemLocalePrivate
     QVariant toCurrencyString(const QSystemLocale::CurrencyToStringArgument &);
     QVariant uiLanguages();
     QVariant nativeLanguageName();
-    QVariant nativeCountryName();
+    QVariant nativeTerritoryName();
 
     void update();
 
@@ -328,7 +328,7 @@ QVariant QSystemLocalePrivate::timeFormat(QLocale::FormatType type)
     case QLocale::NarrowFormat:
         break;
     }
-    return QVariant();
+    return {};
 }
 
 QVariant QSystemLocalePrivate::dateTimeFormat(QLocale::FormatType type)
@@ -382,7 +382,7 @@ QVariant QSystemLocalePrivate::monthName(int month, QLocale::FormatType type)
 
     month -= 1;
     if (month < 0 || month > 11)
-        return QString();
+        return {};
 
     LCTYPE lctype = (type == QLocale::ShortFormat || type == QLocale::NarrowFormat)
             ? short_month_map[month] : long_month_map[month];
@@ -391,8 +391,7 @@ QVariant QSystemLocalePrivate::monthName(int month, QLocale::FormatType type)
 
 QVariant QSystemLocalePrivate::toString(QDate date, QLocale::FormatType type)
 {
-    SYSTEMTIME st;
-    memset(&st, 0, sizeof(SYSTEMTIME));
+    SYSTEMTIME st = {};
     st.wYear = date.year();
     st.wMonth = date.month();
     st.wDay = date.day();
@@ -405,13 +404,12 @@ QVariant QSystemLocalePrivate::toString(QDate date, QLocale::FormatType type)
             format = substituteDigits(std::move(format));
         return format;
     }
-    return QString();
+    return {};
 }
 
 QVariant QSystemLocalePrivate::toString(QTime time, QLocale::FormatType type)
 {
-    SYSTEMTIME st;
-    memset(&st, 0, sizeof(SYSTEMTIME));
+    SYSTEMTIME st = {};
     st.wHour = time.hour();
     st.wMinute = time.minute();
     st.wSecond = time.second();
@@ -429,7 +427,7 @@ QVariant QSystemLocalePrivate::toString(QTime time, QLocale::FormatType type)
             format = substituteDigits(std::move(format));
         return format;
     }
-    return QString();
+    return {};
 }
 
 QVariant QSystemLocalePrivate::toString(const QDateTime &dt, QLocale::FormatType type)
@@ -595,7 +593,7 @@ QVariant QSystemLocalePrivate::uiLanguages()
 {
     unsigned long cnt = 0;
     QVarLengthArray<wchar_t, 64> buf(64);
-#  if !defined(QT_BOOTSTRAPPED) && !defined(QT_BUILD_QMAKE) // Not present in MinGW 4.9/bootstrap builds.
+#    if !defined(QT_BOOTSTRAPPED) // Not present in MinGW 4.9/bootstrap builds.
     unsigned long size = buf.size();
     if (!GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &cnt, buf.data(), &size)) {
         size = 0;
@@ -606,7 +604,7 @@ QVariant QSystemLocalePrivate::uiLanguages()
                 return QStringList();
         }
     }
-#  endif // !QT_BOOTSTRAPPED && !QT_BUILD_QMAKE
+#    endif // !QT_BOOTSTRAPPED
     QStringList result;
     result.reserve(cnt);
     const wchar_t *str = buf.constData();
@@ -625,7 +623,7 @@ QVariant QSystemLocalePrivate::nativeLanguageName()
     return getLocaleInfo(LOCALE_SNATIVELANGUAGENAME);
 }
 
-QVariant QSystemLocalePrivate::nativeCountryName()
+QVariant QSystemLocalePrivate::nativeTerritoryName()
 {
     return getLocaleInfo(LOCALE_SNATIVECOUNTRYNAME);
 }
@@ -702,7 +700,7 @@ QString QSystemLocalePrivate::winToQtFormat(QStringView sys_fmt)
     return result;
 }
 
-QLocale QSystemLocale::fallbackUiLocale() const
+QLocale QSystemLocale::fallbackLocale() const
 {
     return QLocale(QString::fromLatin1(getWinLocaleName()));
 }
@@ -757,13 +755,13 @@ QVariant QSystemLocale::query(QueryType type, QVariant in) const
         return d->zeroDigit();
     case LanguageId:
     case ScriptId:
-    case CountryId: {
+    case TerritoryId: {
         QLocaleId lid = QLocaleId::fromName(QString::fromLatin1(getWinLocaleName()));
         if (type == LanguageId)
             return lid.language_id;
         if (type == ScriptId)
-            return lid.script_id ? lid.script_id : ushort(fallbackUiLocale().script());
-        return lid.country_id ? lid.country_id : ushort(fallbackUiLocale().country());
+            return lid.script_id ? lid.script_id : ushort(fallbackLocale().script());
+        return lid.territory_id ? lid.territory_id : ushort(fallbackLocale().territory());
     }
     case MeasurementSystem:
         return d->measurementSystem();
@@ -786,8 +784,8 @@ QVariant QSystemLocale::query(QueryType type, QVariant in) const
         break;
     case NativeLanguageName:
         return d->nativeLanguageName();
-    case NativeCountryName:
-        return d->nativeCountryName();
+    case NativeTerritoryName:
+        return d->nativeTerritoryName();
     default:
         break;
     }

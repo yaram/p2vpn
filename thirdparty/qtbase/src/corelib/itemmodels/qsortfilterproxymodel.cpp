@@ -46,6 +46,7 @@
 #include <qstringlist.h>
 #include <private/qabstractitemmodel_p.h>
 #include <private/qabstractproxymodel_p.h>
+#include <private/qproperty_p.h>
 
 #include <algorithm>
 
@@ -164,22 +165,110 @@ public:
 
     mutable QHash<QModelIndex, Mapping*> source_index_mapping;
 
-    int source_sort_column;
-    int proxy_sort_column;
-    Qt::SortOrder sort_order;
-    Qt::CaseSensitivity sort_casesensitivity;
-    int sort_role;
-    bool sort_localeaware;
+    void setSortCaseSensitivityForwarder(Qt::CaseSensitivity cs)
+    {
+        q_func()->setSortCaseSensitivity(cs);
+    }
+    void sortCaseSensitivityChangedForwarder(Qt::CaseSensitivity cs)
+    {
+        emit q_func()->sortCaseSensitivityChanged(cs);
+    }
 
-    int filter_column;
-    int filter_role;
-    QRegularExpression filter_regularexpression;
+    void setSortRoleForwarder(int role) { q_func()->setSortRole(role); }
+    void sortRoleChangedForwarder(int role) { emit q_func()->sortRoleChanged(role); }
+
+    void setSortLocaleAwareForwarder(bool on) { q_func()->setSortLocaleAware(on); }
+    void sortLocaleAwareChangedForwarder(bool on) { emit q_func()->sortLocaleAwareChanged(on); }
+
+    void setFilterKeyColumnForwarder(int column) { q_func()->setFilterKeyColumn(column); }
+
+    void setFilterRoleForwarder(int role) { q_func()->setFilterRole(role); }
+    void filterRoleChangedForwarder(int role) { emit q_func()->filterRoleChanged(role); }
+
+    void setRecursiveFilteringEnabledForwarder(bool recursive)
+    {
+        q_func()->setRecursiveFilteringEnabled(recursive);
+    }
+    void recursiveFilteringEnabledChangedForwarder(bool recursive)
+    {
+        emit q_func()->recursiveFilteringEnabledChanged(recursive);
+    }
+
+    void setAutoAcceptChildRowsForwarder(bool accept) { q_func()->setAutoAcceptChildRows(accept); }
+    void autoAcceptChildRowsChangedForwarder(bool accept)
+    {
+        emit q_func()->autoAcceptChildRowsChanged(accept);
+    }
+
+    void setDynamicSortFilterForwarder(bool enable) { q_func()->setDynamicSortFilter(enable); }
+
+    void setFilterCaseSensitivityForwarder(Qt::CaseSensitivity cs)
+    {
+        q_func()->setFilterCaseSensitivity(cs);
+    }
+    void filterCaseSensitivityChangedForwarder(Qt::CaseSensitivity cs)
+    {
+        emit q_func()->filterCaseSensitivityChanged(cs);
+    }
+
+    void setFilterRegularExpressionForwarder(const QRegularExpression &re)
+    {
+        q_func()->setFilterRegularExpression(re);
+    }
+
+    int source_sort_column = -1;
+    int proxy_sort_column = -1;
+    Qt::SortOrder sort_order = Qt::AscendingOrder;
+    bool complete_insert = false;
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(
+            QSortFilterProxyModelPrivate, Qt::CaseSensitivity, sort_casesensitivity,
+            &QSortFilterProxyModelPrivate::setSortCaseSensitivityForwarder,
+            &QSortFilterProxyModelPrivate::sortCaseSensitivityChangedForwarder, Qt::CaseSensitive)
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QSortFilterProxyModelPrivate, int, sort_role,
+                                       &QSortFilterProxyModelPrivate::setSortRoleForwarder,
+                                       &QSortFilterProxyModelPrivate::sortRoleChangedForwarder,
+                                       Qt::DisplayRole)
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QSortFilterProxyModelPrivate, int, filter_column,
+                                       &QSortFilterProxyModelPrivate::setFilterKeyColumnForwarder,
+                                       0)
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QSortFilterProxyModelPrivate, int, filter_role,
+                                       &QSortFilterProxyModelPrivate::setFilterRoleForwarder,
+                                       &QSortFilterProxyModelPrivate::filterRoleChangedForwarder,
+                                       Qt::DisplayRole)
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(
+            QSortFilterProxyModelPrivate, bool, sort_localeaware,
+            &QSortFilterProxyModelPrivate::setSortLocaleAwareForwarder,
+            &QSortFilterProxyModelPrivate::sortLocaleAwareChangedForwarder, false)
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(
+            QSortFilterProxyModelPrivate, bool, filter_recursive,
+            &QSortFilterProxyModelPrivate::setRecursiveFilteringEnabledForwarder,
+            &QSortFilterProxyModelPrivate::recursiveFilteringEnabledChangedForwarder, false)
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(
+            QSortFilterProxyModelPrivate, bool, accept_children,
+            &QSortFilterProxyModelPrivate::setAutoAcceptChildRowsForwarder,
+            &QSortFilterProxyModelPrivate::autoAcceptChildRowsChangedForwarder, false)
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QSortFilterProxyModelPrivate, bool, dynamic_sortfilter,
+                                       &QSortFilterProxyModelPrivate::setDynamicSortFilterForwarder,
+                                       true)
+
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(
+            QSortFilterProxyModelPrivate, Qt::CaseSensitivity, filter_casesensitive,
+            &QSortFilterProxyModelPrivate::setFilterCaseSensitivityForwarder,
+            &QSortFilterProxyModelPrivate::filterCaseSensitivityChangedForwarder, Qt::CaseSensitive)
+
+    Q_OBJECT_COMPAT_PROPERTY(QSortFilterProxyModelPrivate, QRegularExpression,
+                             filter_regularexpression,
+                             &QSortFilterProxyModelPrivate::setFilterRegularExpressionForwarder)
+
     QModelIndex last_top_source;
-
-    bool filter_recursive;
-    bool accept_children;
-    bool complete_insert;
-    bool dynamic_sortfilter;
     QRowsRemoval itemsBeingRemoved;
 
     QModelIndexPairList saved_persistent_indexes;
@@ -195,15 +284,20 @@ public:
 
     void remove_from_mapping(const QModelIndex &source_parent);
 
-    /*!
+    /*
      * Legacy: changing the pattern through a string does not change the
      * case sensitivity.
      */
     void set_filter_pattern(const QString &pattern)
     {
-        filter_regularexpression.setPattern(pattern);
-        filter_regularexpression.setPatternOptions(filter_regularexpression.patternOptions()
-                                                   & QRegularExpression::CaseInsensitiveOption);
+        QRegularExpression re = filter_regularexpression.value();
+        const auto cs = re.patternOptions() & QRegularExpression::CaseInsensitiveOption;
+        re.setPattern(pattern);
+        re.setPatternOptions(cs);
+        // This is a helper function, which is supposed to be called from a
+        // more complicated context. Because of that, the caller is responsible
+        // for calling notify() and removeBindingUnlessInWrapper(), if needed.
+        filter_regularexpression.setValueBypassingBindings(re);
     }
 
     inline QHash<QModelIndex, Mapping *>::const_iterator index_to_iterator(
@@ -1207,7 +1301,7 @@ void QSortFilterProxyModelPrivate::update_persistent_indexes(
 */
 void QSortFilterProxyModelPrivate::filter_about_to_be_changed(const QModelIndex &source_parent)
 {
-    if (!filter_regularexpression.pattern().isEmpty()
+    if (!filter_regularexpression.value().pattern().isEmpty()
         && source_index_mapping.constFind(source_parent) == source_index_mapping.constEnd()) {
         create_mapping(source_parent);
     }
@@ -1949,18 +2043,6 @@ void QSortFilterProxyModelPrivate::_q_sourceColumnsMoved(
 QSortFilterProxyModel::QSortFilterProxyModel(QObject *parent)
     : QAbstractProxyModel(*new QSortFilterProxyModelPrivate, parent)
 {
-    Q_D(QSortFilterProxyModel);
-    d->proxy_sort_column = d->source_sort_column = -1;
-    d->sort_order = Qt::AscendingOrder;
-    d->sort_casesensitivity = Qt::CaseSensitive;
-    d->sort_role = Qt::DisplayRole;
-    d->sort_localeaware = false;
-    d->filter_column = 0;
-    d->filter_role = Qt::DisplayRole;
-    d->filter_recursive = false;
-    d->accept_children = false;
-    d->dynamic_sortfilter = true;
-    d->complete_insert = false;
     connect(this, SIGNAL(modelReset()), this, SLOT(_q_clearMapping()));
 }
 
@@ -2534,7 +2616,6 @@ Qt::SortOrder QSortFilterProxyModel::sortOrder() const
     return d->sort_order;
 }
 
-#if QT_CONFIG(regularexpression)
 /*!
     \since 5.12
     \property QSortFilterProxyModel::filterRegularExpression
@@ -2547,6 +2628,12 @@ Qt::SortOrder QSortFilterProxyModel::sortOrder() const
     If no QRegularExpression or an empty string is set, everything in the source
     model will be accepted.
 
+    \note Setting this property propagates the case sensitivity of the new
+    regular expression to the \l filterCaseSensitivity property, and so breaks
+    its binding. Likewise explicitly setting \l filterCaseSensitivity changes
+    the case sensitivity of the current regular expression, thereby breaking
+    its binding.
+
     \sa filterCaseSensitivity, setFilterWildcard(), setFilterFixedString()
 */
 QRegularExpression QSortFilterProxyModel::filterRegularExpression() const
@@ -2555,18 +2642,36 @@ QRegularExpression QSortFilterProxyModel::filterRegularExpression() const
     return d->filter_regularexpression;
 }
 
+QBindable<QRegularExpression> QSortFilterProxyModel::bindableFilterRegularExpression()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<QRegularExpression>(&d->filter_regularexpression);
+}
+
 void QSortFilterProxyModel::setFilterRegularExpression(const QRegularExpression &regularExpression)
 {
     Q_D(QSortFilterProxyModel);
+    Qt::beginPropertyUpdateGroup();
+    const bool regExpChanged = regularExpression != d->filter_regularexpression.value();
+    d->filter_regularexpression.removeBindingUnlessInWrapper();
+    d->filter_casesensitive.removeBindingUnlessInWrapper();
     const Qt::CaseSensitivity cs = filterCaseSensitivity();
     d->filter_about_to_be_changed();
-    d->filter_regularexpression = regularExpression;
-    d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
-    const Qt::CaseSensitivity updatedCs = filterCaseSensitivity();
+    const Qt::CaseSensitivity updatedCs =
+            regularExpression.patternOptions() & QRegularExpression::CaseInsensitiveOption
+            ? Qt::CaseInsensitive : Qt::CaseSensitive;
+    d->filter_regularexpression.setValueBypassingBindings(regularExpression);
     if (cs != updatedCs)
-        emit filterCaseSensitivityChanged(updatedCs);
+        d->filter_casesensitive.setValueBypassingBindings(updatedCs);
+    d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
+    // Do not change the evaluation logic, but notify only if the regular
+    // expression has actually changed.
+    if (regExpChanged)
+        d->filter_regularexpression.notify();
+    if (cs != updatedCs)
+        d->filter_casesensitive.notify();
+    Qt::endPropertyUpdateGroup();
 }
-#endif
 
 /*!
     \property QSortFilterProxyModel::filterKeyColumn
@@ -2584,10 +2689,25 @@ int QSortFilterProxyModel::filterKeyColumn() const
 
 void QSortFilterProxyModel::setFilterKeyColumn(int column)
 {
+    // While introducing new bindable properties, we still update the value
+    // unconditionally (even if it didn't really change), and call the
+    // filter_about_to_be_changed()/filter_changed() methods, so that we do
+    // not break any code. However we do notify the observing bindings only
+    // if the column has actually changed
     Q_D(QSortFilterProxyModel);
+    d->filter_column.removeBindingUnlessInWrapper();
     d->filter_about_to_be_changed();
-    d->filter_column = column;
+    const auto oldColumn = d->filter_column.value();
+    d->filter_column.setValueBypassingBindings(column);
     d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
+    if (oldColumn != column)
+        d->filter_column.notify();
+}
+
+QBindable<int> QSortFilterProxyModel::bindableFilterKeyColumn()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<int>(&d->filter_column);
 }
 
 /*!
@@ -2597,6 +2717,11 @@ void QSortFilterProxyModel::setFilterKeyColumn(int column)
     contents of the source model.
 
     By default, the filter is case sensitive.
+
+    \note Setting this property propagates the new case sensitivity to the
+    \l filterRegularExpression property, and so breaks its binding. Likewise
+    explicitly setting \l filterRegularExpression changes the current case
+    sensitivity, thereby breaking its binding.
 
     \sa filterRegularExpression, sortCaseSensitivity
 */
@@ -2610,23 +2735,37 @@ void QSortFilterProxyModel::setFilterKeyColumn(int column)
 Qt::CaseSensitivity QSortFilterProxyModel::filterCaseSensitivity() const
 {
     Q_D(const QSortFilterProxyModel);
-    return d->filter_regularexpression.patternOptions() & QRegularExpression::CaseInsensitiveOption
-            ? Qt::CaseInsensitive
-            : Qt::CaseSensitive;
+    return d->filter_casesensitive;
 }
 
 void QSortFilterProxyModel::setFilterCaseSensitivity(Qt::CaseSensitivity cs)
 {
     Q_D(QSortFilterProxyModel);
-    QRegularExpression::PatternOptions options = d->filter_regularexpression.patternOptions();
-    options.setFlag(QRegularExpression::CaseInsensitiveOption, cs == Qt::CaseInsensitive);
-    if (d->filter_regularexpression.patternOptions() == options)
+    d->filter_casesensitive.removeBindingUnlessInWrapper();
+    d->filter_regularexpression.removeBindingUnlessInWrapper();
+    if (cs == d->filter_casesensitive)
         return;
 
+    Qt::beginPropertyUpdateGroup();
+    QRegularExpression::PatternOptions options =
+            d->filter_regularexpression.value().patternOptions();
+    options.setFlag(QRegularExpression::CaseInsensitiveOption, cs == Qt::CaseInsensitive);
+    d->filter_casesensitive.setValueBypassingBindings(cs);
+
     d->filter_about_to_be_changed();
-    d->filter_regularexpression.setPatternOptions(options);
+    QRegularExpression re = d->filter_regularexpression;
+    re.setPatternOptions(options);
+    d->filter_regularexpression.setValueBypassingBindings(re);
     d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
-    emit filterCaseSensitivityChanged(cs);
+    d->filter_regularexpression.notify();
+    d->filter_casesensitive.notify();
+    Qt::endPropertyUpdateGroup();
+}
+
+QBindable<Qt::CaseSensitivity> QSortFilterProxyModel::bindableFilterCaseSensitivity()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<Qt::CaseSensitivity>(&d->filter_casesensitive);
 }
 
 /*!
@@ -2654,12 +2793,19 @@ Qt::CaseSensitivity QSortFilterProxyModel::sortCaseSensitivity() const
 void QSortFilterProxyModel::setSortCaseSensitivity(Qt::CaseSensitivity cs)
 {
     Q_D(QSortFilterProxyModel);
+    d->sort_casesensitivity.removeBindingUnlessInWrapper();
     if (d->sort_casesensitivity == cs)
         return;
 
-    d->sort_casesensitivity = cs;
+    d->sort_casesensitivity.setValueBypassingBindings(cs);
     d->sort();
-    emit sortCaseSensitivityChanged(cs);
+    d->sort_casesensitivity.notify(); // also emits a signal
+}
+
+QBindable<Qt::CaseSensitivity> QSortFilterProxyModel::bindableSortCaseSensitivity()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<Qt::CaseSensitivity>(&d->sort_casesensitivity);
 }
 
 /*!
@@ -2687,15 +2833,21 @@ bool QSortFilterProxyModel::isSortLocaleAware() const
 void QSortFilterProxyModel::setSortLocaleAware(bool on)
 {
     Q_D(QSortFilterProxyModel);
+    d->sort_localeaware.removeBindingUnlessInWrapper();
     if (d->sort_localeaware == on)
         return;
 
-    d->sort_localeaware = on;
+    d->sort_localeaware.setValueBypassingBindings(on);
     d->sort();
-    emit sortLocaleAwareChanged(on);
+    d->sort_localeaware.notify(); // also emits a signal
 }
 
-#if QT_CONFIG(regularexpression)
+QBindable<bool> QSortFilterProxyModel::bindableIsSortLocaleAware()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<bool>(&d->sort_localeaware);
+}
+
 /*!
     \since 5.12
 
@@ -2708,16 +2860,21 @@ void QSortFilterProxyModel::setSortLocaleAware(bool on)
     This method will reset the regular expression options
     but respect case sensitivity.
 
+    \note Calling this method updates the regular expression, thereby breaking
+    the binding for \l filterRegularExpression. However it has no effect on the
+    \l filterCaseSensitivity bindings.
+
     \sa setFilterCaseSensitivity(), setFilterWildcard(), setFilterFixedString(), filterRegularExpression()
 */
 void QSortFilterProxyModel::setFilterRegularExpression(const QString &pattern)
 {
     Q_D(QSortFilterProxyModel);
+    d->filter_regularexpression.removeBindingUnlessInWrapper();
     d->filter_about_to_be_changed();
     d->set_filter_pattern(pattern);
     d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
+    d->filter_regularexpression.notify();
 }
-#endif
 
 /*!
     Sets the wildcard expression used to filter the contents
@@ -2726,15 +2883,21 @@ void QSortFilterProxyModel::setFilterRegularExpression(const QString &pattern)
     This method will reset the regular expression options
     but respect case sensitivity.
 
+    \note Calling this method updates the regular expression, thereby breaking
+    the binding for \l filterRegularExpression. However it has no effect on the
+    \l filterCaseSensitivity bindings.
+
     \sa setFilterCaseSensitivity(), setFilterRegularExpression(), setFilterFixedString(), filterRegularExpression()
 */
 void QSortFilterProxyModel::setFilterWildcard(const QString &pattern)
 {
     Q_D(QSortFilterProxyModel);
+    d->filter_regularexpression.removeBindingUnlessInWrapper();
     d->filter_about_to_be_changed();
     d->set_filter_pattern(QRegularExpression::wildcardToRegularExpression(
             pattern, QRegularExpression::UnanchoredWildcardConversion));
     d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
+    d->filter_regularexpression.notify();
 }
 
 /*!
@@ -2744,14 +2907,20 @@ void QSortFilterProxyModel::setFilterWildcard(const QString &pattern)
     This method will reset the regular expression options
     but respect case sensitivity.
 
+    \note Calling this method updates the regular expression, thereby breaking
+    the binding for \l filterRegularExpression. However it has no effect on the
+    \l filterCaseSensitivity bindings.
+
     \sa setFilterCaseSensitivity(), setFilterRegularExpression(), setFilterWildcard(), filterRegularExpression()
 */
 void QSortFilterProxyModel::setFilterFixedString(const QString &pattern)
 {
     Q_D(QSortFilterProxyModel);
+    d->filter_regularexpression.removeBindingUnlessInWrapper();
     d->filter_about_to_be_changed();
     d->set_filter_pattern(QRegularExpression::escape(pattern));
     d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
+    d->filter_regularexpression.notify();
 }
 
 /*!
@@ -2778,10 +2947,25 @@ bool QSortFilterProxyModel::dynamicSortFilter() const
 
 void QSortFilterProxyModel::setDynamicSortFilter(bool enable)
 {
+    // While introducing new bindable properties, we still update the value
+    // unconditionally (even if it didn't really change), and call the
+    // sort() method, so that we do not break any code.
+    // However we do notify the observing bindings only if the value has
+    // actually changed.
     Q_D(QSortFilterProxyModel);
-    d->dynamic_sortfilter = enable;
+    d->dynamic_sortfilter.removeBindingUnlessInWrapper();
+    const bool valueChanged = d->dynamic_sortfilter.value() != enable;
+    d->dynamic_sortfilter.setValueBypassingBindings(enable);
     if (enable)
         d->sort();
+    if (valueChanged)
+        d->dynamic_sortfilter.notify();
+}
+
+QBindable<bool> QSortFilterProxyModel::bindableDynamicSortFilter()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<bool>(&d->dynamic_sortfilter);
 }
 
 /*!
@@ -2809,11 +2993,18 @@ int QSortFilterProxyModel::sortRole() const
 void QSortFilterProxyModel::setSortRole(int role)
 {
     Q_D(QSortFilterProxyModel);
+    d->sort_role.removeBindingUnlessInWrapper();
     if (d->sort_role == role)
         return;
-    d->sort_role = role;
+    d->sort_role.setValueBypassingBindings(role);
     d->sort();
-    emit sortRoleChanged(role);
+    d->sort_role.notify(); // also emits a signal
+}
+
+QBindable<int> QSortFilterProxyModel::bindableSortRole()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<int>(&d->sort_role);
 }
 
 /*!
@@ -2841,12 +3032,19 @@ int QSortFilterProxyModel::filterRole() const
 void QSortFilterProxyModel::setFilterRole(int role)
 {
     Q_D(QSortFilterProxyModel);
+    d->filter_role.removeBindingUnlessInWrapper();
     if (d->filter_role == role)
         return;
     d->filter_about_to_be_changed();
-    d->filter_role = role;
+    d->filter_role.setValueBypassingBindings(role);
     d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
-    emit filterRoleChanged(role);
+    d->filter_role.notify(); // also emits a signal
+}
+
+QBindable<int> QSortFilterProxyModel::bindableFilterRole()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<int>(&d->filter_role);
 }
 
 /*!
@@ -2876,12 +3074,19 @@ bool QSortFilterProxyModel::isRecursiveFilteringEnabled() const
 void QSortFilterProxyModel::setRecursiveFilteringEnabled(bool recursive)
 {
     Q_D(QSortFilterProxyModel);
+    d->filter_recursive.removeBindingUnlessInWrapper();
     if (d->filter_recursive == recursive)
         return;
     d->filter_about_to_be_changed();
-    d->filter_recursive = recursive;
+    d->filter_recursive.setValueBypassingBindings(recursive);
     d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
-    emit recursiveFilteringEnabledChanged(recursive);
+    d->filter_recursive.notify(); // also emits a signal
+}
+
+QBindable<bool> QSortFilterProxyModel::bindableRecursiveFilteringEnabled()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<bool>(&d->filter_recursive);
 }
 
 /*!
@@ -2913,13 +3118,20 @@ bool QSortFilterProxyModel::autoAcceptChildRows() const
 void QSortFilterProxyModel::setAutoAcceptChildRows(bool accept)
 {
     Q_D(QSortFilterProxyModel);
+    d->accept_children.removeBindingUnlessInWrapper();
     if (d->accept_children == accept)
         return;
 
     d->filter_about_to_be_changed();
-    d->accept_children = accept;
+    d->accept_children.setValueBypassingBindings(accept);
     d->filter_changed(QSortFilterProxyModelPrivate::Direction::Rows);
-    emit autoAcceptChildRowsChanged(accept);
+    d->accept_children.notify(); // also emits a signal
+}
+
+QBindable<bool> QSortFilterProxyModel::bindableAutoAcceptChildRows()
+{
+    Q_D(QSortFilterProxyModel);
+    return QBindable<bool>(&d->accept_children);
 }
 
 /*!
@@ -3062,7 +3274,7 @@ bool QSortFilterProxyModel::filterAcceptsRow(int source_row, const QModelIndex &
 {
     Q_D(const QSortFilterProxyModel);
 
-    if (d->filter_regularexpression.pattern().isEmpty())
+    if (d->filter_regularexpression.value().pattern().isEmpty())
         return true;
 
     int column_count = d->model->columnCount(source_parent);
@@ -3070,7 +3282,7 @@ bool QSortFilterProxyModel::filterAcceptsRow(int source_row, const QModelIndex &
         for (int column = 0; column < column_count; ++column) {
             QModelIndex source_index = d->model->index(source_row, column, source_parent);
             QString key = d->model->data(source_index, d->filter_role).toString();
-            if (key.contains(d->filter_regularexpression))
+            if (key.contains(d->filter_regularexpression.value()))
                 return true;
         }
         return false;
@@ -3080,7 +3292,7 @@ bool QSortFilterProxyModel::filterAcceptsRow(int source_row, const QModelIndex &
         return true;
     QModelIndex source_index = d->model->index(source_row, d->filter_column, source_parent);
     QString key = d->model->data(source_index, d->filter_role).toString();
-    return key.contains(d->filter_regularexpression);
+    return key.contains(d->filter_regularexpression.value());
 }
 
 /*!

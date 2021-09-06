@@ -231,22 +231,12 @@ public:
     Q_DECLARE_PUBLIC(QProcess)
 
     struct Channel {
-        enum ProcessChannelType {
+        enum ProcessChannelType : char {
             Normal = 0,
             PipeSource = 1,
             PipeSink = 2,
             Redirect = 3
-            // if you add "= 4" here, increase the number of bits below
         };
-
-        Channel() : process(nullptr), notifier(nullptr), type(Normal), closed(false), append(false)
-        {
-            pipe[0] = INVALID_Q_PIPE;
-            pipe[1] = INVALID_Q_PIPE;
-#ifdef Q_OS_WIN
-            reader = 0;
-#endif
-        }
 
         void clear();
 
@@ -273,19 +263,20 @@ public:
         }
 
         QString file;
-        QProcessPrivate *process;
-        QSocketNotifier *notifier;
-#ifdef Q_OS_WIN
+        QProcessPrivate *process = nullptr;
+#ifdef Q_OS_UNIX
+        QSocketNotifier *notifier = nullptr;
+#else
         union {
-            QWindowsPipeReader *reader;
+            QWindowsPipeReader *reader = nullptr;
             QWindowsPipeWriter *writer;
         };
 #endif
-        Q_PIPE pipe[2];
+        Q_PIPE pipe[2] = {INVALID_Q_PIPE, INVALID_Q_PIPE};
 
-        unsigned type : 2;
-        bool closed : 1;
-        bool append : 1;
+        ProcessChannelType type = Normal;
+        bool closed = false;
+        bool append = false;
     };
 
     QProcessPrivate();
@@ -294,6 +285,9 @@ public:
     // private slots
     bool _q_canReadStandardOutput();
     bool _q_canReadStandardError();
+#ifdef Q_OS_WIN
+    void _q_bytesWritten(qint64 bytes);
+#endif
     bool _q_canWrite();
     bool _q_startupNotification();
     void _q_processDied();
@@ -323,6 +317,7 @@ public:
 #endif
     void closeChannel(Channel *channel);
     void closeWriteChannel();
+    void closeChannels();
     bool tryReadFromChannel(Channel *channel); // obviously, only stdout and stderr
 
     QString program;
@@ -335,14 +330,11 @@ public:
 #endif
     QProcessEnvironment environment;
 
+#ifdef Q_OS_UNIX
     Q_PIPE childStartedPipe[2] = {INVALID_Q_PIPE, INVALID_Q_PIPE};
-    void destroyPipe(Q_PIPE pipe[2]);
-
     QSocketNotifier *stateNotifier = nullptr;
-
     int forkfd = -1;
-
-#ifdef Q_OS_WIN
+#else
     QTimer *stdinWriteTrigger = nullptr;
     QWinEventNotifier *processFinishedNotifier = nullptr;
 #endif
@@ -365,7 +357,6 @@ public:
     STARTUPINFOW createStartupInfo();
     bool callCreateProcess(QProcess::CreateProcessArguments *cpargs);
     bool drainOutputPipes();
-    void flushPipeWriter();
     qint64 pipeWriterBytesToWrite() const;
 #endif
 
@@ -384,6 +375,7 @@ public:
     qint64 readFromChannel(const Channel *channel, char *data, qint64 maxlen);
     bool writeToStdin();
 
+    void destroyPipe(Q_PIPE pipe[2]);
     void cleanup();
     void setError(QProcess::ProcessError error, const QString &description = QString());
     void setErrorAndEmit(QProcess::ProcessError error, const QString &description = QString());

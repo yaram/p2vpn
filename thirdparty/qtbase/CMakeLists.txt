@@ -3,24 +3,30 @@
 # Need an explicit call at the top level. This is the absolute minimum version
 # needed to configure the project with any combination of enabled features.
 # The call to qt_build_repo_begin() will upgrade policies further.
+#
+# The absolute minimum version for building Qt is 3.16 because for metatype.json generation, we
+# depend on being able to find the location of json files created by AUTOMOC/moc.
 cmake_minimum_required(VERSION 3.16)
 
 # Get the repo version and CMake policy details
 include(.cmake.conf)
 
-# Bail out if parts of the build directory's components are symlinks.
+# Bail out if any part of the build directory's path is symlinked.
+# The OS-level current working directory is always the real path and some
+# parts of the build system only deal with that path, which causes confusion
+# when compared to the logical working directory maintained by the shell and
+# passed on the command line.
 get_filename_component(build_dir_absolute "${CMAKE_BINARY_DIR}" ABSOLUTE)
 get_filename_component(build_dir_realpath "${CMAKE_BINARY_DIR}" REALPATH)
 if(NOT build_dir_absolute STREQUAL build_dir_realpath)
     message(FATAL_ERROR "The build path \"${CMAKE_BINARY_DIR}\" contains symlinks. \
-This is not supported. Please use some other - transparent - mechanism to map directories.")
+This is not supported. Possible solutions:
+- map directories using a transparent mechanism such as mount --bind
+- pass the real path of the build directory to CMake, e.g. using \
+cd $(realpath <build_dir>) before invoking cmake <source_dir>.")
 endif()
 unset(build_dir_absolute)
 unset(build_dir_realpath)
-
-# Early check to reduce chance of warning being lost in the output
-include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/QtCMakeVersionHelpers.cmake")
-qt_internal_check_for_suitable_cmake_version()
 
 # Run auto detection routines, but not when doing standalone tests. In that case, the detection
 # results are taken from either QtBuildInternals or the qt.toolchain.cmake file. Also, inhibit
@@ -29,6 +35,7 @@ if(NOT QT_BUILD_STANDALONE_TESTS AND NOT QT_SUPERBUILD)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/QtAutoDetect.cmake)
 endif()
 
+# This call will load any provided cmake toolchain file.
 project(QtBase
     VERSION "${QT_REPO_MODULE_VERSION}"
     DESCRIPTION "Qt Base Libraries"
@@ -36,11 +43,22 @@ project(QtBase
     LANGUAGES CXX C ASM
 )
 
-# Make sure we only use latest private CMake API, aka no compatibility wrappers.
-set(QT_NO_INTERNAL_COMPATIBILITY_FUNCTIONS TRUE)
+# Should this Qt be static or dynamically linked?
+option(BUILD_SHARED_LIBS "Build Qt statically or dynamically" OFF)
+set(QT_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
 
-# Make sure we use the fixed BASE argument of qt_add_resource.
-set(QT_USE_FIXED_QT_ADD_RESOURCE_BASE TRUE)
+# This variable is also set in Qt6CoreConfigExtras.cmake, but it's not loaded when building
+# qtbase. Set it here so qt_add_plugin can compute the proper plugin flavor.
+set(QT6_IS_SHARED_LIBS_BUILD ${BUILD_SHARED_LIBS})
+
+# BUILD_SHARED_LIBS influences the minimum required CMake version. The value is set either by:
+#   a cache variable provided on the configure command line
+#   or set by QtAutoDetect.cmake depending on the platform
+#   or specified via a toolchain file that is loaded by the project() call
+#   or set by the option() call above
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/QtCMakeVersionHelpers.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/QtPublicCMakeVersionHelpers.cmake")
+qt_internal_check_and_warn_about_unsuitable_cmake_version()
 
 if(NOT QT_BUILD_STANDALONE_TESTS)
     ## Add some paths to check for cmake modules:
@@ -73,14 +91,6 @@ endif()
 qt_build_repo_begin()
 
 if(NOT QT_BUILD_STANDALONE_TESTS)
-    ## Should this Qt be static or dynamically linked?
-    option(BUILD_SHARED_LIBS "Build Qt statically or dynamically" OFF)
-    set(QT_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
-
-    # This variable is also set in Qt6CoreConfigExtras.cmake, but it's not loaded when building
-    # qtbase. Set it here so qt_add_plugin can compute the proper plugin flavor.
-    set(QT6_IS_SHARED_LIBS_BUILD ${BUILD_SHARED_LIBS})
-
     ## Should this Qt be built with Werror?
     option(WARNINGS_ARE_ERRORS "Build Qt with warnings as errors" ${FEATURE_developer_build})
 
@@ -110,6 +120,12 @@ if(NOT QT_BUILD_STANDALONE_TESTS)
         _qt_internal_create_global_apk_target()
     endif()
 
+    if(WASM)
+        # Needed when building for WebAssembly.
+        include(cmake/QtWasmHelpers.cmake)
+        qt_internal_setup_wasm_target_properties(Platform)
+    endif()
+
     # Set up optimization flags like in qmake.
     # This function must be called after the global QT_FEATURE_xxx variables have been set up,
     # aka after QtBaseGlobalTargets is processed.
@@ -122,7 +138,7 @@ if(NOT QT_BUILD_STANDALONE_TESTS)
 endif()
 
 if(NOT QT_BUILD_STANDALONE_TESTS)
-    if(QT_WILL_BUILD_TOOLS)
+    if(QT_WILL_BUILD_TOOLS AND QT_FEATURE_settings)
         add_subdirectory(qmake)
     endif()
     # As long as we use the mkspecs (for qplatformdefs.h), we need to always

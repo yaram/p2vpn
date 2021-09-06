@@ -46,8 +46,6 @@
 #include "qsslcipher_p.h"
 #include "qsslkey_p.h"
 #include "qsslkey.h"
-#else
-#include "qtlsbackend_cert_p.h"
 #endif
 
 #include "qssl_p.h"
@@ -63,7 +61,7 @@
 QT_BEGIN_NAMESPACE
 
 Q_GLOBAL_STATIC_WITH_ARGS(QFactoryLoader, loader,
-                          (QTlsBackend_iid, QStringLiteral("/tlsbackends")))
+                          (QTlsBackend_iid, QStringLiteral("/tls")))
 
 namespace {
 
@@ -103,14 +101,6 @@ public:
         int index = 0;
         while (loader->instance(index))
             ++index;
-
-        // TLSTODO: obviously, these two below should
-        // disappear as soon as plugins are in place.
-#if QT_CONFIG(ssl)
-        QSslSocketPrivate::registerAdHocFactory();
-#else
-        static QTlsBackendCertOnly certGenerator;
-#endif // QT_CONFIG(ssl)
 
         return loaded = true;
     }
@@ -198,7 +188,8 @@ Q_GLOBAL_STATIC(BackendCollection, backends);
 const QString QTlsBackend::builtinBackendNames[] = {
     QStringLiteral("schannel"),
     QStringLiteral("securetransport"),
-    QStringLiteral("openssl")
+    QStringLiteral("openssl"),
+    QStringLiteral("cert-only")
 };
 
 /*!
@@ -615,17 +606,24 @@ QList<QString> QTlsBackend::availableBackendNames()
 */
 QString QTlsBackend::defaultBackendName()
 {
-    // We prefer native as default:
+    // We prefer OpenSSL as default:
     const auto names = availableBackendNames();
-    auto name = builtinBackendNames[nameIndexSchannel];
+    auto name = builtinBackendNames[nameIndexOpenSSL];
+    if (names.contains(name))
+        return name;
+    name = builtinBackendNames[nameIndexSchannel];
     if (names.contains(name))
         return name;
     name = builtinBackendNames[nameIndexSecureTransport];
     if (names.contains(name))
         return name;
-    name = builtinBackendNames[nameIndexOpenSSL];
-    if (names.contains(name))
-        return name;
+
+    const auto pos = std::find_if(names.begin(), names.end(), [](const auto &name) {
+        return name != builtinBackendNames[nameIndexCertOnly];
+    });
+
+    if (pos != names.end())
+        return *pos;
 
     if (names.size())
         return names[0];
@@ -1149,6 +1147,16 @@ void QTlsBackend::setEphemeralKey(QSslSocketPrivate *d, const QSslKey &key)
 {
     Q_ASSERT(d);
     d->configuration.ephemeralServerKey = key;
+}
+
+/*!
+    \internal
+
+    Implementation-specific. Sets the security level suitable for Qt's
+    auto-tests.
+*/
+void QTlsBackend::forceAutotestSecurityLevel()
+{
 }
 
 #endif // QT_CONFIG(ssl)
@@ -2339,5 +2347,17 @@ DtlsBase::~DtlsBase() = default;
 #endif // QT_CONFIG(ssl)
 
 } // namespace QTlsPrivate
+
+#if QT_CONFIG(ssl)
+/*!
+    \internal
+*/
+Q_NETWORK_EXPORT void qt_ForceTlsSecurityLevel()
+{
+    if (auto *backend = QSslSocketPrivate::tlsBackendInUse())
+        backend->forceAutotestSecurityLevel();
+}
+
+#endif // QT_CONFIG(ssl)
 
 QT_END_NAMESPACE

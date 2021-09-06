@@ -485,9 +485,10 @@
     \note a statically allocated list will report a capacity of 0,
     even if it's not empty.
 
-    \note The free space position in the allocated memory block is undefined. In
-    other words, one should not assume that the free memory is always located
-    after the initialized elements.
+    \warning The free space position in the allocated memory block is undefined.
+    In other words, you should not assume that the free memory is always located
+    at the end of the list. You can call reserve() to ensure that there is
+    enough space at the end.
 
     \sa reserve(), squeeze()
 */
@@ -1509,7 +1510,7 @@
 
 /*! \fn template <typename T> QList<T> QList<T>::toList() const
     \fn template <typename T> QList<T> QList<T>::toVector() const
-    \obsolete
+    \deprecated
 
     A no-op in Qt 6. Provided for backwards compatibility with
     Qt 5, where QList and QVector where two different types.
@@ -1519,7 +1520,7 @@
 
 /*! \fn template <typename T> QList<T> QList<T>::fromList(const QList<T> &list)
     \fn template <typename T> QList<T> QList<T>::fromVector(const QList<T> &list)
-    \obsolete
+    \deprecated
 
     A no-op in Qt 6. Provided for backwards compatibility with
     Qt 5, where QList and QVector were two different types.

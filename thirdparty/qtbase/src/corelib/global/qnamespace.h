@@ -1394,6 +1394,7 @@ namespace Qt {
         ImAnchorRectangle = 0x4000,
         ImInputItemClipRectangle = 0x8000,
 
+        ImReadOnly = 0x10000,
         ImPlatformData = 0x80000000,
         ImQueryInput = ImCursorRectangle | ImCursorPosition | ImSurroundingText |
                        ImCurrentSelection | ImAnchorRectangle | ImAnchorPosition,
@@ -1546,6 +1547,7 @@ namespace Qt {
         MatchRegularExpression = 4,
         MatchWildcard = 5,
         MatchFixedString = 8,
+        MatchTypeMask = 0x0F,
         MatchCaseSensitive = 16,
         MatchWrap = 32,
         MatchRecursive = 64
@@ -1872,11 +1874,11 @@ public:
     {}
 
     constexpr explicit QKeyCombination(Qt::Modifiers modifiers, Qt::Key key = Qt::Key_unknown) noexcept
-        : combination(int(modifiers) | int(key))
+        : combination(modifiers.toInt() | int(key))
     {}
 
     constexpr explicit QKeyCombination(Qt::KeyboardModifiers modifiers, Qt::Key key = Qt::Key_unknown) noexcept
-        : combination(int(modifiers) | int(key))
+        : combination(modifiers.toInt() | int(key))
     {}
 
     constexpr Qt::KeyboardModifiers keyboardModifiers() const noexcept
@@ -1886,7 +1888,7 @@ public:
 
     constexpr Qt::Key key() const noexcept
     {
-        return Qt::Key(combination & ~Qt::KeyboardModifierMask);
+        return Qt::Key(combination & ~int(Qt::KeyboardModifierMask));
     }
 
     static constexpr QKeyCombination fromCombined(int combined)
@@ -1918,6 +1920,8 @@ public:
     {
         return lhs.combination != rhs.combination;
     }
+
+    bool operator<(QKeyCombination) const = delete;
 };
 
 Q_DECLARE_TYPEINFO(QKeyCombination, Q_RELOCATABLE_TYPE);

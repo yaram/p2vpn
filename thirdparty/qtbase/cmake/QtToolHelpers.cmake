@@ -19,6 +19,9 @@
 #     EXTRA_CMAKE_FILES
 #         List of additional CMake files that will be installed alongside the tool's exported CMake
 #         files.
+#     EXTRA_CMAKE_INCLUDES
+#         List of files that will be included in the Qt6${module}Tools.cmake file.
+#         Also see TOOLS_TARGET.
 #     INSTALL_DIR
 #         Takes a path, relative to the install prefix, like INSTALL_LIBEXECDIR.
 #         If this argument is omitted, the default is INSTALL_BINDIR.
@@ -28,12 +31,18 @@
 #
 function(qt_internal_add_tool target_name)
     qt_tool_target_to_name(name ${target_name})
-    set(option_keywords BOOTSTRAP NO_QT NO_INSTALL USER_FACING INSTALL_VERSIONED_LINK)
-    set(one_value_keywords TOOLS_TARGET EXTRA_CMAKE_FILES INSTALL_DIR
-                           ${__default_target_info_args})
+    set(option_keywords BOOTSTRAP NO_INSTALL USER_FACING INSTALL_VERSIONED_LINK EXCEPTIONS)
+    set(one_value_keywords
+        TOOLS_TARGET
+        INSTALL_DIR
+        ${__default_target_info_args})
+    set(multi_value_keywords
+        EXTRA_CMAKE_FILES
+        EXTRA_CMAKE_INCLUDES
+        ${__default_private_args})
     qt_parse_all_arguments(arg "qt_internal_add_tool" "${option_keywords}"
                                "${one_value_keywords}"
-                               "${__default_private_args}" ${ARGN})
+                               "${multi_value_keywords}" ${ARGN})
 
     # Handle case when a tool does not belong to a module and it can't be built either (like
     # during a cross-compile).
@@ -118,19 +127,11 @@ function(qt_internal_add_tool target_name)
     endif()
 
     set(disable_autogen_tools "${arg_DISABLE_AUTOGEN_TOOLS}")
-    if (arg_NO_QT)
-        # FIXME: Remove NO_QT again once qmake can use a "normal" Qt!
-        if (arg_BOOTSTRAP)
-            message(FATAL_ERROR "Tool can not be NO_QT and BOOTSTRAP at the same time!")
-        endif()
-        set(corelib "")
+    if (arg_BOOTSTRAP)
+        set(corelib ${QT_CMAKE_EXPORT_NAMESPACE}::Bootstrap)
+        list(APPEND disable_autogen_tools "uic" "moc" "rcc")
     else()
-        if (arg_BOOTSTRAP)
-            set(corelib ${QT_CMAKE_EXPORT_NAMESPACE}::Bootstrap)
-            list(APPEND disable_autogen_tools "uic" "moc" "rcc")
-        else()
-            set(corelib ${QT_CMAKE_EXPORT_NAMESPACE}::Core)
-        endif()
+        set(corelib ${QT_CMAKE_EXPORT_NAMESPACE}::Core)
     endif()
 
     set(bootstrap "")
@@ -138,9 +139,9 @@ function(qt_internal_add_tool target_name)
         set(bootstrap BOOTSTRAP)
     endif()
 
-    set(no_qt "")
-    if(arg_NO_QT)
-        set(no_qt NO_QT)
+    set(exceptions "")
+    if(arg_EXCEPTIONS)
+        set(exceptions EXCEPTIONS)
     endif()
 
     set(install_dir "${INSTALL_BINDIR}")
@@ -148,9 +149,12 @@ function(qt_internal_add_tool target_name)
         set(install_dir "${arg_INSTALL_DIR}")
     endif()
 
-    qt_internal_add_executable("${target_name}" OUTPUT_DIRECTORY "${QT_BUILD_DIR}/${install_dir}"
+    set(output_dir "${QT_BUILD_DIR}/${install_dir}")
+
+    qt_internal_add_executable("${target_name}"
+        OUTPUT_DIRECTORY "${output_dir}"
         ${bootstrap}
-        ${no_qt}
+        ${exceptions}
         NO_INSTALL
         SOURCES ${arg_SOURCES}
         INCLUDE_DIRECTORIES
@@ -172,6 +176,7 @@ function(qt_internal_add_tool target_name)
     )
     qt_internal_add_target_aliases("${target_name}")
     _qt_internal_apply_strict_cpp("${target_name}")
+    qt_internal_adjust_main_config_runtime_output_dir("${target_name}" "${output_dir}")
 
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.19.0" AND QT_FEATURE_debug_and_release)
         set_property(TARGET "${target_name}"
@@ -187,7 +192,7 @@ function(qt_internal_add_tool target_name)
 
     if(TARGET host_tools)
         add_dependencies(host_tools "${target_name}")
-        if(bootstrap OR no_qt)
+        if(bootstrap)
             add_dependencies(bootstrap_tools "${target_name}")
         endif()
     endif()
@@ -198,16 +203,16 @@ function(qt_internal_add_tool target_name)
         )
     endif()
 
+    if(arg_EXTRA_CMAKE_INCLUDES)
+        set_target_properties(${target_name} PROPERTIES
+            EXTRA_CMAKE_INCLUDES "${arg_EXTRA_CMAKE_INCLUDES}"
+            )
+    endif()
+
     if(arg_USER_FACING)
         set_property(GLOBAL APPEND PROPERTY QT_USER_FACING_TOOL_TARGETS ${target_name})
     endif()
 
-    # If building with a multi-config configuration, the main configuration tool will be placed in
-    # ./bin, while the rest will be in <CONFIG> specific subdirectories.
-    qt_get_tool_cmake_configuration(tool_cmake_configuration)
-    set_target_properties("${target_name}" PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY_${tool_cmake_configuration} "${QT_BUILD_DIR}/${install_dir}"
-    )
 
     if(NOT arg_NO_INSTALL AND arg_TOOLS_TARGET)
         # Assign a tool to an export set, and mark the module to which the tool belongs.
@@ -286,6 +291,7 @@ function(qt_export_tools module_name)
 
     # Additional cmake files to install
     set(extra_cmake_files "")
+    set(extra_cmake_includes "")
 
     foreach(tool_name ${QT_KNOWN_MODULE_${module_name}_TOOLS})
         # Specific tools can have package dependencies.
@@ -303,15 +309,17 @@ function(qt_export_tools module_name)
             endforeach()
         endif()
 
+        get_target_property(_extra_cmake_includes "${tool_name}" EXTRA_CMAKE_INCLUDES)
+        if(_extra_cmake_includes)
+            list(APPEND extra_cmake_includes "${_extra_cmake_includes}")
+        endif()
+
         if (CMAKE_CROSSCOMPILING AND QT_BUILD_TOOLS_WHEN_CROSSCOMPILING)
             string(REGEX REPLACE "_native$" "" tool_name ${tool_name})
         endif()
         set(extra_cmake_statements "${extra_cmake_statements}
 if (NOT QT_NO_CREATE_TARGETS)
-    get_property(is_global TARGET ${INSTALL_CMAKE_NAMESPACE}::${tool_name} PROPERTY IMPORTED_GLOBAL)
-    if(NOT is_global)
-        set_property(TARGET ${INSTALL_CMAKE_NAMESPACE}::${tool_name} PROPERTY IMPORTED_GLOBAL TRUE)
-    endif()
+    __qt_internal_promote_target_to_global(${INSTALL_CMAKE_NAMESPACE}::${tool_name})
 endif()
 ")
         list(APPEND tool_targets "${QT_CMAKE_EXPORT_NAMESPACE}::${tool_name}")
@@ -320,12 +328,6 @@ endif()
 
     string(APPEND extra_cmake_statements
 "set(${QT_CMAKE_EXPORT_NAMESPACE}${module_name}Tools_TARGETS \"${tool_targets}\")")
-
-    set(extra_cmake_includes "")
-    foreach(extra_cmake_file ${extra_cmake_files})
-        get_filename_component(extra_cmake_include "${extra_cmake_file}" NAME)
-        list(APPEND extra_cmake_includes "${extra_cmake_include}")
-    endforeach()
 
     # Extract package dependencies that were determined in QtPostProcess, but only if ${module_name}
     # is an actual target.
@@ -404,21 +406,6 @@ endif()
         DESTINATION "${config_install_dir}"
         COMPONENT Devel
     )
-endfunction()
-
-function(qt_get_tool_cmake_configuration out_var)
-    qt_get_main_cmake_configuration("${out_var}")
-    string(TOUPPER "${${out_var}}" upper_config)
-    set("${out_var}" "${upper_config}" PARENT_SCOPE)
-endfunction()
-
-function(qt_get_main_cmake_configuration out_var)
-    if(CMAKE_BUILD_TYPE)
-        set(config "${CMAKE_BUILD_TYPE}")
-    elseif(QT_MULTI_CONFIG_FIRST_CONFIG)
-        set(config "${QT_MULTI_CONFIG_FIRST_CONFIG}")
-    endif()
-    set("${out_var}" "${config}" PARENT_SCOPE)
 endfunction()
 
 # Returns the target name for the tool with the given name.

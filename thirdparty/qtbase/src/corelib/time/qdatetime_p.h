@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2016 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -101,14 +101,14 @@ public:
         TimeSpecMask        = 0x30,
 
         SetToStandardTime   = 0x40,
-        SetToDaylightTime   = 0x80
+        SetToDaylightTime   = 0x80,
+        ValidityMask        = ValidDate | ValidTime | ValidDateTime,
+        DaylightMask        = SetToStandardTime | SetToDaylightTime,
     };
     Q_DECLARE_FLAGS(StatusFlags, StatusFlag)
 
     enum {
         TimeSpecShift = 4,
-        ValidityMask        = ValidDate | ValidTime | ValidDateTime,
-        DaylightMask        = SetToStandardTime | SetToDaylightTime
     };
 
     static QDateTime::Data create(QDate toDate, QTime toTime, Qt::TimeSpec toSpec,
@@ -116,7 +116,19 @@ public:
 
 #if QT_CONFIG(timezone)
     static QDateTime::Data create(QDate toDate, QTime toTime, const QTimeZone & timeZone);
+
+    static qint64 zoneMSecsToEpochMSecs(qint64 msecs, const QTimeZone &zone,
+                                        DaylightStatus *hint = nullptr,
+                                        QDate *localDate = nullptr, QTime *localTime = nullptr,
+                                        QString *abbreviation = nullptr);
 #endif // timezone
+
+    static bool epochMSecsToLocalTime(qint64 msecs, QDate *localDate, QTime *localTime,
+                                      QDateTimePrivate::DaylightStatus *daylightStatus = nullptr);
+    static qint64 localMSecsToEpochMSecs(qint64 localMsecs,
+                                         QDateTimePrivate::DaylightStatus *daylightStatus,
+                                         QDate *localDate = nullptr, QTime *localTime = nullptr,
+                                         QString *abbreviation = nullptr);
 
     StatusFlags m_status = StatusFlag(Qt::LocalTime << TimeSpecShift);
     qint64 m_msecs = 0;
@@ -124,13 +136,9 @@ public:
 #if QT_CONFIG(timezone)
     QTimeZone m_timeZone;
 #endif // timezone
-
-#if QT_CONFIG(timezone)
-    static qint64 zoneMSecsToEpochMSecs(qint64 msecs, const QTimeZone &zone,
-                                        DaylightStatus hint = UnknownDaylightTime,
-                                        QDate *localDate = nullptr, QTime *localTime = nullptr);
-#endif // timezone
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QDateTimePrivate::StatusFlags)
 
 QT_END_NAMESPACE
 

@@ -54,6 +54,8 @@
 #include <QtGui/qoffscreensurface.h>
 #include <QtCore/qscopedpointer.h>
 
+#include <QtCore/qnativeinterface.h>
+
 QT_BEGIN_NAMESPACE
 
 class QOffscreenSurface;
@@ -80,12 +82,6 @@ protected:
 private:
     Q_DISABLE_COPY(QPlatformOffscreenSurface)
 };
-
-template <typename NativeInterface>
-NativeInterface *QOffscreenSurface::nativeInterface() const
-{
-    return dynamic_cast<NativeInterface*>(surfaceHandle());
-}
 
 namespace QNativeInterface::Private {
 

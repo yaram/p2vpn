@@ -57,18 +57,9 @@ public:
         WordSize = (sizeof(void *)<<3)
     };
 
-#if defined(QT_BUILD_QMAKE)
     enum Endian {
         BigEndian,
         LittleEndian
-    };
-    /* needed to bootstrap qmake */
-    static const int ByteOrder;
-#elif defined(Q_BYTE_ORDER)
-    enum Endian {
-        BigEndian,
-        LittleEndian
-
 #  ifdef Q_QDOC
         , ByteOrder = BigEndian or LittleEndian
 #  elif Q_BYTE_ORDER == Q_BIG_ENDIAN
@@ -79,7 +70,6 @@ public:
 #    error "Undefined byte order"
 #  endif
     };
-#endif
 
     static QString buildCpuArchitecture();
     static QString currentCpuArchitecture();

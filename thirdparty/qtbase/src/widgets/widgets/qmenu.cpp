@@ -1678,7 +1678,9 @@ void QMenu::initStyleOption(QStyleOptionMenuItem *option, const QAction *action)
     QWidgetAction fires the triggered() signal, the menu will close.
 
     \warning To make QMenu visible on the screen, exec() or popup() should be
-    used instead of show().
+    used instead of show() or setVisible(). To hide or disable the menu in the
+    menubar, or in another menu to which it was added as a submenu, use the
+    respective properties of menuAction() instead.
 
     \section1 QMenu on \macos with Qt Build Against Cocoa
 
@@ -2228,7 +2230,7 @@ void QMenu::setActiveAction(QAction *act)
 {
     Q_D(QMenu);
     d->setCurrentAction(act, 0);
-    if (d->scroll)
+    if (d->scroll && act)
         d->scrollMenu(act, QMenuPrivate::QMenuScroller::ScrollCenter);
 }
 
@@ -3003,8 +3005,7 @@ void QMenu::changeEvent(QEvent *e)
 /*!
   \reimp
 */
-bool
-QMenu::event(QEvent *e)
+bool QMenu::event(QEvent *e)
 {
     Q_D(QMenu);
     switch (e->type()) {

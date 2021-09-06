@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -56,14 +56,19 @@
 #include <QtCore/qstringlist.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qmap.h>
+#include <QtCore/qanystringview.h>
 #include <QtCore/private/qlocale_p.h>
 
 QT_BEGIN_NAMESPACE
 
+namespace QtPrivate {
+class QCalendarRegistry;
+}
+
 // Locale-related parts, mostly handled in ../text/qlocale.cpp
 
 struct QCalendarLocale {
-    quint16 m_language_id, m_script_id, m_country_id;
+    quint16 m_language_id, m_script_id, m_territory_id;
 
 #define rangeGetter(name) \
     QLocaleData::DataRange name() const { return { m_ ## name ## _idx, m_ ## name ## _size }; }
@@ -89,10 +94,16 @@ struct QCalendarLocale {
 class Q_CORE_EXPORT QCalendarBackend
 {
     friend class QCalendar;
+    friend class QtPrivate::QCalendarRegistry;
+
 public:
     virtual ~QCalendarBackend();
     virtual QString name() const = 0;
-    virtual QCalendar::System calendarSystem() const;
+
+    QStringList names() const;
+
+    QCalendar::System calendarSystem() const;
+    QCalendar::SystemId calendarId() const { return m_id; }
     // Date queries:
     virtual int daysInMonth(int month, int year = QCalendar::Unspecified) const = 0;
     virtual int daysInYear(int year) const;
@@ -129,24 +140,29 @@ public:
                                      QDate dateOnly, QTime timeOnly,
                                      const QLocale &locale) const;
 
+    bool isGregorian() const;
+
+    QCalendar::SystemId registerCustomBackend(const QStringList &names);
+
     // Calendar enumeration by name:
     static QStringList availableCalendars();
 
 protected:
-    QCalendarBackend(const QString &name, QCalendar::System system = QCalendar::System::User);
-
     // Locale support:
     virtual const QCalendarLocale *localeMonthIndexData() const = 0;
     virtual const char16_t *localeMonthData() const = 0;
 
-    bool registerAlias(const QString &name);
-
 private:
+    QCalendar::SystemId m_id;
+
+    void setIndex(size_t index);
+
     // QCalendar's access to its registry:
-    static const QCalendarBackend *fromName(QStringView name);
-    static const QCalendarBackend *fromName(QLatin1String name);
+    static const QCalendarBackend *fromName(QAnyStringView name);
+    static const QCalendarBackend *fromId(QCalendar::SystemId id);
     // QCalendar's access to singletons:
     static const QCalendarBackend *fromEnum(QCalendar::System system);
+    static const QCalendarBackend *gregorian();
 };
 
 QT_END_NAMESPACE

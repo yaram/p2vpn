@@ -128,17 +128,22 @@ QAbstractProxyModel::~QAbstractProxyModel()
 void QAbstractProxyModel::setSourceModel(QAbstractItemModel *sourceModel)
 {
     Q_D(QAbstractProxyModel);
+    d->model.removeBindingUnlessInWrapper();
+    // Special case to handle nullptr models. Otherwise we will have unwanted
+    // notifications.
+    if (!sourceModel && d->model == QAbstractItemModelPrivate::staticEmptyModel())
+        return;
     if (sourceModel != d->model) {
         if (d->model)
             disconnect(d->model, SIGNAL(destroyed()), this, SLOT(_q_sourceModelDestroyed()));
 
         if (sourceModel) {
-            d->model = sourceModel;
+            d->model.setValueBypassingBindings(sourceModel);
             connect(d->model, SIGNAL(destroyed()), this, SLOT(_q_sourceModelDestroyed()));
         } else {
-            d->model = QAbstractItemModelPrivate::staticEmptyModel();
+            d->model.setValueBypassingBindings(QAbstractItemModelPrivate::staticEmptyModel());
         }
-        emit sourceModelChanged(QPrivateSignal());
+        d->model.notify();
     }
 }
 
@@ -151,6 +156,13 @@ QAbstractItemModel *QAbstractProxyModel::sourceModel() const
     if (d->model == QAbstractItemModelPrivate::staticEmptyModel())
         return nullptr;
     return d->model;
+}
+
+QBindable<QAbstractItemModel *> QAbstractProxyModel::bindableSourceModel()
+{
+    Q_D(QAbstractProxyModel);
+    return QBindable<QAbstractItemModel *>(QAbstractProxyModelBindable(
+            &d->model, &QtPrivate::QBindableInterfaceForSourceModel::iface));
 }
 
 /*!
@@ -474,6 +486,26 @@ QHash<int,QByteArray> QAbstractProxyModel::roleNames() const
   return d->model->roleNames();
 }
 
+/*!
+    Equivalent to calling createIndex on the source model.
+
+    This method is useful if your proxy model wants to maintain the
+    parent-child relationship of items in the source model.
+    When reimplementing mapToSource(), you can call this method to
+    create an index for row \a row and column \a col of the source model.
+
+    A typical use would be to save the internal pointer coming from the source model
+    in the proxy index when reimplementing mapFromSource() and use the same internal
+    pointer as \a internalPtr to recover the original source index when
+    reimplementing mapToSource().
+    \since 6.2
+ */
+QModelIndex QAbstractProxyModel::createSourceIndex(int row, int col, void *internalPtr) const
+{
+    if (sourceModel())
+        return sourceModel()->createIndex(row, col, internalPtr);
+    return QModelIndex();
+}
 
 QT_END_NAMESPACE
 

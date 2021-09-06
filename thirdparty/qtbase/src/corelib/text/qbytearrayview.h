@@ -270,6 +270,8 @@ public:
     [[nodiscard]] qsizetype count(char ch) const noexcept
     { return QtPrivate::count(*this, QByteArrayView(&ch, 1)); }
 
+    inline int compare(QByteArrayView a, Qt::CaseSensitivity cs = Qt::CaseSensitive) const noexcept;
+
     //
     // STL compatibility API:
     //
@@ -291,12 +293,8 @@ public:
     //
     [[nodiscard]] constexpr bool isNull() const noexcept { return !m_data; }
     [[nodiscard]] constexpr bool isEmpty() const noexcept { return empty(); }
-#if QT_DEPRECATED_SINCE(6, 0)
-    [[nodiscard]]
-    Q_DECL_DEPRECATED_X("Use size() and port callers to qsizetype.")
-    constexpr int length() const /* not nothrow! */
-    { Q_ASSERT(int(size()) == size()); return int(size()); }
-#endif
+    [[nodiscard]] constexpr qsizetype length() const noexcept
+    { return size(); }
     [[nodiscard]] constexpr char first() const { return front(); }
     [[nodiscard]] constexpr char last()  const { return back(); }
 
@@ -323,6 +321,19 @@ template<typename QByteArrayLike,
          std::enable_if_t<std::is_same_v<QByteArrayLike, QByteArray>, bool> = true>
 [[nodiscard]] inline QByteArrayView qToByteArrayViewIgnoringNull(const QByteArrayLike &b) noexcept
 { return QByteArrayView(b.data(), b.size()); }
+
+inline int QByteArrayView::compare(QByteArrayView a, Qt::CaseSensitivity cs) const noexcept
+{
+    return cs == Qt::CaseSensitive ? QtPrivate::compareMemory(*this, a) :
+                                     qstrnicmp(data(), size(), a.data(), a.size());
+}
+
+#if QT_DEPRECATED_SINCE(6, 0)
+QT_DEPRECATED_VERSION_X_6_0("Use the QByteArrayView overload.")
+inline quint16 qChecksum(const char *s, qsizetype len,
+                         Qt::ChecksumType standard = Qt::ChecksumIso3309)
+{ return qChecksum(QByteArrayView(s, len), standard); }
+#endif
 
 QT_END_NAMESPACE
 

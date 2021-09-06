@@ -145,16 +145,13 @@
 
 #define QT_COMPILER_SUPPORTS(x)     (QT_COMPILER_SUPPORTS_ ## x - 0)
 
-#if defined(Q_PROCESSOR_ARM)
-#  define QT_COMPILER_SUPPORTS_HERE(x)    (__ARM_FEATURE_ ## x)
-#  if defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 600
+#if defined(Q_PROCESSOR_ARM) && defined(QT_COMPILER_SUPPORTS_SIMD_ALWAYS)
+#  define QT_COMPILER_SUPPORTS_HERE(x)    ((__ARM_FEATURE_ ## x) || (__ ## x ## __) || QT_COMPILER_SUPPORTS(x))
+#  if defined(Q_CC_GNU)
      /* GCC requires attributes for a function */
 #    define QT_FUNCTION_TARGET(x)  __attribute__((__target__(QT_FUNCTION_TARGET_STRING_ ## x)))
 #  else
 #    define QT_FUNCTION_TARGET(x)
-#  endif
-#  if !defined(__ARM_FEATURE_NEON) && defined(__ARM_NEON__)
-#    define __ARM_FEATURE_NEON           // also support QT_COMPILER_SUPPORTS_HERE(NEON)
 #  endif
 #elif defined(Q_PROCESSOR_MIPS)
 #  define QT_COMPILER_SUPPORTS_HERE(x)    (__ ## x ## __)
@@ -166,13 +163,20 @@
 #    define __MIPS_DSPR2__
 #  endif
 #elif defined(Q_PROCESSOR_X86) && defined(QT_COMPILER_SUPPORTS_SIMD_ALWAYS)
-#  define QT_COMPILER_SUPPORTS_HERE(x)    ((__ ## x ## __) || QT_COMPILER_SUPPORTS(x))
+#  if defined(Q_CC_CLANG) && defined(Q_CC_MSVC)
+#    define QT_COMPILER_SUPPORTS_HERE(x)    (__ ## x ## __)
+#  else
+#    define QT_COMPILER_SUPPORTS_HERE(x)    ((__ ## x ## __) || QT_COMPILER_SUPPORTS(x))
+#  endif
 #  if defined(Q_CC_GNU) && !defined(Q_CC_INTEL)
      /* GCC requires attributes for a function */
 #    define QT_FUNCTION_TARGET(x)  __attribute__((__target__(QT_FUNCTION_TARGET_STRING_ ## x)))
 #  else
 #    define QT_FUNCTION_TARGET(x)
 #  endif
+#elif defined(Q_PROCESSOR_ARM)
+#  define QT_COMPILER_SUPPORTS_HERE(x)    ((__ARM_FEATURE_ ## x) || (__ ## x ## __))
+#  define QT_FUNCTION_TARGET(x)
 #else
 #  define QT_COMPILER_SUPPORTS_HERE(x)    (__ ## x ## __)
 #  define QT_FUNCTION_TARGET(x)
@@ -200,18 +204,17 @@
 
 // AVX intrinsics
 #  if defined(__AVX__) && defined(QT_COMPILER_SUPPORTS_SIMD_ALWAYS) && (defined(Q_CC_INTEL) || defined(Q_CC_MSVC))
-// AES, PCLMULQDQ instructions:
+// PCLMULQDQ instructions:
 // All processors that support AVX support PCLMULQDQ
 // (but neither MSVC nor the Intel compiler define this macro)
 #    define __PCLMUL__                      1
 #  endif
 
 #  if defined(__AVX2__) && defined(QT_COMPILER_SUPPORTS_SIMD_ALWAYS) && (defined(Q_CC_INTEL) || defined(Q_CC_MSVC))
-// F16C & RDRAND instructions:
-// All processors that support AVX2 support F16C & RDRAND:
-// (but neither MSVC nor the Intel compiler define these macros)
+// F16C instructions:
+// All processors that support AVX2 support F16C:
+// (but neither MSVC nor the Intel compiler define this macro)
 #    define __F16C__                        1
-#    define __RDRND__                       1
 #  endif
 
 #  if defined(__BMI__) && !defined(__BMI2__) && defined(Q_CC_INTEL)
@@ -259,30 +262,58 @@ QT_END_NAMESPACE
 
 #endif  /* Q_PROCESSOR_X86 */
 
-// Clang compiler fix, see http://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160222/151168.html
-// This should be tweaked with an "upper version" of clang once we know which release fixes the
-// issue. At that point we can rely on __ARM_FEATURE_CRC32 again.
-#if defined(Q_CC_CLANG) && defined(Q_OS_DARWIN) && defined (__ARM_FEATURE_CRC32)
-#  undef __ARM_FEATURE_CRC32
-#endif
-
 // NEON intrinsics
 // note: as of GCC 4.9, does not support function targets for ARM
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#if defined(Q_CC_CLANG)
+#define QT_FUNCTION_TARGET_STRING_NEON      "neon"
+#else
 #define QT_FUNCTION_TARGET_STRING_NEON      "+neon" // unused: gcc doesn't support function targets on non-aarch64, and on Aarch64 NEON is always available.
+#endif
 #ifndef __ARM_NEON__
 // __ARM_NEON__ is not defined on AArch64, but we need it in our NEON detection.
 #define __ARM_NEON__
 #endif
+
+#ifndef Q_PROCESSOR_ARM_64 // vaddv is only available on Aarch64
+inline uint16_t vaddvq_u16(uint16x8_t v8)
+{
+    const uint64x2_t v2 = vpaddlq_u32(vpaddlq_u16(v8));
+    const uint64x1_t v1 = vadd_u64(vget_low_u64(v2), vget_high_u64(v2));
+    return vget_lane_u16(vreinterpret_u16_u64(v1), 0);
+}
+
+inline uint8_t vaddv_u8(uint8x8_t v8)
+{
+    const uint64x1_t v1 = vpaddl_u32(vpaddl_u16(vpaddl_u8(v8)));
+    return vget_lane_u8(vreinterpret_u8_u64(v1), 0);
+}
 #endif
-// AArch64/ARM64
-#if defined(Q_PROCESSOR_ARM_V8) && defined(__ARM_FEATURE_CRC32)
-#if defined(Q_PROCESSOR_ARM_64)
-// only available on aarch64
-#define QT_FUNCTION_TARGET_STRING_CRC32      "+crc"
+
 #endif
+
+#if defined(Q_PROCESSOR_ARM) && defined(__ARM_FEATURE_CRC32)
 #  include <arm_acle.h>
 #endif
+
+#if defined(Q_PROCESSOR_ARM_64)
+#if defined(Q_CC_CLANG)
+#define QT_FUNCTION_TARGET_STRING_AES        "crypto"
+#define QT_FUNCTION_TARGET_STRING_CRC32      "crc"
+#elif defined(Q_CC_GNU)
+#define QT_FUNCTION_TARGET_STRING_AES        "+crypto"
+#define QT_FUNCTION_TARGET_STRING_CRC32      "+crc"
+#endif
+#elif defined(Q_PROCESSOR_ARM_32)
+#if defined(Q_CC_CLANG)
+#define QT_FUNCTION_TARGET_STRING_AES        "armv8-a,crypto"
+#define QT_FUNCTION_TARGET_STRING_CRC32      "armv8-a,crc"
+#elif defined(Q_CC_GNU)
+#define QT_FUNCTION_TARGET_STRING_AES        "arch=armv8-a+crypto"
+#define QT_FUNCTION_TARGET_STRING_CRC32      "arch=armv8-a+crc"
+#endif
+#endif
+
 
 #ifdef __cplusplus
 #include <qatomic.h>
@@ -295,6 +326,8 @@ enum CPUFeatures {
     CpuFeatureNEON          = 2,
     CpuFeatureARM_NEON      = CpuFeatureNEON,
     CpuFeatureCRC32         = 4,
+    CpuFeatureAES           = 8,
+    CpuFeatureARM_CRYPTO    = CpuFeatureAES,
 #elif defined(Q_PROCESSOR_MIPS)
     CpuFeatureDSP           = 2,
     CpuFeatureDSPR2         = 4,
@@ -310,6 +343,9 @@ static const quint64 qCompilerCpuFeatures = 0
 #endif
 #if defined __ARM_FEATURE_CRC32
         | CpuFeatureCRC32
+#endif
+#if defined __ARM_FEATURE_CRYPTO
+        | CpuFeatureAES
 #endif
 #if defined __mips_dsp
         | CpuFeatureDSP

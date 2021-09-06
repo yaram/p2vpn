@@ -177,6 +177,7 @@ static bool debuggerPresent()
 #endif
 }
 
+#if !defined(Q_OS_WASM)
 static bool hasSystemCrashReporter()
 {
 #if defined(Q_OS_MACOS)
@@ -212,13 +213,14 @@ static void stackTrace()
     if (debuggerPresent() || hasSystemCrashReporter())
         return;
 
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_LINUX) || (defined(Q_OS_MACOS) && !defined(Q_PROCESSOR_ARM_64))
+
     const int msecsFunctionTime = qRound(QTestLog::msecsFunctionTime());
     const int msecsTotalTime = qRound(QTestLog::msecsTotalTime());
     fprintf(stderr, "\n=== Received signal at function time: %dms, total time: %dms, dumping stack ===\n",
             msecsFunctionTime, msecsTotalTime);
-#endif
-#ifdef Q_OS_LINUX
+
+#  ifdef Q_OS_LINUX
     char cmd[512];
     qsnprintf(cmd, 512, "gdb --pid %d 1>&2 2>/dev/null <<EOF\n"
                          "set prompt\n"
@@ -227,22 +229,25 @@ static void stackTrace()
                          "detach\n"
                          "quit\n"
                          "EOF\n",
-                         (int)getpid());
+                         static_cast<int>(getpid()));
     if (system(cmd) == -1)
         fprintf(stderr, "calling gdb failed\n");
     fprintf(stderr, "=== End of stack trace ===\n");
-#elif defined(Q_OS_MACOS)
+#  elif defined(Q_OS_MACOS)
     char cmd[512];
     qsnprintf(cmd, 512, "lldb -p %d 1>&2 2>/dev/null <<EOF\n"
                          "bt all\n"
                          "quit\n"
                          "EOF\n",
-                         (int)getpid());
+                         static_cast<int>(getpid()));
     if (system(cmd) == -1)
         fprintf(stderr, "calling lldb failed\n");
     fprintf(stderr, "=== End of stack trace ===\n");
+#  endif
+
 #endif
 }
+#endif // !Q_OS_WASM
 
 static bool installCoverageTool(const char * appname, const char * testname)
 {
@@ -502,7 +507,7 @@ static void qPrintDataTags(FILE *stream)
 static int qToInt(const char *str)
 {
     char *pEnd;
-    int l = (int)strtol(str, &pEnd, 10);
+    int l = static_cast<int>(strtol(str, &pEnd, 10));
     if (*pEnd != 0) {
         fprintf(stderr, "Invalid numeric parameter: '%s'\n", str);
         exit(1);
@@ -626,7 +631,10 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, const char *const argv[], bool 
             logFormat = QTestLog::Plain;
         } else if (strcmp(argv[i], "-csv") == 0) {
             logFormat = QTestLog::CSV;
-        } else if (strcmp(argv[i], "-junitxml") == 0 || strcmp(argv[i], "-xunitxml") == 0)  {
+        } else if (strcmp(argv[i], "-junitxml") == 0)  {
+            logFormat = QTestLog::JUnitXML;
+        } else if (strcmp(argv[i], "-xunitxml") == 0)  {
+            fprintf(stderr, "WARNING: xunitxml is deprecated. Please use junitxml.\n");
             logFormat = QTestLog::JUnitXML;
         } else if (strcmp(argv[i], "-xml") == 0) {
             logFormat = QTestLog::XML;
@@ -666,9 +674,12 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, const char *const argv[], bool 
                     logFormat = QTestLog::LightXML;
                 else if (strcmp(format, "xml") == 0)
                     logFormat = QTestLog::XML;
-                else if (strcmp(format, "junitxml") == 0 || strcmp(format, "xunitxml") == 0)
+                else if (strcmp(format, "junitxml") == 0)
                     logFormat = QTestLog::JUnitXML;
-                else if (strcmp(format, "teamcity") == 0)
+                else if (strcmp(format, "xunitxml") == 0) {
+                    fprintf(stderr, "WARNING: xunitxml is deprecated. Please use junitxml.\n");
+                    logFormat = QTestLog::JUnitXML;
+                } else if (strcmp(format, "teamcity") == 0)
                     logFormat = QTestLog::TeamCity;
                 else if (strcmp(format, "tap") == 0)
                     logFormat = QTestLog::TAP;
@@ -787,10 +798,15 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, const char *const argv[], bool 
 
         } else if (strcmp(argv[i], "-vb") == 0) {
             QBenchmarkGlobalData::current->verboseOutput = true;
-#if defined(Q_OS_MAC) && defined(HAVE_XCTEST)
+#if defined(Q_OS_DARWIN)
+        } else if (strncmp(argv[i], "-Apple", 6) == 0) {
+            i += 1; // Skip Apple-specific user preferences
+            continue;
+# if defined(HAVE_XCTEST)
         } else if (int skip = QXcodeTestLogger::parseCommandLineArgument(argv[i])) {
             i += (skip - 1); // Eating argv[i] with a continue counts towards skips
             continue;
+# endif
 #endif
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: '%s'\n\n%s", argv[i], testOptions);
@@ -1009,7 +1025,7 @@ class WatchDog : public QThread
     };
 
     bool waitFor(std::unique_lock<QtPrivate::mutex> &m, Expectation e) {
-        auto expectationChanged = [this, e] { return expecting != e; };
+        auto expectationChanged = [this, e] { return expecting.load(std::memory_order_relaxed) != e; };
         switch (e) {
         case TestFunctionEnd:
             return waitCondition.wait_for(m, defaultTimeout(), expectationChanged);
@@ -1028,14 +1044,14 @@ public:
     {
         setObjectName(QLatin1String("QtTest Watchdog"));
         auto locker = qt_unique_lock(mutex);
-        expecting = ThreadStart;
+        expecting.store(ThreadStart, std::memory_order_relaxed);
         start();
         waitFor(locker, ThreadStart);
     }
     ~WatchDog() {
         {
             const auto locker = qt_scoped_lock(mutex);
-            expecting = ThreadEnd;
+            expecting.store(ThreadEnd, std::memory_order_relaxed);
             waitCondition.notify_all();
         }
         wait();
@@ -1043,30 +1059,33 @@ public:
 
     void beginTest() {
         const auto locker = qt_scoped_lock(mutex);
-        expecting = TestFunctionEnd;
+        expecting.store(TestFunctionEnd, std::memory_order_relaxed);
         waitCondition.notify_all();
     }
 
     void testFinished() {
         const auto locker = qt_scoped_lock(mutex);
-        expecting = TestFunctionStart;
+        expecting.store(TestFunctionStart, std::memory_order_relaxed);
         waitCondition.notify_all();
     }
 
     void run() override {
         auto locker = qt_unique_lock(mutex);
-        expecting = TestFunctionStart;
+        expecting.store(TestFunctionStart, std::memory_order_release);
         waitCondition.notify_all();
         while (true) {
-            switch (expecting) {
+            Expectation e = expecting.load(std::memory_order_acquire);
+            switch (e) {
             case ThreadEnd:
                 return;
             case ThreadStart:
                 Q_UNREACHABLE();
             case TestFunctionStart:
             case TestFunctionEnd:
-                if (Q_UNLIKELY(!waitFor(locker, expecting))) {
+                if (Q_UNLIKELY(!waitFor(locker, e))) {
+#ifndef Q_OS_WASM
                     stackTrace();
+#endif
                     qFatal("Test function timed out");
                 }
             }
@@ -1076,7 +1095,7 @@ public:
 private:
     QtPrivate::mutex mutex;
     QtPrivate::condition_variable waitCondition;
-    Expectation expecting;
+    std::atomic<Expectation> expecting;
 };
 
 #else // !QT_CONFIG(thread)
@@ -2811,6 +2830,24 @@ char *QTest::toString(const void *p)
 {
     char *msg = new char[128];
     qsnprintf(msg, 128, "%p", p);
+    return msg;
+}
+
+/*! \internal
+ */
+char *QTest::toString(const volatile QObject *vo)
+{
+    if (vo == nullptr)
+        return qstrdup("<null>");
+
+    auto *o = const_cast<const QObject*>(vo);
+    const QString &name = o->objectName();
+    const char *className = o->metaObject()->className();
+    char *msg = new char[256];
+    if (name.isEmpty())
+        qsnprintf(msg, 256, "%s/%p", className, o);
+    else
+        qsnprintf(msg, 256, "%s/\"%s\"", className, qPrintable(name));
     return msg;
 }
 

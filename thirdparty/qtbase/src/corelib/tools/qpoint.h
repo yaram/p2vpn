@@ -129,7 +129,7 @@ private:
     }
 };
 
-Q_DECLARE_TYPEINFO(QPoint, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(QPoint, Q_PRIMITIVE_TYPE);
 
 /*****************************************************************************
   QPoint stream functions
@@ -295,7 +295,10 @@ public:
     friend constexpr inline QPointF operator-(const QPointF &p)
     { return QPointF(-p.xp, -p.yp); }
     friend constexpr inline QPointF operator/(const QPointF &p, qreal divisor)
-    { return QPointF(p.xp / divisor, p.yp / divisor); }
+    {
+        Q_ASSERT(divisor < 0 || divisor > 0);
+        return QPointF(p.xp / divisor, p.yp / divisor);
+    }
 
     constexpr QPoint toPoint() const;
 
@@ -323,7 +326,9 @@ private:
     }
 };
 
-Q_DECLARE_TYPEINFO(QPointF, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(QPointF, Q_PRIMITIVE_TYPE);
+
+size_t qHash(QPointF, size_t seed = 0) = delete;
 
 /*****************************************************************************
   QPointF stream functions
@@ -406,6 +411,7 @@ constexpr inline QPointF &QPointF::operator*=(qreal c)
 
 constexpr inline QPointF &QPointF::operator/=(qreal divisor)
 {
+    Q_ASSERT(divisor > 0 || divisor < 0);
     xp /= divisor;
     yp /= divisor;
     return *this;

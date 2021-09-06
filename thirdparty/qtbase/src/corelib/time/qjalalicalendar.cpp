@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -113,20 +113,17 @@ qint64 firstDayOfYear(int year, int cycleNo)
     page on Solar Hijri Calendar}
  */
 
-QJalaliCalendar::QJalaliCalendar()
-    : QCalendarBackend(QStringLiteral("Jalali"), QCalendar::System::Jalali)
-{
-    registerAlias(QStringLiteral("Persian"));
-}
-
 QString QJalaliCalendar::name() const
 {
     return QStringLiteral("Jalali");
 }
 
-QCalendar::System QJalaliCalendar::calendarSystem() const
+QStringList QJalaliCalendar::nameList()
 {
-    return QCalendar::System::Jalali;
+    return {
+        QStringLiteral("Jalali"),
+        QStringLiteral("Persian"),
+    };
 }
 
 bool QJalaliCalendar::isLeapYear(int year) const

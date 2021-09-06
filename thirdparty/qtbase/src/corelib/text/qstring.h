@@ -451,7 +451,7 @@ public:
                 QChar fillChar = QLatin1Char(' ')) const;
     [[nodiscard]] QString arg(ushort a, int fieldWidth = 0, int base = 10,
                 QChar fillChar = QLatin1Char(' ')) const;
-    [[nodiscard]] QString arg(double a, int fieldWidth = 0, char fmt = 'g', int prec = -1,
+    [[nodiscard]] QString arg(double a, int fieldWidth = 0, char format = 'g', int precision = -1,
                 QChar fillChar = QLatin1Char(' ')) const;
     [[nodiscard]] QString arg(char a, int fieldWidth = 0,
                 QChar fillChar = QLatin1Char(' ')) const;
@@ -841,8 +841,8 @@ public:
     QString &setNum(ulong, int base=10);
     QString &setNum(qlonglong, int base=10);
     QString &setNum(qulonglong, int base=10);
-    QString &setNum(float, char f='g', int prec=6);
-    QString &setNum(double, char f='g', int prec=6);
+    QString &setNum(float, char format='g', int precision=6);
+    QString &setNum(double, char format='g', int precision=6);
 
     static QString number(int, int base=10);
     static QString number(uint, int base=10);
@@ -850,7 +850,7 @@ public:
     static QString number(ulong, int base=10);
     static QString number(qlonglong, int base=10);
     static QString number(qulonglong, int base=10);
-    static QString number(double, char f='g', int prec=6);
+    static QString number(double, char format='g', int precision=6);
 
     friend bool operator==(const QString &s1, const QString &s2) noexcept
     { return (s1.size() == s2.size()) && QtPrivate::compareStrings(s1, s2, Qt::CaseSensitive) == 0; }
@@ -1463,7 +1463,7 @@ inline std::u32string QString::toStdU32String() const
     return u32str;
 }
 
-#if !defined(QT_NO_DATASTREAM) || (defined(QT_BOOTSTRAPPED) && !defined(QT_BUILD_QMAKE))
+#if !defined(QT_NO_DATASTREAM) || defined(QT_BOOTSTRAPPED)
 Q_CORE_EXPORT QDataStream &operator<<(QDataStream &, const QString &);
 Q_CORE_EXPORT QDataStream &operator>>(QDataStream &, QString &);
 #endif
@@ -1549,6 +1549,13 @@ qsizetype erase_if(QString &s, Predicate pred)
 {
     return QtPrivate::sequential_erase_if(s, pred);
 }
+
+inline namespace QtLiterals {
+inline QString operator"" _qs(const char16_t *str, size_t size) noexcept
+{
+    return QString(QStringPrivate(nullptr, const_cast<char16_t *>(str), qsizetype(size)));
+}
+} // QtLiterals
 
 QT_END_NAMESPACE
 

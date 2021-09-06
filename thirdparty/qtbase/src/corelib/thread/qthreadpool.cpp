@@ -194,7 +194,7 @@ bool QThreadPoolPrivate::tryStart(QRunnable *task)
         ++activeThreads;
 
         thread->runnable = task;
-        thread->start();
+        thread->start(threadPriority);
         return true;
     }
 
@@ -257,15 +257,21 @@ bool QThreadPoolPrivate::tooManyThreadsActive() const
 */
 void QThreadPoolPrivate::startThread(QRunnable *runnable)
 {
+    Q_Q(QThreadPool);
     Q_ASSERT(runnable != nullptr);
     QScopedPointer<QThreadPoolThread> thread(new QThreadPoolThread(this));
-    thread->setObjectName(QLatin1String("Thread (pooled)"));
+    QString objectName;
+    if (QString myName = q->objectName(); !myName.isEmpty())
+        objectName = myName;
+    else
+        objectName = QLatin1String("Thread (pooled)");
+    thread->setObjectName(objectName);
     Q_ASSERT(!allThreads.contains(thread.data())); // if this assert hits, we have an ABA problem (deleted threads don't get removed here)
     allThreads.insert(thread.data());
     ++activeThreads;
 
     thread->runnable = runnable;
-    thread.take()->start();
+    thread.take()->start(threadPriority);
 }
 
 /*!
@@ -698,6 +704,32 @@ uint QThreadPool::stackSize() const
 {
     Q_D(const QThreadPool);
     return d->stackSize;
+}
+
+/*! \property QThreadPool::threadPriority
+    \brief the thread priority for new worker threads.
+
+    The value of the property is only used when the thread pool starts
+    new threads. Changing it has no effect for already running threads.
+
+    The default value is QThread::InheritPriority, which makes QThread
+    use the same priority as the one the QThreadPool object lives in.
+
+    \sa QThread::Priority
+
+    \since 6.2
+*/
+
+void QThreadPool::setThreadPriority(QThread::Priority priority)
+{
+    Q_D(QThreadPool);
+    d->threadPriority = priority;
+}
+
+QThread::Priority QThreadPool::threadPriority() const
+{
+    Q_D(const QThreadPool);
+    return d->threadPriority;
 }
 
 /*!

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -73,17 +73,14 @@ using namespace QRoundingDown;
     page on Milanković Calendar}
  */
 
-QMilankovicCalendar::QMilankovicCalendar()
-    : QRomanCalendar(QStringLiteral("Milankovic"), QCalendar::System::Milankovic) {}
-
 QString QMilankovicCalendar::name() const
 {
     return QStringLiteral("Milankovic");
 }
 
-QCalendar::System QMilankovicCalendar::calendarSystem() const
+QStringList QMilankovicCalendar::nameList()
 {
-    return QCalendar::System::Milankovic;
+    return { QStringLiteral("Milankovic") };
 }
 
 bool QMilankovicCalendar::isLeapYear(int year) const

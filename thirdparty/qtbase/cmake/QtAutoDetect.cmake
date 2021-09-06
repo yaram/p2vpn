@@ -5,6 +5,67 @@
 # Make sure to not run detection when building standalone tests, because the detection was already
 # done when initially configuring qtbase.
 
+function(qt_internal_ensure_static_qt_config)
+    if(NOT DEFINED BUILD_SHARED_LIBS)
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Qt statically or dynamically" FORCE)
+    endif()
+
+    if(BUILD_SHARED_LIBS)
+        message(FATAL_ERROR
+            "Building Qt for ${CMAKE_SYSTEM_NAME} as shared libraries is not supported.")
+    endif()
+endfunction()
+
+function(qt_auto_detect_wasm)
+    if("${QT_QMAKE_TARGET_MKSPEC}" STREQUAL "wasm-emscripten" AND DEFINED ENV{EMSDK})
+        if(NOT DEFINED QT_AUTODETECT_WASM)
+            # detect EMSCRIPTEN_ROOT path
+            file(READ "$ENV{EMSDK}/.emscripten" ver)
+            string(REGEX MATCH "EMSCRIPTEN_ROOT.*$" EMROOT "${ver}")
+            string(REGEX MATCH "'([^' ]*)'" EMROOT2 "${EMROOT}")
+            string(REPLACE "'" "" EMROOT_PATH "${EMROOT2}")
+
+            # get emscripten version
+            if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+                set (EXECUTE_COMMANDPATH "$ENV{EMSDK}/${EMROOT_PATH}/emcc.bat")
+            else()
+                set (EXECUTE_COMMANDPATH "$ENV{EMSDK}/${EMROOT_PATH}/emcc")
+            endif()
+
+            file(TO_NATIVE_PATH "${EXECUTE_COMMANDPATH}" EXECUTE_COMMAND)
+            execute_process(COMMAND ${EXECUTE_COMMAND} --version
+                OUTPUT_VARIABLE emOutput
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_VARIABLE emrun_error
+                RESULT_VARIABLE result)
+            if(NOT emOutput)
+                message(FATAL_ERROR
+                        "Can't determine Emscripten version! Error: ${emrun_error}")
+            endif()
+            string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" CMAKE_EMSDK_REGEX_VERSION "${emOutput}")
+            set(EMCC_VERSION "${CMAKE_EMSDK_REGEX_VERSION}" CACHE STRING  INTERNAL FORCE)
+
+            # find toolchain file
+            if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+                set(wasm_toolchain_file "$ENV{EMSDK}/${EMROOT_PATH}/cmake/Modules/Platform/Emscripten.cmake")
+                set(CMAKE_TOOLCHAIN_FILE "${wasm_toolchain_file}" CACHE STRING "" FORCE)
+            endif()
+
+            if(EXISTS "${CMAKE_TOOLCHAIN_FILE}")
+                message(STATUS "Emscripten ${CMAKE_EMSDK_REGEX_VERSION} toolchain file detected at ${CMAKE_TOOLCHAIN_FILE}")
+            else()
+                message(FATAL_ERROR "Cannot find the toolchain file Emscripten.cmake. "
+                "Please specify the toolchain file with -DCMAKE_TOOLCHAIN_FILE=<file>.")
+            endif()
+            set(QT_AUTODETECT_WASM TRUE CACHE BOOL "")
+
+            qt_internal_ensure_static_qt_config()
+            # this version of Qt needs this version of emscripten
+            set(QT_EMCC_RECOMMENDED_VERSION 2.0.14 CACHE STRING INTERNAL FORCE)
+        endif()
+    endif()
+endfunction()
+
 function(qt_auto_detect_cmake_generator)
     if(NOT CMAKE_GENERATOR MATCHES "Ninja" AND NOT QT_SILENCE_CMAKE_GENERATOR_WARNING)
         message(WARNING
@@ -16,9 +77,28 @@ endfunction()
 
 function(qt_auto_detect_android)
     # Auto-detect NDK root
-    if(NOT DEFINED CMAKE_ANDROID_NDK_ROOT AND DEFINED ANDROID_SDK_ROOT)
-        set(ndk_root "${ANDROID_SDK_ROOT}/ndk-bundle")
-        if(IS_DIRECTORY "${ndk_root}")
+    if(NOT DEFINED ANDROID_NDK_ROOT AND DEFINED ANDROID_SDK_ROOT)
+        file(GLOB ndk_versions LIST_DIRECTORIES true RELATIVE "${ANDROID_SDK_ROOT}/ndk"
+            "${ANDROID_SDK_ROOT}/ndk/*")
+        unset(ndk_root)
+        if(NOT ndk_versions STREQUAL "")
+            # Use the NDK with the highest version number.
+            if(CMAKE_VERSION VERSION_LESS 3.18)
+                list(SORT ndk_versions)
+                list(REVERSE ndk_versions)
+            else()
+                list(SORT ndk_versions COMPARE NATURAL ORDER DESCENDING)
+            endif()
+            list(GET ndk_versions 0 ndk_root)
+            string(PREPEND ndk_root "${ANDROID_SDK_ROOT}/ndk/")
+        else()
+            # Fallback: use the deprecated "ndk-bundle" directory within the SDK root.
+            set(ndk_root "${ANDROID_SDK_ROOT}/ndk-bundle")
+            if(NOT IS_DIRECTORY "${ndk_root}")
+                unset(ndk_root)
+            endif()
+        endif()
+        if(DEFINED ndk_root)
             message(STATUS "Android NDK detected: ${ndk_root}")
             set(ANDROID_NDK_ROOT "${ndk_root}" CACHE STRING "")
         endif()
@@ -34,6 +114,12 @@ function(qt_auto_detect_android)
             message(FATAL_ERROR "Cannot find the toolchain file '${toolchain_file}'. "
                 "Please specify the toolchain file with -DCMAKE_TOOLCHAIN_FILE=<file>.")
         endif()
+    endif()
+
+    if("${CMAKE_TOOLCHAIN_FILE}" STREQUAL ""
+            AND (DEFINED ANDROID_ABI OR DEFINED ANDROID_NATIVE_API_LEVEL))
+        message(FATAL_ERROR "An Android build was requested, but no Android toolchain file was "
+            "specified nor detected.")
     endif()
 
     if(DEFINED CMAKE_TOOLCHAIN_FILE AND NOT DEFINED QT_AUTODETECT_ANDROID)
@@ -62,7 +148,7 @@ function(qt_auto_detect_android)
     endif()
 endfunction()
 
-function(qt_auto_detect_vpckg)
+function(qt_auto_detect_vcpkg)
     if(DEFINED ENV{VCPKG_ROOT})
         set(vcpkg_toolchain_file "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
         get_filename_component(vcpkg_toolchain_file "${vcpkg_toolchain_file}" ABSOLUTE)
@@ -167,14 +253,7 @@ function(qt_auto_detect_ios)
         endif()
         set(CMAKE_OSX_ARCHITECTURES "${osx_architectures}" CACHE STRING "")
 
-        if(NOT DEFINED BUILD_SHARED_LIBS)
-            set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build Qt statically or dynamically" FORCE)
-        endif()
-
-        if(BUILD_SHARED_LIBS)
-            message(FATAL_ERROR
-                "Building Qt for ${CMAKE_SYSTEM_NAME} as shared libraries is not supported.")
-        endif()
+        qt_internal_ensure_static_qt_config()
 
         # Disable qt rpaths for iOS, just like mkspecs/common/uikit.conf does, due to those
         # bundles not being able to use paths outside the app bundle. Not sure this is strictly
@@ -284,6 +363,32 @@ function(qt_auto_detect_darwin)
 
         qt_internal_get_xcode_version(xcode_version)
         set(QT_MAC_XCODE_VERSION "${xcode_version}" CACHE STRING "Xcode version.")
+
+        set(device_names "iOS" "watchOS" "tvOS")
+        list(LENGTH CMAKE_OSX_ARCHITECTURES arch_count)
+        if(NOT CMAKE_SYSTEM_NAME IN_LIST device_names AND arch_count GREATER 0)
+            foreach(arch ${CMAKE_OSX_ARCHITECTURES})
+                if(arch STREQUAL "arm64e")
+                    message(WARNING "Applications built against an arm64e Qt architecture will "
+                                     "likely fail to run on Apple Silicon. Consider targeting "
+                                     "'arm64' instead.")
+                endif()
+            endforeach()
+        endif()
+    endif()
+endfunction()
+
+function(qt_auto_detect_macos_universal)
+    set(device_names "iOS" "watchOS" "tvOS")
+    if(APPLE AND NOT CMAKE_SYSTEM_NAME IN_LIST device_names)
+        list(LENGTH CMAKE_OSX_ARCHITECTURES arch_count)
+
+        set(is_universal "OFF")
+        if(arch_count GREATER 1)
+            set(is_universal "ON")
+        endif()
+
+        set(QT_IS_MACOS_UNIVERSAL "${is_universal}" CACHE INTERNAL "Build universal Qt for macOS")
     endif()
 endfunction()
 
@@ -300,14 +405,38 @@ function(qt_auto_detect_pch)
         endif()
     endif()
 
-    option(BUILD_WITH_PCH "Build Qt using precompiled headers?" "${default_value}")
+    option(BUILD_WITH_PCH "Build Qt using precompiled headers?" OFF)
+endfunction()
+
+function(qt_auto_detect_win32_arm)
+    if("${QT_QMAKE_TARGET_MKSPEC}" STREQUAL "win32-arm64-msvc")
+        set(CMAKE_SYSTEM_NAME "Windows" CACHE STRING "")
+        set(CMAKE_SYSTEM_VERSION "10" CACHE STRING "")
+        set(CMAKE_SYSTEM_PROCESSOR "arm64" CACHE STRING "")
+    endif()
+endfunction()
+
+function(qt_auto_detect_integrity)
+    if(
+       # Qt's custom CMake toolchain file sets this value.
+       CMAKE_SYSTEM_NAME STREQUAL "Integrity" OR
+
+       # Upstream CMake expects this name, but we don't currently use it in Qt.
+       CMAKE_SYSTEM_NAME STREQUAL "GHS-MULTI"
+    )
+        qt_internal_ensure_static_qt_config()
+    endif()
 endfunction()
 
 qt_auto_detect_cmake_generator()
 qt_auto_detect_cyclic_toolchain()
 qt_auto_detect_cmake_config()
 qt_auto_detect_darwin()
+qt_auto_detect_macos_universal()
 qt_auto_detect_ios()
 qt_auto_detect_android()
-qt_auto_detect_vpckg()
+qt_auto_detect_vcpkg()
 qt_auto_detect_pch()
+qt_auto_detect_wasm()
+qt_auto_detect_win32_arm()
+qt_auto_detect_integrity()

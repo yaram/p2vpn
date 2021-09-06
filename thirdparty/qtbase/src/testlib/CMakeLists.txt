@@ -25,6 +25,7 @@ qt_internal_add_module(Test
         qemulationdetector_p.h
         qjunittestlogger.cpp qjunittestlogger_p.h
         qplaintestlogger.cpp qplaintestlogger_p.h
+        qpropertytesthelper_p.h
         qsignaldumper.cpp qsignaldumper_p.h
         qsignalspy.h
         qtaptestlogger.cpp qtaptestlogger_p.h
@@ -61,6 +62,8 @@ qt_internal_add_module(Test
         QT_NO_CAST_TO_ASCII
         QT_NO_DATASTREAM
         QT_NO_FOREACH
+        # Ensure uniform location info between release and debug builds
+        QT_NO_MESSAGELOGCONTEXT
     LIBRARIES
         Qt::CorePrivate
     PUBLIC_LIBRARIES
@@ -110,6 +113,16 @@ qt_internal_extend_target(Test CONDITION MACOS
         ${FWIOKit}
 )
 
+set(qt_tc_build_dir "$<TARGET_PROPERTY:QT_TESTCASE_BUILDDIR>")
+set(qt_bool_tc_build_dir "$<BOOL:${qt_tc_build_dir}>")
+set(qt_tc_build_dir_def
+    "$<IF:${qt_bool_tc_build_dir},${qt_tc_build_dir},$<TARGET_PROPERTY:BINARY_DIR>>"
+)
+set_property(TARGET Test PROPERTY INTERFACE_COMPILE_DEFINITIONS
+    QT_TESTCASE_BUILDDIR="${qt_tc_build_dir_def}"
+    QT_TESTCASE_SOURCEDIR="$<TARGET_PROPERTY:SOURCE_DIR>"
+)
+
 # special case begin
 # Do not bother with disabled stuff:
 # qt_internal_extend_target(Test CONDITION (MACOS) AND (OFF AND NOT lessThan(QMAKE_XCODE_VERSION, "6.0")) ...
@@ -134,3 +147,8 @@ qt_internal_add_docs(Test
 # special case begin
 qt_internal_apply_testlib_coverage_options(Test)
 # special case end
+
+# include the snippet projects for developer-builds
+if(QT_FEATURE_private_tests)
+    add_subdirectory(doc/snippets/code)
+endif()

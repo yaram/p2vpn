@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -1356,7 +1356,7 @@ QDateTimeParser::scanString(const QDateTime &defaultValue, bool fixup) const
 
     if (parserType != QMetaType::QDate) {
         if (isSet & Hour12Section) {
-            const bool hasHour = isSet & Hour24Section;
+            const bool hasHour = isSet.testAnyFlag(Hour24Section);
             if (ampm == -1) // If we don't know from hour, assume am:
                 ampm = !hasHour || hour < 12 ? 0 : 1;
             hour12 = hour12 % 12 + ampm * 12;
@@ -1451,7 +1451,7 @@ QDateTimeParser::parse(const QString &input, int position,
                 const SectionNode &sn = sectionNodes.at(i);
                 QString t = sectionText(m_text, i, sn.pos).toLower();
                 if ((t.size() < sectionMaxSize(i)
-                     && (((int)fieldInfo(i) & (FixedWidth|Numeric)) != Numeric))
+                     && ((fieldInfo(i) & (FixedWidth|Numeric)) != Numeric))
                     || t.contains(space)) {
                     switch (sn.type) {
                     case AmPmSection:
@@ -1670,8 +1670,11 @@ QDateTimeParser::ParsedSection QDateTimeParser::findUtcOffset(QStringView str) c
 {
     const bool startsWithUtc = str.startsWith(QLatin1String("UTC"));
     // Get rid of UTC prefix if it exists
-    if (startsWithUtc)
+    if (startsWithUtc) {
         str = str.sliced(3);
+        if (str.isEmpty())
+            return ParsedSection(Acceptable, 0, 3);
+    }
 
     const bool negativeSign = str.startsWith(QLatin1Char('-'));
     // Must start with a sign:
@@ -1744,8 +1747,8 @@ QDateTimeParser::findTimeZoneName(QStringView str, const QDateTime &when) const
     // Collect up plausibly-valid characters; let QTimeZone work out what's
     // truly valid.
     const auto invalidZoneNameCharacter = [] (const QChar &c) {
-        return c.unicode() >= 127u
-               || (!c.isLetterOrNumber() && !QLatin1String("+-./:_").contains(c));
+        const auto cu = c.unicode();
+        return cu >= 127u || !(memchr("+-./:_", char(cu), 6) || c.isLetterOrNumber());
     };
     int index = std::distance(str.cbegin(),
                               std::find_if(str.cbegin(), str.cend(), invalidZoneNameCharacter));
@@ -1758,7 +1761,7 @@ QDateTimeParser::findTimeZoneName(QStringView str, const QDateTime &when) const
     Q_ASSERT(index <= str.size());
     while (lastSlash < index) {
         int slash = str.indexOf(QLatin1Char('/'), lastSlash + 1);
-        if (slash < 0)
+        if (slash < 0 || slash > index)
             slash = index; // i.e. the end of the candidate text
         else if (++count > 5)
             index = slash; // Truncate
@@ -1790,6 +1793,10 @@ QDateTimeParser::ParsedSection
 QDateTimeParser::findTimeZone(QStringView str, const QDateTime &when,
                               int maxVal, int minVal) const
 {
+    // Short-cut Zulu suffix when it's all there is (rather than a prefix match):
+    if (str == QLatin1Char('Z'))
+        return ParsedSection(Acceptable, 0, 1);
+
     ParsedSection section = findUtcOffset(str);
     if (section.used <= 0)  // if nothing used, try time zone parsing
         section = findTimeZoneName(str, when);
@@ -2156,15 +2163,9 @@ bool QDateTimeParser::fromString(const QString &t, QDateTime* datetime) const
 {
     QDateTime val(QDate(1900, 1, 1).startOfDay());
     const StateNode tmp = parse(t, -1, val, false);
-    if (tmp.state != Acceptable || tmp.conflicts)
-        return false;
-    if (datetime) {
-        if (!tmp.value.isValid())
-            return false;
+    if (datetime)
         *datetime = tmp.value;
-    }
-
-    return true;
+    return tmp.state == Acceptable && !tmp.conflicts && tmp.value.isValid();
 }
 
 QDateTime QDateTimeParser::getMinimum() const

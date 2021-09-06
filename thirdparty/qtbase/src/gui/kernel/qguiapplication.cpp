@@ -41,6 +41,7 @@
 #include "qguiapplication.h"
 
 #include "private/qguiapplication_p.h"
+#include "private/qabstractfileiconprovider_p.h"
 #include <qpa/qplatformintegrationfactory_p.h>
 #include "private/qevent_p.h"
 #include "qfont.h"
@@ -151,8 +152,6 @@ Qt::ApplicationState QGuiApplicationPrivate::applicationState = Qt::ApplicationI
 
 Qt::HighDpiScaleFactorRoundingPolicy QGuiApplicationPrivate::highDpiScaleFactorRoundingPolicy =
     Qt::HighDpiScaleFactorRoundingPolicy::PassThrough;
-
-bool QGuiApplicationPrivate::highDpiScalingUpdated = false;
 
 QPointer<QWindow> QGuiApplicationPrivate::currentDragWindow;
 
@@ -708,7 +707,6 @@ QGuiApplication::~QGuiApplication()
     QGuiApplicationPrivate::lastCursorPosition = {qreal(qInf()), qreal(qInf())};
     QGuiApplicationPrivate::currentMousePressWindow = QGuiApplicationPrivate::currentMouseWindow = nullptr;
     QGuiApplicationPrivate::applicationState = Qt::ApplicationInactive;
-    QGuiApplicationPrivate::highDpiScalingUpdated = false;
     QGuiApplicationPrivate::currentDragWindow = nullptr;
     QGuiApplicationPrivate::tabletDevicePoints.clear();
 }
@@ -1244,13 +1242,6 @@ static void init_platform(const QString &pluginNamesWithArguments, const QString
         return;
     }
 
-    // Many platforms have created QScreens at this point. Finish initializing
-    // QHighDpiScaling to be prepared for early calls to qt_defaultDpi().
-    if (QGuiApplication::primaryScreen()) {
-        QGuiApplicationPrivate::highDpiScalingUpdated = true;
-        QHighDpiScaling::updateHighDpiScaling();
-    }
-
     // Create the platform theme:
 
     // 1) Fetch the platform name from the environment if present.
@@ -1528,11 +1519,6 @@ void QGuiApplicationPrivate::eventDispatcherReady()
         createPlatformIntegration();
 
     platform_integration->initialize();
-
-    // All platforms should have added screens at this point. Finish
-    // QHighDpiScaling initialization if it has not been done so already.
-    if (!QGuiApplicationPrivate::highDpiScalingUpdated)
-        QHighDpiScaling::updateHighDpiScaling();
 }
 
 void QGuiApplicationPrivate::init()
@@ -2011,11 +1997,7 @@ bool QGuiApplicationPrivate::sendQWindowEventToQPlatformWindow(QWindow *window, 
     return platformWindow->windowEvent(event);
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool QGuiApplicationPrivate::processNativeEvent(QWindow *window, const QByteArray &eventType, void *message, qintptr *result)
-#else
-bool QGuiApplicationPrivate::processNativeEvent(QWindow *window, const QByteArray &eventType, void *message, long *result)
-#endif
 {
     return window->nativeEvent(eventType, message, result);
 }
@@ -2544,11 +2526,16 @@ void QGuiApplicationPrivate::processWindowScreenChangedEvent(QWindowSystemInterf
             else // Fall back to default behavior, and try to find some appropriate screen
                 topLevelWindow->setScreen(nullptr);
         }
-        // we may have changed scaling, so trigger resize event if needed
+
+        // We may have changed scaling; trigger resize event if needed,
+        // except on Windows, where we send resize events during WM_DPICHANGED
+        // event handling. FIXME: unify DPI change handling across all platforms.
+#ifndef Q_OS_WIN
         if (window->handle()) {
             QWindowSystemInterfacePrivate::GeometryChangeEvent gce(window, QHighDpi::fromNativePixels(window->handle()->geometry(), window));
             processGeometryChangeEvent(&gce);
         }
+#endif
     }
 }
 
@@ -2777,7 +2764,8 @@ void QGuiApplicationPrivate::processGestureEvent(QWindowSystemInterfacePrivate::
         return;
 
     const QPointingDevice *device = static_cast<const QPointingDevice *>(e->device);
-    QNativeGestureEvent ev(e->type, device, e->pos, e->pos, e->globalPos, e->realValue, e->sequenceId, e->intValue);
+    QNativeGestureEvent ev(e->type, device, e->fingerCount, e->pos, e->pos, e->globalPos, (e->intValue ? e->intValue : e->realValue),
+                           e->delta, e->sequenceId);
     ev.setTimestamp(e->timestamp);
     QGuiApplication::sendSpontaneousEvent(e->window, &ev);
 }
@@ -2968,6 +2956,9 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
             continue;
         }
 
+        // Note: after the call to sendSpontaneousEvent, touchEvent.position() will have
+        // changed to reflect the local position inside the last (random) widget it tried
+        // to deliver the touch event to, and will therefore be invalid afterwards.
         QGuiApplication::sendSpontaneousEvent(window, &touchEvent);
 
         if (!e->synthetic() && !touchEvent.isAccepted() && qApp->testAttribute(Qt::AA_SynthesizeMouseForUnhandledTouchEvents)) {
@@ -3007,7 +2998,7 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
                         // left mouse button events instead (see AA_SynthesizeMouseForUnhandledTouchEvents docs).
                         // TODO why go through QPA?  Why not just send a QMouseEvent right from here?
                         QWindowSystemInterfacePrivate::MouseEvent fake(window, e->timestamp,
-                                                                       touchPoint->position(),
+                                                                       window->mapFromGlobal(touchPoint->globalPosition().toPoint()),
                                                                        touchPoint->globalPosition(),
                                                                        buttons,
                                                                        e->modifiers,
@@ -3302,7 +3293,7 @@ QClipboard * QGuiApplication::clipboard()
 /*!
     \since 5.4
     \fn void QGuiApplication::paletteChanged(const QPalette &palette)
-    \deprecated Handle QEvent::ApplicationPaletteChange instead.
+    \deprecated [6.0] Handle QEvent::ApplicationPaletteChange instead.
 
     This signal is emitted when the \a palette of the application changes. Use
     QEvent::ApplicationPaletteChanged instead.
@@ -3413,7 +3404,7 @@ void QGuiApplicationPrivate::applyWindowGeometrySpecificationTo(QWindow *window)
 /*!
     \since 5.11
     \fn void QGuiApplication::fontChanged(const QFont &font)
-    \deprecated Handle QEvent::ApplicationFontChange instead.
+    \deprecated [6.0] Handle QEvent::ApplicationFontChange instead.
 
     This signal is emitted when the \a font of the application changes. Use
     QEvent::ApplicationFontChanged instead.
@@ -3492,8 +3483,16 @@ void QGuiApplicationPrivate::notifyLayoutDirectionChange()
     }
 }
 
-void QGuiApplicationPrivate::notifyActiveWindowChange(QWindow *)
+void QGuiApplicationPrivate::notifyActiveWindowChange(QWindow *prev)
 {
+    if (prev) {
+        QEvent de(QEvent::WindowDeactivate);
+        QCoreApplication::sendEvent(prev, &de);
+    }
+    if (self->focus_window) {
+        QEvent ae(QEvent::WindowActivate);
+        QCoreApplication::sendEvent(focus_window, &ae);
+    }
 }
 
 /*!
@@ -4141,6 +4140,8 @@ void QGuiApplicationPrivate::notifyThemeChanged()
 {
     updatePalette();
 
+    QAbstractFileIconProviderPrivate::clearIconTypeCache();
+
     if (!(applicationResourceFlags & ApplicationFontExplicitlySet)) {
         const auto locker = qt_scoped_lock(applicationFontMutex);
         clearFontUnlocked();
@@ -4209,6 +4210,37 @@ QInputDeviceManager *QGuiApplicationPrivate::inputDeviceManager()
         m_inputDeviceManager = new QInputDeviceManager(QGuiApplication::instance());
 
     return m_inputDeviceManager;
+}
+
+/*!
+    \fn template <typename QNativeInterface> QNativeInterface *QGuiApplication::nativeInterface() const
+
+    Returns a native interface of the given type for the application.
+
+    This function provides access to platform specific functionality
+    of QGuiApplication, as defined in the QNativeInterface namespace:
+
+    \annotatedlist native-interfaces-qguiapplication
+
+    If the requested interface is not available a \nullptr is returned.
+ */
+
+void *QGuiApplication::resolveInterface(const char *name, int revision) const
+{
+    using namespace QNativeInterface;
+    using namespace QNativeInterface::Private;
+
+    auto *platformIntegration = QGuiApplicationPrivate::platformIntegration();
+    Q_UNUSED(platformIntegration);
+
+#if defined(Q_OS_WIN)
+    QT_NATIVE_INTERFACE_RETURN_IF(QWindowsApplication, platformIntegration);
+#endif
+#if QT_CONFIG(xcb)
+    QT_NATIVE_INTERFACE_RETURN_IF(QX11Application, platformNativeInterface());
+#endif
+
+    return QCoreApplication::resolveInterface(name, revision);
 }
 
 #include "moc_qguiapplication.cpp"

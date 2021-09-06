@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Giuseppe D'Angelo <giuseppe.dangelo@kdab.com>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -147,11 +147,14 @@ QT_WARNING_POP
 
     constexpr friend inline QVector2D operator/(QVector2D vector, float divisor)
     {
+        Q_ASSERT(divisor < 0 || divisor > 0);
         return QVector2D(vector.v[0] / divisor, vector.v[1] / divisor);
     }
 
     constexpr friend inline QVector2D operator/(QVector2D vector, QVector2D divisor)
     {
+        Q_ASSERT(divisor.v[0] < 0 || divisor.v[0] > 0);
+        Q_ASSERT(divisor.v[1] < 0 || divisor.v[1] > 0);
         return QVector2D(vector.v[0] / divisor.v[0], vector.v[1] / divisor.v[1]);
     }
 
@@ -174,6 +177,18 @@ private:
 
     friend class QVector3D;
     friend class QVector4D;
+
+    template <std::size_t I,
+              typename V,
+              std::enable_if_t<(I < 2), bool> = true,
+              std::enable_if_t<std::is_same_v<std::decay_t<V>, QVector2D>, bool> = true>
+    friend constexpr decltype(auto) get(V &&vec) noexcept
+    {
+        if constexpr (I == 0)
+            return (std::forward<V>(vec).v[0]);
+        else if constexpr (I == 1)
+            return (std::forward<V>(vec).v[1]);
+    }
 };
 
 Q_DECLARE_TYPEINFO(QVector2D, Q_PRIMITIVE_TYPE);
@@ -288,12 +303,17 @@ QT_WARNING_POP
 
     constexpr friend inline QVector3D operator/(QVector3D vector, float divisor)
     {
+        Q_ASSERT(divisor < 0 || divisor > 0);
         return QVector3D(vector.v[0] / divisor, vector.v[1] / divisor, vector.v[2] / divisor);
     }
 
     constexpr friend inline QVector3D operator/(QVector3D vector, QVector3D divisor)
     {
-        return QVector3D(vector.v[0] / divisor.v[0], vector.v[1] / divisor.v[1], vector.v[2] / divisor.v[2]);
+        Q_ASSERT(divisor.v[0] > 0 || divisor.v[0] < 0);
+        Q_ASSERT(divisor.v[1] > 0 || divisor.v[1] < 0);
+        Q_ASSERT(divisor.v[2] > 0 || divisor.v[2] < 0);
+        return QVector3D(vector.v[0] / divisor.v[0], vector.v[1] / divisor.v[1],
+                         vector.v[2] / divisor.v[2]);
     }
 
     friend Q_GUI_EXPORT bool qFuzzyCompare(QVector3D v1, QVector3D v2) noexcept;
@@ -319,6 +339,20 @@ private:
     friend QVector3D operator*(const QVector3D& vector, const QMatrix4x4& matrix);
     friend QVector3D operator*(const QMatrix4x4& matrix, const QVector3D& vector);
 #endif
+
+    template <std::size_t I,
+              typename V,
+              std::enable_if_t<(I < 3), bool> = true,
+              std::enable_if_t<std::is_same_v<std::decay_t<V>, QVector3D>, bool> = true>
+    friend constexpr decltype(auto) get(V &&vec) noexcept
+    {
+        if constexpr (I == 0)
+            return (std::forward<V>(vec).v[0]);
+        else if constexpr (I == 1)
+            return (std::forward<V>(vec).v[1]);
+        else if constexpr (I == 2)
+            return (std::forward<V>(vec).v[2]);
+    }
 };
 
 Q_DECLARE_TYPEINFO(QVector3D, Q_PRIMITIVE_TYPE);
@@ -422,12 +456,18 @@ QT_WARNING_POP
 
     constexpr friend inline QVector4D operator/(QVector4D vector, float divisor)
     {
+        Q_ASSERT(divisor < 0 || divisor > 0);
         return QVector4D(vector.v[0] / divisor, vector.v[1] / divisor, vector.v[2] / divisor, vector.v[3] / divisor);
     }
 
     constexpr friend inline QVector4D operator/(QVector4D vector, QVector4D divisor)
     {
-        return QVector4D(vector.v[0] / divisor.v[0], vector.v[1] / divisor.v[1], vector.v[2] / divisor.v[2], vector.v[3] / divisor.v[3]);
+        Q_ASSERT(divisor.v[0] > 0 || divisor.v[0] < 0);
+        Q_ASSERT(divisor.v[1] > 0 || divisor.v[1] < 0);
+        Q_ASSERT(divisor.v[2] > 0 || divisor.v[2] < 0);
+        Q_ASSERT(divisor.v[3] > 0 || divisor.v[3] < 0);
+        return QVector4D(vector.v[0] / divisor.v[0], vector.v[1] / divisor.v[1],
+                         vector.v[2] / divisor.v[2], vector.v[3] / divisor.v[3]);
     }
 
     friend Q_GUI_EXPORT bool qFuzzyCompare(QVector4D v1, QVector4D v2) noexcept;
@@ -456,6 +496,22 @@ private:
     friend QVector4D operator*(const QVector4D& vector, const QMatrix4x4& matrix);
     friend QVector4D operator*(const QMatrix4x4& matrix, const QVector4D& vector);
 #endif
+
+    template <std::size_t I,
+              typename V,
+              std::enable_if_t<(I < 4), bool> = true,
+              std::enable_if_t<std::is_same_v<std::decay_t<V>, QVector4D>, bool> = true>
+    friend constexpr decltype(auto) get(V &&vec) noexcept
+    {
+        if constexpr (I == 0)
+            return (std::forward<V>(vec).v[0]);
+        else if constexpr (I == 1)
+            return (std::forward<V>(vec).v[1]);
+        else if constexpr (I == 2)
+            return (std::forward<V>(vec).v[2]);
+        else if constexpr (I == 3)
+            return (std::forward<V>(vec).v[3]);
+    }
 };
 
 Q_DECLARE_TYPEINFO(QVector4D, Q_PRIMITIVE_TYPE);
@@ -508,10 +564,7 @@ constexpr inline float QVector2D::operator[](int i) const
 
 inline float QVector2D::length() const noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]);
-    return float(std::sqrt(len));
+    return qHypot(v[0], v[1]);
 }
 
 constexpr inline float QVector2D::lengthSquared() const noexcept
@@ -521,31 +574,19 @@ constexpr inline float QVector2D::lengthSquared() const noexcept
 
 inline QVector2D QVector2D::normalized() const noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]);
-    if (qFuzzyIsNull(len - 1.0)) {
-        return *this;
-    } else if (!qFuzzyIsNull(len)) {
-        double sqrtLen = std::sqrt(len);
-        return QVector2D(float(double(v[0]) / sqrtLen), float(double(v[1]) / sqrtLen));
-    } else {
-        return QVector2D();
-    }
+    const float len = length();
+    return qFuzzyIsNull(len - 1.0f) ? *this : qFuzzyIsNull(len) ? QVector2D()
+        : QVector2D(v[0] / len, v[1] / len);
 }
 
 inline void QVector2D::normalize() noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]);
-    if (qFuzzyIsNull(len - 1.0) || qFuzzyIsNull(len))
+    const float len = length();
+    if (qFuzzyIsNull(len - 1.0f) || qFuzzyIsNull(len))
         return;
 
-    len = std::sqrt(len);
-
-    v[0] = float(double(v[0]) / len);
-    v[1] = float(double(v[1]) / len);
+    v[0] /= len;
+    v[1] /= len;
 }
 
 inline float QVector2D::distanceToPoint(QVector2D point) const noexcept
@@ -591,6 +632,7 @@ constexpr inline QVector2D &QVector2D::operator*=(QVector2D vector) noexcept
 
 constexpr inline QVector2D &QVector2D::operator/=(float divisor)
 {
+    Q_ASSERT(divisor < 0 || divisor > 0);
     v[0] /= divisor;
     v[1] /= divisor;
     return *this;
@@ -598,6 +640,8 @@ constexpr inline QVector2D &QVector2D::operator/=(float divisor)
 
 constexpr inline QVector2D &QVector2D::operator/=(QVector2D vector)
 {
+    Q_ASSERT(vector.v[0] > 0 || vector.v[0] < 0);
+    Q_ASSERT(vector.v[1] > 0 || vector.v[1] < 0);
     v[0] /= vector.v[0];
     v[1] /= vector.v[1];
     return *this;
@@ -691,45 +735,25 @@ constexpr inline float QVector3D::operator[](int i) const
 
 inline float QVector3D::length() const noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]) +
-                 double(v[2]) * double(v[2]);
-    return float(std::sqrt(len));
+    return qHypot(v[0], v[1], v[2]);
 }
 
 inline QVector3D QVector3D::normalized() const noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]) +
-                 double(v[2]) * double(v[2]);
-    if (qFuzzyIsNull(len - 1.0)) {
-        return *this;
-    } else if (!qFuzzyIsNull(len)) {
-        double sqrtLen = std::sqrt(len);
-        return QVector3D(float(double(v[0]) / sqrtLen),
-                         float(double(v[1]) / sqrtLen),
-                         float(double(v[2]) / sqrtLen));
-    } else {
-        return QVector3D();
-    }
+    const float len = length();
+    return qFuzzyIsNull(len - 1.0f) ? *this : qFuzzyIsNull(len) ? QVector3D()
+        : QVector3D(v[0] / len, v[1] / len, v[2] / len);
 }
 
 inline void QVector3D::normalize() noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]) +
-                 double(v[2]) * double(v[2]);
-    if (qFuzzyIsNull(len - 1.0) || qFuzzyIsNull(len))
+    const float len = length();
+    if (qFuzzyIsNull(len - 1.0f) || qFuzzyIsNull(len))
         return;
 
-    len = std::sqrt(len);
-
-    v[0] = float(double(v[0]) / len);
-    v[1] = float(double(v[1]) / len);
-    v[2] = float(double(v[2]) / len);
+    v[0] /= len;
+    v[1] /= len;
+    v[2] /= len;
 }
 
 constexpr inline float QVector3D::lengthSquared() const noexcept
@@ -771,6 +795,7 @@ constexpr inline QVector3D &QVector3D::operator*=(QVector3D vector) noexcept
 
 constexpr inline QVector3D &QVector3D::operator/=(float divisor)
 {
+    Q_ASSERT(divisor < 0 || divisor > 0);
     v[0] /= divisor;
     v[1] /= divisor;
     v[2] /= divisor;
@@ -779,6 +804,9 @@ constexpr inline QVector3D &QVector3D::operator/=(float divisor)
 
 constexpr inline QVector3D &QVector3D::operator/=(QVector3D vector)
 {
+    Q_ASSERT(vector.v[0] > 0 || vector.v[0] < 0);
+    Q_ASSERT(vector.v[1] > 0 || vector.v[1] < 0);
+    Q_ASSERT(vector.v[2] > 0 || vector.v[2] < 0);
     v[0] /= vector.v[0];
     v[1] /= vector.v[1];
     v[2] /= vector.v[2];
@@ -917,12 +945,7 @@ constexpr inline float QVector4D::operator[](int i) const
 
 inline float QVector4D::length() const noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]) +
-                 double(v[2]) * double(v[2]) +
-                 double(v[3]) * double(v[3]);
-    return float(std::sqrt(len));
+    return qHypot(v[0], v[1], v[2], v[3]);
 }
 
 constexpr inline float QVector4D::lengthSquared() const noexcept
@@ -932,40 +955,21 @@ constexpr inline float QVector4D::lengthSquared() const noexcept
 
 inline QVector4D QVector4D::normalized() const noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]) +
-                 double(v[2]) * double(v[2]) +
-                 double(v[3]) * double(v[3]);
-    if (qFuzzyIsNull(len - 1.0)) {
-        return *this;
-    } else if (!qFuzzyIsNull(len)) {
-        double sqrtLen = std::sqrt(len);
-        return QVector4D(float(double(v[0]) / sqrtLen),
-                         float(double(v[1]) / sqrtLen),
-                         float(double(v[2]) / sqrtLen),
-                         float(double(v[3]) / sqrtLen));
-    } else {
-        return QVector4D();
-    }
+    const float len = length();
+    return qFuzzyIsNull(len - 1.0f) ? *this : qFuzzyIsNull(len) ? QVector4D()
+        : QVector4D(v[0] / len, v[1] / len, v[2] / len, v[3] / len);
 }
 
 inline void QVector4D::normalize() noexcept
 {
-    // Need some extra precision if the length is very small.
-    double len = double(v[0]) * double(v[0]) +
-                 double(v[1]) * double(v[1]) +
-                 double(v[2]) * double(v[2]) +
-                 double(v[3]) * double(v[3]);
-    if (qFuzzyIsNull(len - 1.0) || qFuzzyIsNull(len))
+    const float len = length();
+    if (qFuzzyIsNull(len - 1.0f) || qFuzzyIsNull(len))
         return;
 
-    len = std::sqrt(len);
-
-    v[0] = float(double(v[0]) / len);
-    v[1] = float(double(v[1]) / len);
-    v[2] = float(double(v[2]) / len);
-    v[3] = float(double(v[3]) / len);
+    v[0] /= len;
+    v[1] /= len;
+    v[2] /= len;
+    v[3] /= len;
 }
 
 constexpr inline QVector4D &QVector4D::operator+=(QVector4D vector) noexcept
@@ -1006,6 +1010,7 @@ constexpr inline QVector4D &QVector4D::operator*=(QVector4D vector) noexcept
 
 constexpr inline QVector4D &QVector4D::operator/=(float divisor)
 {
+    Q_ASSERT(divisor < 0 || divisor > 0);
     v[0] /= divisor;
     v[1] /= divisor;
     v[2] /= divisor;
@@ -1015,6 +1020,10 @@ constexpr inline QVector4D &QVector4D::operator/=(float divisor)
 
 constexpr inline QVector4D &QVector4D::operator/=(QVector4D vector)
 {
+    Q_ASSERT(vector.v[0] > 0 || vector.v[0] < 0);
+    Q_ASSERT(vector.v[1] > 0 || vector.v[1] < 0);
+    Q_ASSERT(vector.v[2] > 0 || vector.v[2] < 0);
+    Q_ASSERT(vector.v[3] > 0 || vector.v[3] < 0);
     v[0] /= vector.v[0];
     v[1] /= vector.v[1];
     v[2] /= vector.v[2];
@@ -1082,5 +1091,42 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &, QVector4D &);
 
 
 QT_END_NAMESPACE
+
+/***************************** Tuple protocol *****************************/
+
+namespace std {
+#ifndef QT_NO_VECTOR2D
+    template <>
+    class tuple_size<QT_PREPEND_NAMESPACE(QVector2D)> : public integral_constant<size_t, 2> {};
+    template <>
+    class tuple_element<0, QT_PREPEND_NAMESPACE(QVector2D)> { public: using type = float; };
+    template <>
+    class tuple_element<1, QT_PREPEND_NAMESPACE(QVector2D)> { public: using type = float; };
+#endif // QT_NO_VECTOR2D
+
+#ifndef QT_NO_VECTOR3D
+    template <>
+    class tuple_size<QT_PREPEND_NAMESPACE(QVector3D)> : public integral_constant<size_t, 3> {};
+    template <>
+    class tuple_element<0, QT_PREPEND_NAMESPACE(QVector3D)> { public: using type = float; };
+    template <>
+    class tuple_element<1, QT_PREPEND_NAMESPACE(QVector3D)> { public: using type = float; };
+    template <>
+    class tuple_element<2, QT_PREPEND_NAMESPACE(QVector3D)> { public: using type = float; };
+#endif // QT_NO_VECTOR3D
+
+#ifndef QT_NO_VECTOR4D
+    template <>
+    class tuple_size<QT_PREPEND_NAMESPACE(QVector4D)> : public integral_constant<size_t, 4> {};
+    template <>
+    class tuple_element<0, QT_PREPEND_NAMESPACE(QVector4D)> { public: using type = float; };
+    template <>
+    class tuple_element<1, QT_PREPEND_NAMESPACE(QVector4D)> { public: using type = float; };
+    template <>
+    class tuple_element<2, QT_PREPEND_NAMESPACE(QVector4D)> { public: using type = float; };
+    template <>
+    class tuple_element<3, QT_PREPEND_NAMESPACE(QVector4D)> { public: using type = float; };
+#endif // QT_NO_VECTOR4D
+}
 
 #endif // QVECTORND_H

@@ -57,6 +57,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ApplicationInfo;
 import android.content.UriPermission;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -68,6 +69,7 @@ import android.content.ClipData;
 import android.content.ClipDescription;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
+import android.util.DisplayMetrics;
 import android.view.ContextMenu;
 import android.view.KeyEvent;
 import android.view.Menu;
@@ -98,6 +100,7 @@ public class QtNative
     public static final String QtTAG = "Qt JAVA"; // string used for Log.x
     private static ArrayList<Runnable> m_lostActions = new ArrayList<Runnable>(); // a list containing all actions which could not be performed (e.g. the main activity is destroyed, etc.)
     private static boolean m_started = false;
+    private static boolean m_isKeyboardHiding = false;
     private static int m_displayMetricsScreenWidthPixels = 0;
     private static int m_displayMetricsScreenHeightPixels = 0;
     private static int m_displayMetricsAvailableLeftPixels = 0;
@@ -117,6 +120,7 @@ public class QtNative
     public static QtThread m_qtThread = new QtThread();
     private static HashMap<String, Uri> m_cachedUris = new HashMap<String, Uri>();
     private static ArrayList<String> m_knownDirs = new ArrayList<String>();
+    private static final int KEYBOARD_HEIGHT_THRESHOLD = 100;
 
     private static final Runnable runPendingCppRunnablesRunnable = new Runnable() {
         @Override
@@ -555,8 +559,8 @@ public class QtNative
         synchronized (m_mainActivityMutex) {
             final Looper mainLooper = Looper.getMainLooper();
             final Handler handler = new Handler(mainLooper);
-            final boolean actionIsQueued = !m_activityPaused && m_activity != null && mainLooper != null && handler.post(action);
-            if (!actionIsQueued)
+            final boolean active = (m_activity != null && !m_activityPaused) || m_service != null;
+            if (!active || mainLooper == null || !handler.post(action))
                 m_lostActions.add(action);
         }
     }
@@ -840,13 +844,8 @@ public class QtNative
         int perm = PackageManager.PERMISSION_DENIED;
         synchronized (m_mainActivityMutex) {
             Context context = getContext();
-            try {
-                if (m_checkSelfPermissionMethod == null)
-                    m_checkSelfPermissionMethod = Context.class.getMethod("checkSelfPermission", String.class);
-                perm = (Integer)m_checkSelfPermissionMethod.invoke(context, permission);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            PackageManager pm = context.getPackageManager();
+            perm = pm.checkPermission(permission, context.getPackageName());
         }
 
         return perm;
@@ -864,6 +863,11 @@ public class QtNative
                     m_activityDelegate.updateSelection(selStart, selEnd, candidatesStart, candidatesEnd);
             }
         });
+    }
+
+    private static int getSelectHandleWidth()
+    {
+        return m_activityDelegate.getSelectHandleWidth();
     }
 
     private static void updateHandles(final int mode,
@@ -884,10 +888,25 @@ public class QtNative
         });
     }
 
+    private static void updateInputItemRectangle(final int x,
+                                                 final int y,
+                                                 final int w,
+                                                 final int h)
+    {
+        runAction(new Runnable() {
+            @Override
+            public void run() {
+                m_activityDelegate.updateInputItemRectangle(x, y, w, h);
+            }
+        });
+    }
+
+
     private static void showSoftwareKeyboard(final int x,
                                              final int y,
                                              final int width,
                                              final int height,
+                                             final int editorHeight,
                                              final int inputHints,
                                              final int enterKeyType)
     {
@@ -895,7 +914,7 @@ public class QtNative
             @Override
             public void run() {
                 if (m_activityDelegate != null)
-                    m_activityDelegate.showSoftwareKeyboard(x, y, width, height, inputHints, enterKeyType);
+                    m_activityDelegate.showSoftwareKeyboard(x, y, width, height, editorHeight, inputHints, enterKeyType);
             }
         });
     }
@@ -913,6 +932,7 @@ public class QtNative
 
     private static void hideSoftwareKeyboard()
     {
+        m_isKeyboardHiding = true;
         runAction(new Runnable() {
             @Override
             public void run() {
@@ -933,6 +953,11 @@ public class QtNative
                 updateWindow();
             }
         });
+    }
+
+    public static boolean isSoftwareKeyboardVisible()
+    {
+        return m_activityDelegate.isKeyboardVisible() && !m_isKeyboardHiding;
     }
 
     private static void notifyAccessibilityLocationChange()
@@ -1299,6 +1324,12 @@ public class QtNative
         });
     }
 
+    public static void keyboardVisibilityUpdated(boolean visibility)
+    {
+        m_isKeyboardHiding = false;
+        keyboardVisibilityChanged(visibility);
+    }
+
     private static String[] listAssetContent(android.content.res.AssetManager asset, String path) {
         String [] list;
         ArrayList<String> res = new ArrayList<String>();
@@ -1404,9 +1435,6 @@ public class QtNative
     public static native void runPendingCppRunnables();
 
     public static native void sendRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults);
-
-    private static native void setNativeActivity(Activity activity);
-    private static native void setNativeService(Service service);
     // activity methods
 
     // service methods

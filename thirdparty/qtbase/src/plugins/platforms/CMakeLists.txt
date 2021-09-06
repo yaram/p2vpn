@@ -47,8 +47,11 @@ if(HAIKU)
     # add_subdirectory(haiku) # special case TODO
 endif()
 if(WASM)
-    # add_subdirectory(wasm) # special case TODO
+     add_subdirectory(wasm)
 endif()
 if(QT_FEATURE_integrityfb)
     # add_subdirectory(integrity) # special case TODO
+endif()
+if(QT_FEATURE_vkkhrdisplay)
+    add_subdirectory(vkkhrdisplay)
 endif()

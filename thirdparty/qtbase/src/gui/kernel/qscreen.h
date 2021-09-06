@@ -50,6 +50,7 @@
 #include <QtGui/QTransform>
 
 #include <QtCore/qnamespace.h>
+#include <QtCore/qnativeinterface.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -80,16 +81,20 @@ class Q_GUI_EXPORT QScreen : public QObject
     Q_PROPERTY(QRect geometry READ geometry NOTIFY geometryChanged)
     Q_PROPERTY(QRect availableGeometry READ availableGeometry NOTIFY availableGeometryChanged)
     Q_PROPERTY(QRect virtualGeometry READ virtualGeometry NOTIFY virtualGeometryChanged)
-    Q_PROPERTY(QRect availableVirtualGeometry READ availableVirtualGeometry NOTIFY virtualGeometryChanged)
+    Q_PROPERTY(QRect availableVirtualGeometry READ availableVirtualGeometry
+               NOTIFY virtualGeometryChanged)
     Q_PROPERTY(QSizeF physicalSize READ physicalSize NOTIFY physicalSizeChanged)
-    Q_PROPERTY(qreal physicalDotsPerInchX READ physicalDotsPerInchX NOTIFY physicalDotsPerInchChanged)
-    Q_PROPERTY(qreal physicalDotsPerInchY READ physicalDotsPerInchY NOTIFY physicalDotsPerInchChanged)
+    Q_PROPERTY(qreal physicalDotsPerInchX READ physicalDotsPerInchX
+               NOTIFY physicalDotsPerInchChanged)
+    Q_PROPERTY(qreal physicalDotsPerInchY READ physicalDotsPerInchY
+               NOTIFY physicalDotsPerInchChanged)
     Q_PROPERTY(qreal physicalDotsPerInch READ physicalDotsPerInch NOTIFY physicalDotsPerInchChanged)
     Q_PROPERTY(qreal logicalDotsPerInchX READ logicalDotsPerInchX NOTIFY logicalDotsPerInchChanged)
     Q_PROPERTY(qreal logicalDotsPerInchY READ logicalDotsPerInchY NOTIFY logicalDotsPerInchChanged)
     Q_PROPERTY(qreal logicalDotsPerInch READ logicalDotsPerInch NOTIFY logicalDotsPerInchChanged)
     Q_PROPERTY(qreal devicePixelRatio READ devicePixelRatio NOTIFY physicalDotsPerInchChanged)
-    Q_PROPERTY(Qt::ScreenOrientation primaryOrientation READ primaryOrientation NOTIFY primaryOrientationChanged)
+    Q_PROPERTY(Qt::ScreenOrientation primaryOrientation READ primaryOrientation
+               NOTIFY primaryOrientationChanged)
     Q_PROPERTY(Qt::ScreenOrientation orientation READ orientation NOTIFY orientationChanged)
     Q_PROPERTY(Qt::ScreenOrientation nativeOrientation READ nativeOrientation)
     Q_PROPERTY(qreal refreshRate READ refreshRate NOTIFY refreshRateChanged)
@@ -147,6 +152,8 @@ public:
     QPixmap grabWindow(WId window = 0, int x = 0, int y = 0, int w = -1, int h = -1);
 
     qreal refreshRate() const;
+
+    QT_DECLARE_NATIVE_INTERFACE_ACCESSOR(QScreen)
 
 Q_SIGNALS:
     void geometryChanged(const QRect &geometry);

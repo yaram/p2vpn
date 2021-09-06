@@ -24,7 +24,7 @@ if (QT_FEATURE_gui)
     elseif(QNX)
         set(_default_platform "qnx")
     elseif(INTEGRITY)
-        set(_default_platform "integrityfb")
+        set(_default_platform "eglfs")
     elseif(HAIKU)
         set(_default_platform "haiku")
     elseif(WASM)
@@ -51,7 +51,6 @@ endif()
 # special case end
 
 qt_internal_add_module(Gui
-    GENERATE_METATYPES
     PLUGIN_TYPES accessiblebridge platforms platforms/darwin xcbglintegrations platformthemes platforminputcontexts generic iconengines imageformats egldeviceintegrations
     FEATURE_DEPENDENCIES  # special case:
         Qt::Network # special case:
@@ -88,7 +87,7 @@ qt_internal_add_module(Gui
         kernel/qevent.cpp kernel/qevent.h kernel/qevent_p.h
         kernel/qgenericplugin.cpp kernel/qgenericplugin.h
         kernel/qgenericpluginfactory.cpp kernel/qgenericpluginfactory.h
-        kernel/qguiapplication.cpp kernel/qguiapplication.h kernel/qguiapplication_p.h
+        kernel/qguiapplication.cpp kernel/qguiapplication.h kernel/qguiapplication_p.h kernel/qguiapplication_platform.h
         kernel/qguivariant.cpp
         kernel/qhighdpiscaling.cpp kernel/qhighdpiscaling_p.h
         kernel/qinputdevice.cpp kernel/qinputdevice.h kernel/qinputdevice_p.h
@@ -196,6 +195,7 @@ qt_internal_add_module(Gui
         painting/qregion.cpp painting/qregion.h
         painting/qrgb.h
         painting/qrgba64.h painting/qrgba64_p.h
+        painting/qrgbafloat.h
         painting/qstroker.cpp painting/qstroker_p.h
         painting/qtextureglyphcache.cpp painting/qtextureglyphcache_p.h
         painting/qtransform.cpp painting/qtransform.h
@@ -245,8 +245,6 @@ qt_internal_add_module(Gui
         util/qabstractlayoutstyleinfo.cpp util/qabstractlayoutstyleinfo_p.h
         util/qastchandler.cpp util/qastchandler_p.h
         util/qdesktopservices.cpp util/qdesktopservices.h
-        util/qedidparser.cpp util/qedidparser_p.h
-        util/qedidvendortable_p.h
         util/qgridlayoutengine.cpp util/qgridlayoutengine_p.h
         util/qhexstring_p.h
         util/qktxhandler.cpp util/qktxhandler_p.h
@@ -615,6 +613,8 @@ if(NOT ANDROID)
     qt_internal_add_simd_part(Gui SIMD arch_haswell
         SOURCES
             painting/qdrawhelper_avx2.cpp
+        EXCLUDE_OSX_ARCHITECTURES
+            arm64
     )
 endif()
 
@@ -682,7 +682,7 @@ qt_internal_extend_target(Gui CONDITION QT_FEATURE_textmarkdownreader
 
 qt_internal_extend_target(Gui CONDITION QT_FEATURE_system_textmarkdownreader AND QT_FEATURE_textmarkdownreader
     LIBRARIES
-        libmd4c
+        WrapSystemMd4c::WrapSystemMd4c
 )
 
 qt_internal_extend_target(Gui CONDITION QT_FEATURE_textmarkdownreader AND NOT QT_FEATURE_system_textmarkdownreader
@@ -767,12 +767,11 @@ qt_internal_extend_target(Gui CONDITION MINGW AND WIN32
         uuid
 )
 
-qt_internal_extend_target(Gui CONDITION UNIX AND NOT ANDROID AND NOT INTEGRITY AND NOT (TEST_architecture_arch STREQUAL "arm64") AND NOT UIKIT
-    DEFINES
-        ENABLE_PIXMAN_DRAWHELPERS
-)
-
-if(UNIX AND NOT ANDROID AND NOT INTEGRITY AND NOT (TEST_architecture_arch STREQUAL "arm64") AND NOT UIKIT)
+# Only enable the Pixman draw-helpers on platforms that support the GAS syntax of their asm files
+# Note: These helpers are only used for 16-bit surfaces, so excluding them does not generally
+# exclude neon-drawhelpers on these platforms.
+if(UNIX AND NOT ANDROID AND NOT INTEGRITY AND NOT (TEST_architecture_arch STREQUAL "arm64") AND NOT UIKIT AND NOT QT_IS_MACOS_UNIVERSAL)
+    qt_internal_extend_target(Gui DEFINES ENABLE_PIXMAN_DRAWHELPERS)
     qt_internal_add_simd_part(Gui SIMD neon
         SOURCES
             ../3rdparty/pixman/pixman-arm-neon-asm.S
@@ -869,9 +868,11 @@ qt_internal_extend_target(Gui CONDITION QT_FEATURE_vulkan
         vulkan/qvulkanfunctions.cpp
         vulkan/qvulkaninstance.cpp vulkan/qvulkaninstance.h
         vulkan/qvulkanwindow.cpp vulkan/qvulkanwindow.h vulkan/qvulkanwindow_p.h
-    PUBLIC_LIBRARIES
-        Vulkan::Vulkan_nolink
 )
+if(QT_FEATURE_vulkan)
+    qt_internal_add_target_include_dirs_and_optionally_propagate(
+        Gui WrapVulkanHeaders::WrapVulkanHeaders)
+endif()
 
 #### Keys ignored in scope 111:.:vulkan:vulkan/vulkan.pri:QT_FEATURE_vkgen:
 # special case begin
@@ -969,6 +970,11 @@ qt_internal_extend_target(Gui CONDITION UNIX AND (QT_FEATURE_xcb OR NOT UIKIT)
         platform/unix/qgenericunixservices.cpp platform/unix/qgenericunixservices_p.h
 )
 
+qt_internal_extend_target(Gui CONDITION UNIX AND (QT_FEATURE_xcb)
+    SOURCES
+        platform/unix/qtx11extras.cpp platform/unix/qtx11extras_p.h
+)
+
 qt_internal_extend_target(Gui CONDITION TARGET Qt::DBus AND UNIX AND (QT_FEATURE_xcb OR NOT UIKIT)
     LIBRARIES
         Qt::DBus
@@ -1022,6 +1028,12 @@ qt_internal_extend_target(Gui # special case CONDITION NOT GCC OR NOT QT_COMPILE
         painting/qdrawhelper.cpp
     NO_PCH_SOURCES
         "painting/qdrawhelper.cpp"
+)
+
+qt_internal_extend_target(Gui CONDITION (QT_FEATURE_eglfs OR QT_FEATURE_xcb)
+    SOURCES
+        util/qedidparser.cpp util/qedidparser_p.h
+        util/qedidvendortable_p.h
 )
 
 

@@ -1,3 +1,38 @@
+macro(qt_internal_get_internal_add_module_keywords option_args single_args multi_args)
+    set(${option_args}
+        STATIC
+        EXCEPTIONS
+        INTERNAL_MODULE
+        HEADER_MODULE
+        DISABLE_TOOLS_EXPORT
+        SKIP_DEPENDS_INCLUDE
+        NO_MODULE_HEADERS
+        NO_SYNC_QT
+        NO_PRIVATE_MODULE
+        NO_CONFIG_HEADER_FILE
+        NO_ADDITIONAL_TARGET_INFO
+        NO_GENERATE_METATYPES
+        GENERATE_METATYPES          # TODO: Remove once it is not used anymore
+    )
+    set(${single_args}
+        MODULE_INCLUDE_NAME
+        MODULE_INTERFACE_NAME
+        CONFIG_MODULE_NAME
+        PRECOMPILED_HEADER
+        CONFIGURE_FILE_PATH
+        ${__default_target_info_args}
+    )
+    set(${multi_args}
+        QMAKE_MODULE_CONFIG
+        EXTRA_CMAKE_FILES
+        EXTRA_CMAKE_INCLUDES
+        NO_PCH_SOURCES
+        ${__default_private_args}
+        ${__default_public_args}
+        ${__default_private_module_args}
+    )
+endmacro()
+
 # This is the main entry function for creating a Qt module, that typically
 # consists of a library, public header files, private header files and configurable
 # features.
@@ -14,43 +49,96 @@
 #     Don't generate a Qt6*AdditionalTargetInfo.cmake file.
 #     The caller is responsible for creating one.
 #
+#   MODULE_INTERFACE_NAME
+#     The custom name of the module interface. This name is used as a part of the include paths
+#     associated with the module and other interface names. The default value is the target name.
+#     If the INTERNAL_MODULE option is specified, MODULE_INTERFACE_NAME is not specified and the
+#     target name ends with the suffix 'Private', the MODULE_INTERFACE_NAME value defaults to the
+#     non-suffixed target name, e.g.:
+#        For the SomeInternalModulePrivate target, the MODULE_INTERFACE_NAME will be
+#        SomeInternalModule
+#
 function(qt_internal_add_module target)
+    qt_internal_get_internal_add_module_keywords(
+        option_args
+        single_args
+        multi_args
+    )
+
+    qt_parse_all_arguments(arg "qt_internal_add_module"
+        "${option_args}"
+        "${single_args}"
+        "${multi_args}"
+        ${ARGN}
+    )
+
+    if(arg_INTERNAL_MODULE)
+        set(arg_INTERNAL_MODULE "INTERNAL_MODULE")
+        set(arg_NO_PRIVATE_MODULE TRUE)
+        # Assume the interface name of the internal module should be the module name without the
+        # 'Private' suffix.
+        if(NOT arg_MODULE_INTERFACE_NAME)
+            if(target MATCHES "(.*)Private$")
+                set(arg_MODULE_INTERFACE_NAME "${CMAKE_MATCH_1}")
+            else()
+                message(WARNING "The internal module target should end with the 'Private' suffix.")
+            endif()
+        endif()
+    else()
+        unset(arg_INTERNAL_MODULE)
+    endif()
+
+    if(NOT arg_MODULE_INTERFACE_NAME)
+        set(arg_MODULE_INTERFACE_NAME "${target}")
+    endif()
+
+    ### Define Targets:
+    if(arg_HEADER_MODULE)
+        set(type_to_create INTERFACE)
+    elseif(arg_STATIC)
+        set(type_to_create STATIC)
+    else()
+        # Use default depending on Qt configuration.
+        set(type_to_create "")
+    endif()
+
+    _qt_internal_add_library("${target}" ${type_to_create})
+    qt_internal_mark_as_internal_library("${target}")
+
+    get_target_property(target_type ${target} TYPE)
+
+    set(is_interface_lib 0)
+    set(is_shared_lib 0)
+    set(is_static_lib 0)
+    if(target_type STREQUAL "INTERFACE_LIBRARY")
+        set(is_interface_lib 1)
+    elseif(target_type STREQUAL "STATIC_LIBRARY")
+        set(is_static_lib 1)
+    elseif(target_type STREQUAL "SHARED_LIBRARY")
+        set(is_shared_lib 1)
+    else()
+        message(FATAL_ERROR "Invalid target type '${target_type}' for Qt module '${target}'")
+    endif()
+
+    set_target_properties(${target} PROPERTIES
+        _qt_module_interface_name "${arg_MODULE_INTERFACE_NAME}"
+    )
+    set_property(TARGET ${target} APPEND PROPERTY EXPORT_PROPERTIES _qt_module_interface_name)
+
     qt_internal_module_info(module "${target}")
-
-    # Process arguments:
-    qt_parse_all_arguments(arg "qt_add_module"
-        "NO_MODULE_HEADERS;STATIC;DISABLE_TOOLS_EXPORT;EXCEPTIONS;INTERNAL_MODULE;NO_SYNC_QT;NO_PRIVATE_MODULE;HEADER_MODULE;GENERATE_METATYPES;NO_CONFIG_HEADER_FILE;SKIP_DEPENDS_INCLUDE;NO_ADDITIONAL_TARGET_INFO"
-        "MODULE_INCLUDE_NAME;CONFIG_MODULE_NAME;PRECOMPILED_HEADER;CONFIGURE_FILE_PATH;${__default_target_info_args}"
-        "${__default_private_args};${__default_public_args};${__default_private_module_args};QMAKE_MODULE_CONFIG;EXTRA_CMAKE_FILES;EXTRA_CMAKE_INCLUDES;NO_PCH_SOURCES" ${ARGN})
-
     qt_internal_add_qt_repo_known_module("${target}")
 
-    if(NOT DEFINED arg_CONFIG_MODULE_NAME)
+    if(NOT arg_CONFIG_MODULE_NAME)
         set(arg_CONFIG_MODULE_NAME "${module_lower}")
     endif()
+
+    set(module_config_header "qt${arg_CONFIG_MODULE_NAME}-config.h")
+    set(module_config_private_header "qt${arg_CONFIG_MODULE_NAME}-config_p.h")
 
     # Module define needs to take into account the config module name.
     string(TOUPPER "${arg_CONFIG_MODULE_NAME}" module_define_infix)
     string(REPLACE "-" "_" module_define_infix "${module_define_infix}")
     string(REPLACE "." "_" module_define_infix "${module_define_infix}")
-
-    ### Define Targets:
-    set(is_interface_lib 0)
-    set(is_shared_lib 0)
-    set(is_static_lib 0)
-    if(${arg_HEADER_MODULE})
-        add_library("${target}" INTERFACE)
-        set(is_interface_lib 1)
-    elseif(${arg_STATIC})
-        add_library("${target}" STATIC)
-        set(is_static_lib 1)
-    elseif(${QT_BUILD_SHARED_LIBS})
-        add_library("${target}" SHARED)
-        set(is_shared_lib 1)
-    else()
-        add_library("${target}" STATIC)
-        set(is_static_lib 1)
-    endif()
 
     set(property_prefix "INTERFACE_")
     if(NOT arg_HEADER_MODULE)
@@ -58,6 +146,9 @@ function(qt_internal_add_module target)
         set(property_prefix "")
     endif()
 
+    if(arg_INTERNAL_MODULE)
+        string(APPEND arg_CONFIG_MODULE_NAME "_private")
+    endif()
     set_target_properties(${target} PROPERTIES
         _qt_config_module_name "${arg_CONFIG_MODULE_NAME}"
         ${property_prefix}QT_QMAKE_MODULE_CONFIG "${arg_QMAKE_MODULE_CONFIG}")
@@ -69,10 +160,11 @@ function(qt_internal_add_module target)
         set_target_properties(${target} PROPERTIES
             FRAMEWORK TRUE
             FRAMEWORK_VERSION "A" # Not based on Qt major version
-            MACOSX_FRAMEWORK_IDENTIFIER org.qt-project.Qt${target}
+            MACOSX_FRAMEWORK_IDENTIFIER org.qt-project.${module}
             MACOSX_FRAMEWORK_BUNDLE_VERSION ${PROJECT_VERSION}
             MACOSX_FRAMEWORK_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
         )
+        qt_internal_get_framework_info(fw ${target})
     endif()
 
     if(QT_FEATURE_reduce_relocations AND UNIX AND NOT is_interface_lib)
@@ -96,9 +188,6 @@ function(qt_internal_add_module target)
         target_compile_options(${target} PRIVATE -ffat-lto-objects)
     endif()
 
-    if (ANDROID)
-        qt_android_apply_arch_suffix("${target}")
-    endif()
     qt_internal_add_target_aliases("${target}")
     qt_skip_warnings_are_errors_when_repo_unclean("${target}")
     _qt_internal_apply_strict_cpp("${target}")
@@ -109,8 +198,8 @@ function(qt_internal_add_module target)
     endif()
 
     # Add _private target to link against the private headers:
+    set(target_private "${target}Private")
     if(NOT ${arg_NO_PRIVATE_MODULE})
-        set(target_private "${target}Private")
         add_library("${target_private}" INTERFACE)
         qt_internal_add_target_aliases("${target_private}")
         set_target_properties(${target_private} PROPERTIES
@@ -158,15 +247,13 @@ function(qt_internal_add_module target)
         endif()
         if(is_framework)
             set_target_properties(${target} PROPERTIES
-                OUTPUT_NAME Qt${target}
+                OUTPUT_NAME ${fw_name}
             )
         else()
             set_target_properties(${target} PROPERTIES
-                OUTPUT_NAME "${INSTALL_CMAKE_NAMESPACE}${target}${QT_LIBINFIX}"
+                OUTPUT_NAME "${INSTALL_CMAKE_NAMESPACE}${module_interface_name}${QT_LIBINFIX}"
             )
         endif()
-
-        _qt_internal_apply_win_prefix_and_suffix("${target}")
 
         if (WIN32 AND BUILD_SHARED_LIBS)
             _qt_internal_generate_win32_rc_file(${target})
@@ -301,19 +388,21 @@ function(qt_internal_add_module target)
     endif()
 
     if(is_framework)
-        set(fw_bundle_subdir "${INSTALL_LIBDIR}/Qt${target}.framework")
+        set(fw_install_dir "${INSTALL_LIBDIR}/${fw_dir}")
+        set(fw_install_header_dir "${INSTALL_LIBDIR}/${fw_header_dir}")
+        set(fw_output_header_dir "${QT_BUILD_DIR}/${fw_install_header_dir}")
         list(APPEND public_includes
             # Add the lib/Foo.framework dir as include path to let CMake generate
             # the -F compiler flag for framework-style includes to work.
-            "$<INSTALL_INTERFACE:${fw_bundle_subdir}>"
+            "$<INSTALL_INTERFACE:${fw_install_dir}>"
 
             # Add the framework Headers subdir, so that non-framework-style includes work. The
             # BUILD_INTERFACE Headers symlink was previously claimed not to exist at the relevant
             # time, and a fully specified Header path was used instead. This doesn't seem to be a
             # problem anymore.
-            "$<BUILD_INTERFACE:${QT_BUILD_DIR}/${fw_bundle_subdir}/Headers>"
-            "$<INSTALL_INTERFACE:${fw_bundle_subdir}/Headers>"
-            )
+            "$<BUILD_INTERFACE:${fw_output_header_dir}>"
+            "$<INSTALL_INTERFACE:${fw_install_header_dir}>"
+        )
     endif()
 
     if(NOT arg_NO_MODULE_HEADERS AND NOT arg_NO_SYNC_QT)
@@ -407,16 +496,20 @@ function(qt_internal_add_module target)
     if(EXISTS "${configureFile}" AND NOT arg_NO_CONFIG_HEADER_FILE)
         qt_feature_module_begin(
             LIBRARY "${target}"
-            PUBLIC_FILE "qt${arg_CONFIG_MODULE_NAME}-config.h"
-            PRIVATE_FILE "qt${arg_CONFIG_MODULE_NAME}-config_p.h"
+            PUBLIC_FILE "${module_config_header}"
+            PRIVATE_FILE "${module_config_private_header}"
             PUBLIC_DEPENDENCIES ${arg_FEATURE_DEPENDENCIES}
             PRIVATE_DEPENDENCIES ${arg_FEATURE_DEPENDENCIES}
         )
         include(${configureFile})
         qt_feature_module_end("${target}")
 
-        set_property(TARGET "${target}" APPEND PROPERTY PUBLIC_HEADER "${CMAKE_CURRENT_BINARY_DIR}/qt${arg_CONFIG_MODULE_NAME}-config.h")
-        set_property(TARGET "${target}" APPEND PROPERTY PRIVATE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/qt${arg_CONFIG_MODULE_NAME}-config_p.h")
+        set_property(TARGET "${target}" APPEND PROPERTY
+            PUBLIC_HEADER "${CMAKE_CURRENT_BINARY_DIR}/${module_config_header}"
+        )
+        set_property(TARGET "${target}" APPEND PROPERTY
+            PRIVATE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/${module_config_private_header}"
+        )
     endif()
 
     if(NOT arg_HEADER_MODULE)
@@ -486,26 +579,24 @@ set(QT_LIBINFIX \"${QT_LIBINFIX}\")")
 
     set(extra_cmake_code "")
 
-    if(target STREQUAL Core)
-        # Propagate non-build related variables that are needed for consuming Qt packages.
-        # Do this in CoreConfig instead of Qt6Config, so that consumers can also use
-        # find_package(Qt6Core) instead of find_package(Qt6 COMPONENTS Core)
-        string(APPEND extra_cmake_code "
-set(QT_CMAKE_EXPORT_NAMESPACE ${QT_CMAKE_EXPORT_NAMESPACE})")
-    endif()
-
     # Generate metatypes
-    set(QT_MODULE_HAS_META_TYPES_FILE FALSE)
-    if (${arg_GENERATE_METATYPES})
-        set(QT_MODULE_HAS_META_TYPES_FILE TRUE)
-        set(metatypes_install_dir ${INSTALL_LIBDIR}/metatypes)
-        set(args)
-        if (NOT QT_WILL_INSTALL)
-            set(args COPY_OVER_INSTALL INSTALL_DIR "${QT_BUILD_DIR}/${metatypes_install_dir}")
-        else()
-            set(args INSTALL_DIR "${metatypes_install_dir}")
+    if(${arg_GENERATE_METATYPES})
+        # No mention of NO_GENERATE_METATYPES. You should not use it.
+        message(WARNING "GENERATE_METATYPES is on by default for Qt modules. Please remove the manual specification.")
+    endif()
+    if (NOT ${arg_NO_GENERATE_METATYPES})
+        if (NOT target_type STREQUAL "INTERFACE_LIBRARY")
+            set(metatypes_install_dir ${INSTALL_LIBDIR}/metatypes)
+            set(args)
+            if (NOT QT_WILL_INSTALL)
+                set(args __QT_INTERNAL_NO_INSTALL)
+            else()
+                set(args INSTALL_DIR "${metatypes_install_dir}")
+            endif()
+            qt6_extract_metatypes(${target} ${args})
+        elseif(${arg_GENERATE_METATYPES})
+            message(FATAL_ERROR "Meta types generation does not work on interface libraries")
         endif()
-        qt6_extract_metatypes(${target} ${args})
     endif()
     qt_internal_get_min_new_policy_cmake_version(min_new_policy_version)
     qt_internal_get_max_new_policy_cmake_version(max_new_policy_version)
@@ -551,7 +642,9 @@ set(QT_CMAKE_EXPORT_NAMESPACE ${QT_CMAKE_EXPORT_NAMESPACE})")
         PRIVATE_HEADER DESTINATION ${INSTALL_INCLUDEDIR}/${module_include_name}/${PROJECT_VERSION}/${module}/private
         )
 
-    qt_apply_rpaths(TARGET "${target}" INSTALL_PATH "${INSTALL_LIBDIR}" RELATIVE_RPATH)
+    if(BUILD_SHARED_LIBS)
+        qt_apply_rpaths(TARGET "${target}" INSTALL_PATH "${INSTALL_LIBDIR}" RELATIVE_RPATH)
+    endif()
 
     if (ANDROID AND NOT arg_HEADER_MODULE)
         # Record install library location so it can be accessed by
@@ -575,12 +668,6 @@ set(QT_CMAKE_EXPORT_NAMESPACE ${QT_CMAKE_EXPORT_NAMESPACE})")
         TARGETS ${exported_targets}
         EXPORT_NAME_PREFIX ${INSTALL_CMAKE_NAMESPACE}${target}
         CONFIG_INSTALL_DIR "${config_install_dir}")
-
-    if (${arg_INTERNAL_MODULE})
-        set(arg_INTERNAL_MODULE "INTERNAL_MODULE")
-    else()
-        unset(arg_INTERNAL_MODULE)
-    endif()
 
     ### fixme: cmake is missing a built-in variable for this. We want to apply it only to modules and plugins
     # that belong to Qt.
@@ -607,11 +694,11 @@ set(QT_CMAKE_EXPORT_NAMESPACE ${QT_CMAKE_EXPORT_NAMESPACE})")
                         "$<BUILD_INTERFACE:${module_include_dir}/${PROJECT_VERSION}/${module}>")
 
             if(is_framework)
-                set(fw_headers_dir
-                    "${INSTALL_LIBDIR}/${module}.framework/Headers/")
+                set(fw_install_private_header_dir "${INSTALL_LIBDIR}/${fw_private_header_dir}")
+                set(fw_install_private_module_header_dir "${INSTALL_LIBDIR}/${fw_private_module_header_dir}")
                 list(APPEND interface_includes
-                            "$<INSTALL_INTERFACE:${fw_headers_dir}${PROJECT_VERSION}>"
-                            "$<INSTALL_INTERFACE:${fw_headers_dir}${PROJECT_VERSION}/${module}>")
+                            "$<INSTALL_INTERFACE:${fw_install_private_header_dir}>"
+                            "$<INSTALL_INTERFACE:${fw_install_private_module_header_dir}>")
             else()
                 list(APPEND interface_includes
                             "$<INSTALL_INTERFACE:${INSTALL_INCLUDEDIR}/${module}/${PROJECT_VERSION}>"
@@ -627,7 +714,9 @@ set(QT_CMAKE_EXPORT_NAMESPACE ${QT_CMAKE_EXPORT_NAMESPACE})")
             "${module_headers_clean}")
     endif()
 
-    if(NOT ${arg_NO_PRIVATE_MODULE})
+    if(arg_INTERNAL_MODULE)
+        target_include_directories("${target}" INTERFACE ${interface_includes})
+    elseif(NOT ${arg_NO_PRIVATE_MODULE})
         target_include_directories("${target_private}" INTERFACE ${interface_includes})
         target_link_libraries("${target_private}" INTERFACE "${target}")
     endif()
@@ -662,7 +751,7 @@ function(qt_finalize_module target)
     qt_generate_module_pri_file("${target}" ${ARGN})
 endfunction()
 
-# Get a set of Qt module related values based on the target name.
+# Get a set of Qt module related values based on the target.
 # When doing qt_internal_module_info(foo Core) this method will set
 # the following variables in the caller's scope:
 #  * foo with the value "QtCore"
@@ -675,16 +764,24 @@ endfunction()
 #  * foo_include_dir with the module's include directory
 #    e.g for QtQuick it would be qtdeclarative_build_dir/include/QtQuick for a prefix build or
 #                                qtbase_build_dir/include/QtQuick for a non-prefix build
+#  * foo_interface_name the interface name of the module stored in _qt_module_interface_name
+#    property.
 function(qt_internal_module_info result target)
-    set(module "Qt${target}")
+    get_target_property(module_interface_name ${target} _qt_module_interface_name)
+    if(NOT module_interface_name)
+        message(FATAL_ERROR "${target} is not a module.")
+    endif()
+
+    qt_internal_qtfy_target(module ${module_interface_name})
     set("${result}" "${module}" PARENT_SCOPE)
-    set("${result}_versioned" "Qt${PROJECT_VERSION_MAJOR}${target}" PARENT_SCOPE)
-    string(TOUPPER "${target}" upper)
-    string(TOLOWER "${target}" lower)#  * foo_upper with the value "CORE"
+    set("${result}_versioned" "${module_versioned}" PARENT_SCOPE)
+    string(TOUPPER "${module_interface_name}" upper)
+    string(TOLOWER "${module_interface_name}" lower)#  * foo_upper with the value "CORE"
     set("${result}_upper" "${upper}" PARENT_SCOPE)
     set("${result}_lower" "${lower}" PARENT_SCOPE)
     set("${result}_repo_include_dir" "${QT_BUILD_DIR}/include" PARENT_SCOPE)
     set("${result}_include_dir" "${QT_BUILD_DIR}/include/${module}" PARENT_SCOPE)
+    set("${result}_interface_name" "${module_interface_name}" PARENT_SCOPE)
 endfunction()
 
 # Generate a module description file based on the template in ModuleDescription.json.in

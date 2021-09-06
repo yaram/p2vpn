@@ -64,7 +64,7 @@ struct QNetworkInformationDeleter
 
 Q_GLOBAL_STATIC_WITH_ARGS(QFactoryLoader, loader,
                           (QNetworkInformationBackendFactory_iid,
-                           QStringLiteral("/networkinformationbackends")))
+                           QStringLiteral("/networkinformation")))
 
 struct QStaticNetworkInformationDataHolder
 {
@@ -478,6 +478,9 @@ QNetworkInformation::QNetworkInformation(QNetworkInformationBackend *backend)
 {
     connect(backend, &QNetworkInformationBackend::reachabilityChanged, this,
             [this]() { emit reachabilityChanged(d_func()->backend->reachability()); });
+    connect(backend, &QNetworkInformationBackend::behindCaptivePortalChanged, this, [this]() {
+        emit isBehindCaptivePortalChanged(d_func()->backend->behindCaptivePortal());
+    });
 }
 
 /*!
@@ -502,6 +505,22 @@ QNetworkInformation::~QNetworkInformation() = default;
 QNetworkInformation::Reachability QNetworkInformation::reachability() const
 {
     return d_func()->backend->reachability();
+}
+
+/*!
+    \property QNetworkInformation::isBehindCaptivePortal
+    \brief Lets you know if the user's device is behind a captive portal.
+    \since 6.2
+
+    This property indicates if the user's device is currently known to be
+    behind a captive portal. This functionality relies on the operating system's
+    detection of captive portals and is not supported on systems that don't
+    report this. On systems where this is not supported this will always return
+    \c{false}.
+*/
+bool QNetworkInformation::isBehindCaptivePortal() const
+{
+    return d_func()->backend->behindCaptivePortal();
 }
 
 /*!

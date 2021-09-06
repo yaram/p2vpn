@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2012 BogDan Vatra <bogdan@kde.org>
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -44,7 +45,7 @@
 #include <QMimeDatabase>
 #include <QUrl>
 #include <QtCore/QJniObject>
-#include <private/qjnihelpers_p.h>
+#include <QtCore/qcoreapplication.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,12 +68,13 @@ bool QAndroidPlatformServices::openUrl(const QUrl &theUrl)
         mime = mimeDb.mimeTypeForUrl(url).name();
     }
 
+    using namespace QNativeInterface;
     QJniObject urlString = QJniObject::fromString(url.toString());
     QJniObject mimeString = QJniObject::fromString(mime);
     return QJniObject::callStaticMethod<jboolean>(
             QtAndroid::applicationClass(), "openURL",
             "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z",
-            QtAndroidPrivate::context(), urlString.object(), mimeString.object());
+            QAndroidApplication::context(), urlString.object(), mimeString.object());
 }
 
 bool QAndroidPlatformServices::openDocument(const QUrl &url)

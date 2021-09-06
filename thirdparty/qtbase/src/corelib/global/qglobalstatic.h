@@ -44,6 +44,8 @@
 
 #include <QtCore/qatomic.h>
 
+#include <type_traits>
+
 QT_BEGIN_NAMESPACE
 
 namespace QtGlobalStatic {
@@ -54,17 +56,6 @@ enum GuardValues {
     Initializing = 1
 };
 }
-
-#if !QT_CONFIG(thread) || defined(Q_COMPILER_THREADSAFE_STATICS)
-// some compilers support thread-safe statics
-// The IA-64 C++ ABI requires this, so we know that all GCC versions since 3.4
-// support it. C++11 also requires this behavior.
-// Clang and Intel CC masquerade as GCC when compiling on Linux.
-//
-// Apple's libc++abi however uses a global lock for initializing local statics,
-// which will block other threads also trying to initialize a local static
-// until the constructor returns ...
-// We better avoid these kind of problems by using our own locked implementation.
 
 #if defined(Q_OS_UNIX) && defined(Q_CC_INTEL)
 // Work around Intel issue ID 6000058488:
@@ -88,45 +79,13 @@ enum GuardValues {
         static struct Holder : public HolderBase {              \
             Type value;                                         \
             Holder()                                            \
-                noexcept(noexcept(Type ARGS))       \
+                noexcept(noexcept(typename std::remove_cv<Type>::type ARGS)) \
                 : value ARGS                                    \
             { guard.storeRelaxed(QtGlobalStatic::Initialized); }       \
         } holder;                                               \
         return &holder.value;                                   \
     }
-#else
-// We don't know if this compiler supports thread-safe global statics
-// so use our own locked implementation
 
-QT_END_NAMESPACE
-#include <QtCore/qmutex.h>
-#include <mutex>
-QT_BEGIN_NAMESPACE
-
-#define Q_GLOBAL_STATIC_INTERNAL(ARGS)                                  \
-    Q_DECL_HIDDEN inline Type *innerFunction()                          \
-    {                                                                   \
-        static Type *d;                                                 \
-        static QBasicMutex mutex;                                       \
-        int x = guard.loadAcquire();                                    \
-        if (Q_UNLIKELY(x >= QtGlobalStatic::Uninitialized)) {           \
-            const std::lock_guard<QBasicMutex> locker(mutex);           \
-            if (guard.loadRelaxed() == QtGlobalStatic::Uninitialized) {        \
-                d = new Type ARGS;                                      \
-                static struct Cleanup {                                 \
-                    Cleanup() = default;                                \
-                    ~Cleanup() {                                        \
-                        delete d;                                       \
-                        guard.storeRelaxed(QtGlobalStatic::Destroyed);         \
-                    }                                                   \
-                    Q_DISABLE_COPY_MOVE(Cleanup)                        \
-                } cleanup;                                              \
-                guard.storeRelease(QtGlobalStatic::Initialized);        \
-            }                                                           \
-        }                                                               \
-        return d;                                                       \
-    }
-#endif
 
 // this class must be POD, unless the compiler supports thread-safe statics
 template <typename T, T *(&innerFunction)(), QBasicAtomicInt &guard>

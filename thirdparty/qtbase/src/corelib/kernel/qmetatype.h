@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2018 Intel Corporation.
 ** Copyright (C) 2014 Olivier Goffart <ogoffart@woboq.com>
 ** Contact: https://www.qt.io/licensing/
@@ -48,6 +48,7 @@
 #include <QtCore/qcompare.h>
 #include <QtCore/qvarlengtharray.h>
 #include <QtCore/qrefcount.h>
+#include <QtCore/qscopeguard.h>
 #include <QtCore/qdatastream.h>
 #include <QtCore/qiterable.h>
 #ifndef QT_NO_QOBJECT
@@ -258,7 +259,42 @@ struct QMetaObject;
 namespace QtPrivate
 {
 
-class QMetaTypeInterface;
+class QMetaTypeInterface
+{
+public:
+    ushort revision; // 0 in Qt 6.0. Can increase if new field are added
+    ushort alignment;
+    uint size;
+    uint flags;
+    mutable QBasicAtomicInt typeId;
+
+    using MetaObjectFn = const QMetaObject *(*)(const QMetaTypeInterface *);
+    MetaObjectFn metaObjectFn;
+
+    const char *name;
+
+    using DefaultCtrFn = void (*)(const QMetaTypeInterface *, void *);
+    DefaultCtrFn defaultCtr;
+    using CopyCtrFn = void (*)(const QMetaTypeInterface *, void *, const void *);
+    CopyCtrFn copyCtr;
+    using MoveCtrFn = void (*)(const QMetaTypeInterface *, void *, void *);
+    MoveCtrFn moveCtr;
+    using DtorFn = void (*)(const QMetaTypeInterface *, void *);
+    DtorFn dtor;
+    using EqualsFn = bool (*)(const QMetaTypeInterface *, const void *, const void *);
+    EqualsFn equals;
+    using LessThanFn = bool (*)(const QMetaTypeInterface *, const void *, const void *);
+    LessThanFn lessThan;
+    using DebugStreamFn = void (*)(const QMetaTypeInterface *, QDebug &, const void *);
+    DebugStreamFn debugStream;
+    using DataStreamOutFn = void (*)(const QMetaTypeInterface *, QDataStream &, const void *);
+    DataStreamOutFn dataStreamOut;
+    using DataStreamInFn = void (*)(const QMetaTypeInterface *, QDataStream &, void *);
+    DataStreamInFn dataStreamIn;
+
+    using LegacyRegisterOp = void (*)();
+    LegacyRegisterOp legacyRegisterOp;
+};
 
 /*!
     This template is used for implicit conversion from type From to type To.
@@ -363,6 +399,7 @@ public:
         PointerToGadget = 0x400,
         IsPointer = 0x800,
         IsQmlList =0x1000, // used in the QML engine to recognize QQmlListProperty<T> and list<T>
+        IsConst = 0x2000,
     };
     Q_DECLARE_FLAGS(TypeFlags, TypeFlag)
 
@@ -408,7 +445,21 @@ public:
 
     bool isValid() const;
     bool isRegistered() const;
+#if defined(QT_QMETATYPE_BC_COMPAT) || defined(Q_QDOC)
     int id() const;
+#else
+    // ### Qt 7: Remove traces of out of line version
+    // unused int parameter is used to avoid ODR violation
+    int id(int = 0) const
+    {
+        if (d_ptr) {
+            if (int id = d_ptr->typeId.loadRelaxed())
+                return id;
+            return idHelper();
+        }
+        return 0;
+    };
+#endif
     constexpr qsizetype sizeOf() const;
     constexpr qsizetype alignOf() const;
     constexpr TypeFlags flags() const;
@@ -444,7 +495,17 @@ public:
     constexpr static QMetaType fromType();
     static QMetaType fromName(QByteArrayView name);
 
-    friend bool operator==(QMetaType a, QMetaType b) { return a.d_ptr == b.d_ptr || a.id() == b.id(); }
+    friend bool operator==(QMetaType a, QMetaType b)
+    {
+        if (a.d_ptr == b.d_ptr)
+            return true;
+        if (!a.d_ptr || !b.d_ptr)
+            return false; // one type is undefined, the other is defined
+        // avoid id call if we already have the id
+        const int aId = a.id();
+        const int bId = b.id();
+        return aId == bId;
+    }
     friend bool operator!=(QMetaType a, QMetaType b) { return !(a == b); }
 
 public:
@@ -510,7 +571,7 @@ public:
             *t = (f->*function)();
             return true;
         };
-        return registerConverterFunction(converter, fromType, toType);
+        return registerConverterImpl<From, To>(converter, fromType, toType);
     }
 
     // member function
@@ -528,7 +589,7 @@ public:
             *t = (f->*function)();
             return true;
         };
-        return registerMutableViewFunction(view, fromType, toType);
+        return registerMutableViewImpl<From, To>(view, fromType, toType);
     }
 
     // member function as in "double QString::toDouble(bool *ok = nullptr) const"
@@ -549,7 +610,7 @@ public:
                 *t = To();
             return result;
         };
-        return registerConverterFunction(converter, fromType, toType);
+        return registerConverterImpl<From, To>(converter, fromType, toType);
     }
 
     // functor or function pointer
@@ -561,13 +622,13 @@ public:
 
         const QMetaType fromType = QMetaType::fromType<From>();
         const QMetaType toType = QMetaType::fromType<To>();
-        auto converter = [function](const void *from, void *to) -> bool {
+        auto converter = [function = std::move(function)](const void *from, void *to) -> bool {
             const From *f = static_cast<const From *>(from);
             To *t = static_cast<To *>(to);
             *t = function(*f);
             return true;
         };
-        return registerConverterFunction(converter, fromType, toType);
+        return registerConverterImpl<From, To>(std::move(converter), fromType, toType);
     }
 
     // functor or function pointer
@@ -579,15 +640,43 @@ public:
 
         const QMetaType fromType = QMetaType::fromType<From>();
         const QMetaType toType = QMetaType::fromType<To>();
-        auto view = [function](void *from, void *to) -> bool {
+        auto view = [function = std::move(function)](void *from, void *to) -> bool {
             From *f = static_cast<From *>(from);
             To *t = static_cast<To *>(to);
             *t = function(*f);
             return true;
         };
-        return registerMutableViewFunction(view, fromType, toType);
+        return registerMutableViewImpl<From, To>(std::move(view), fromType, toType);
     }
-#endif
+
+private:
+    template<typename From, typename To>
+    static bool registerConverterImpl(ConverterFunction converter, QMetaType fromType, QMetaType toType)
+    {
+        if (registerConverterFunction(std::move(converter), fromType, toType)) {
+            static const auto unregister = qScopeGuard([=] {
+                unregisterConverterFunction(fromType, toType);
+            });
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    template<typename From, typename To>
+    static bool registerMutableViewImpl(MutableViewFunction view, QMetaType fromType, QMetaType toType)
+    {
+        if (registerMutableViewFunction(std::move(view), fromType, toType)) {
+            static const auto unregister = qScopeGuard([=] {
+               unregisterMutableViewFunction(fromType, toType);
+            });
+            return true;
+        } else {
+            return false;
+        }
+    }
+#endif // Q_CLANG_DOC
+public:
 
     static bool convert(QMetaType fromType, const void *from, QMetaType toType, void *to);
     static bool canConvert(QMetaType fromType, QMetaType toType);
@@ -662,6 +751,7 @@ public:
     const QtPrivate::QMetaTypeInterface *iface() { return d_ptr; }
 
 private:
+    int idHelper() const;
     friend class QVariant;
     const QtPrivate::QMetaTypeInterface *d_ptr = nullptr;
 };
@@ -773,6 +863,7 @@ namespace QtPrivate
 
 #ifndef QT_NO_QOBJECT
         static yes_type checkType(QObject* );
+        static yes_type checkType(const QObject* );
 #endif
         static no_type checkType(...);
         static_assert(sizeof(T), "Type argument of Q_PROPERTY or Q_DECLARE_METATYPE(T*) must be fully defined");
@@ -1103,6 +1194,7 @@ namespace QtPrivate {
                      | (QTypeInfo<T>::isPointer ? QMetaType::IsPointer : 0)
                      | (IsUnsignedEnum<T> ? QMetaType::IsUnsignedEnumeration : 0)
                      | (IsQmlListType<T> ? QMetaType::IsQmlList : 0)
+                     | (std::is_const_v<std::remove_pointer_t<T>> ? QMetaType::IsConst : 0)
              };
     };
 
@@ -1140,21 +1232,24 @@ template <typename T>
 int qRegisterNormalizedMetaType(const QT_PREPEND_NAMESPACE(QByteArray) &normalizedTypeName)
 {
 #ifndef QT_NO_QOBJECT
-    Q_ASSERT_X(normalizedTypeName == QMetaObject::normalizedType(normalizedTypeName.constData()), "qRegisterNormalizedMetaType", "qRegisterNormalizedMetaType was called with a not normalized type name, please call qRegisterMetaType instead.");
+    Q_ASSERT_X(normalizedTypeName == QMetaObject::normalizedType(normalizedTypeName.constData()),
+               "qRegisterNormalizedMetaType",
+               "qRegisterNormalizedMetaType was called with a not normalized type name, "
+               "please call qRegisterMetaType instead.");
 #endif
 
     const QMetaType metaType = QMetaType::fromType<T>();
     const int id = metaType.id();
 
-    if (id > 0) {
+    QtPrivate::SequentialContainerTransformationHelper<T>::registerConverter();
+    QtPrivate::SequentialContainerTransformationHelper<T>::registerMutableView();
+    QtPrivate::AssociativeContainerTransformationHelper<T>::registerConverter();
+    QtPrivate::AssociativeContainerTransformationHelper<T>::registerMutableView();
+    QtPrivate::MetaTypePairHelper<T>::registerConverter();
+    QtPrivate::MetaTypeSmartPointerHelper<T>::registerConverter();
+
+    if (normalizedTypeName != metaType.name())
         QMetaType::registerNormalizedTypedef(normalizedTypeName, metaType);
-        QtPrivate::SequentialContainerTransformationHelper<T>::registerConverter();
-        QtPrivate::SequentialContainerTransformationHelper<T>::registerMutableView();
-        QtPrivate::AssociativeContainerTransformationHelper<T>::registerConverter();
-        QtPrivate::AssociativeContainerTransformationHelper<T>::registerMutableView();
-        QtPrivate::MetaTypePairHelper<T>::registerConverter();
-        QtPrivate::MetaTypeSmartPointerHelper<T>::registerConverter();
-    }
 
     return id;
 }
@@ -1298,6 +1393,13 @@ struct QMetaTypeIdQObject<T, QMetaType::IsEnumeration>
                 static QBasicAtomicInt metatype_id = Q_BASIC_ATOMIC_INITIALIZER(0); \
                 if (const int id = metatype_id.loadAcquire())           \
                     return id;                                          \
+                constexpr auto arr = QtPrivate::typenameHelper<TYPE>(); \
+                auto name = arr.data();                                 \
+                if (QByteArrayView(name) == (#TYPE)) {                  \
+                    const int id = qRegisterNormalizedMetaType<TYPE>(name); \
+                    metatype_id.storeRelease(id);                       \
+                    return id;                                          \
+                }                                                       \
                 const int newId = qRegisterMetaType< TYPE >(#TYPE);     \
                 metatype_id.storeRelease(newId);                        \
                 return newId;                                           \
@@ -1500,7 +1602,6 @@ QT_END_NAMESPACE
 
 QT_FOR_EACH_STATIC_TYPE(Q_DECLARE_BUILTIN_METATYPE)
 
-Q_DECLARE_METATYPE(QtMetaTypePrivate::QPairVariantInterfaceImpl)
 
 QT_BEGIN_NAMESPACE
 
@@ -1601,43 +1702,6 @@ struct AssociativeKeyTypeIsMetaType<T, true> : AssociativeMappedTypeIsMetaType<T
         }
         return true;
     }
-};
-
-class QMetaTypeInterface
-{
-public:
-    ushort revision; // 0 in Qt 6.0. Can increase if new field are added
-    ushort alignment;
-    uint size;
-    uint flags;
-    mutable QBasicAtomicInt typeId;
-
-    using MetaObjectFn = const QMetaObject *(*)(const QMetaTypeInterface *);
-    const MetaObjectFn metaObjectFn;
-
-    const char *name;
-
-    using DefaultCtrFn = void (*)(const QMetaTypeInterface *, void *);
-    DefaultCtrFn defaultCtr;
-    using CopyCtrFn = void (*)(const QMetaTypeInterface *, void *, const void *);
-    CopyCtrFn copyCtr;
-    using MoveCtrFn = void (*)(const QMetaTypeInterface *, void *, void *);
-    MoveCtrFn moveCtr;
-    using DtorFn = void (*)(const QMetaTypeInterface *, void *);
-    DtorFn dtor;
-    using EqualsFn = bool (*)(const QMetaTypeInterface *, const void *, const void *);
-    EqualsFn equals;
-    using LessThanFn = bool (*)(const QMetaTypeInterface *, const void *, const void *);
-    LessThanFn lessThan;
-    using DebugStreamFn = void (*)(const QMetaTypeInterface *, QDebug &, const void *);
-    DebugStreamFn debugStream;
-    using DataStreamOutFn = void (*)(const QMetaTypeInterface *, QDataStream &, const void *);
-    DataStreamOutFn dataStreamOut;
-    using DataStreamInFn = void (*)(const QMetaTypeInterface *, QDataStream &, void *);
-    DataStreamInFn dataStreamIn;
-
-    using LegacyRegisterOp = void (*)();
-    LegacyRegisterOp legacyRegisterOp;
 };
 
 struct QTypeNormalizer
@@ -1846,12 +1910,21 @@ private:
     }
 
 public:
-#ifndef Q_CC_MSVC
+#if defined(Q_CC_CLANG) || defined (Q_CC_GNU)
     // this is much simpler than the full type normalization below
     // the reason is that the signature returned by Q_FUNC_INFO is already
     // normalized to the largest degree, and we need to do only small adjustments
     constexpr int normalizeTypeFromSignature(const char *begin, const char *end)
     {
+        // bail out if there is an anonymous struct
+        std::string_view name(begin, end-begin);
+#if defined (Q_CC_CLANG)
+        if (name.find("anonymous ") != std::string_view::npos)
+            return normalizeType(begin, end);
+#else
+        if (name.find("unnamed ") != std::string_view::npos)
+            return normalizeType(begin, end);
+#endif
         while (begin < end) {
             if (*begin == ' ') {
                 if (last == ',' || last == '>' || last == '<' || last == '*' || last == '&') {
@@ -1860,7 +1933,7 @@ public:
                 }
             }
             if (last == ' ') {
-                if (*begin == '*' || *begin == '&') {
+                if (*begin == '*' || *begin == '&' || *begin == '(') {
                     replaceLast(*begin);
                     ++begin;
                     continue;
@@ -2425,5 +2498,7 @@ constexpr const QtPrivate::QMetaTypeInterface *const qt_incomplete_metaTypeArray
 };
 
 QT_END_NAMESPACE
+
+Q_DECLARE_METATYPE(QtMetaTypePrivate::QPairVariantInterfaceImpl)
 
 #endif // QMETATYPE_H

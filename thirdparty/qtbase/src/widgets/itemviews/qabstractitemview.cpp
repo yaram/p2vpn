@@ -86,6 +86,7 @@ QAbstractItemViewPrivate::QAbstractItemViewPrivate()
         selectionMode(QAbstractItemView::ExtendedSelection),
         selectionBehavior(QAbstractItemView::SelectItems),
         currentlyCommittingEditor(nullptr),
+        pressClosedEditor(false),
         pressedModifiers(Qt::NoModifier),
         pressedPosition(QPoint(-1, -1)),
         pressedAlreadySelected(false),
@@ -1013,7 +1014,7 @@ QAbstractItemDelegate *QAbstractItemView::itemDelegateForColumn(int column) cons
 
 /*!
     \fn QAbstractItemDelegate *QAbstractItemView::itemDelegate(const QModelIndex &index) const
-    \obsolete Use itemDelegateForIndex() instead.
+    \deprecated Use itemDelegateForIndex() instead.
     Returns the item delegate used by this view and model for
     the given \a index.
 */
@@ -1777,6 +1778,9 @@ void QAbstractItemView::mousePressEvent(QMouseEvent *event)
     QPoint pos = event->position().toPoint();
     QPersistentModelIndex index = indexAt(pos);
 
+    // this is the mouse press event that closed the last editor (via focus event)
+    d->pressClosedEditor = d->pressClosedEditorWatcher.isActive() && d->lastEditedIndex == index;
+
     if (!d->selectionModel
         || (d->state == EditingState && d->hasEditor(index)))
         return;
@@ -1935,15 +1939,17 @@ void QAbstractItemView::mouseReleaseEvent(QMouseEvent *event)
     bool click = (index == d->pressedIndex && index.isValid() && !releaseFromDoubleClick);
     bool selectedClicked = click && (event->button() == Qt::LeftButton) && d->pressedAlreadySelected;
     EditTrigger trigger = (selectedClicked ? SelectedClicked : NoEditTriggers);
-    const bool edited = click ? edit(index, trigger, event) : false;
+    const bool edited = click && !d->pressClosedEditor ? edit(index, trigger, event) : false;
 
     d->ctrlDragSelectionFlag = QItemSelectionModel::NoUpdate;
 
     if (d->selectionModel && d->noSelectionOnMousePress) {
         d->noSelectionOnMousePress = false;
-        d->selectionModel->select(index, selectionCommand(index, event));
+        if (!edited && !d->pressClosedEditor)
+            d->selectionModel->select(index, selectionCommand(index, event));
     }
 
+    d->pressClosedEditor = false;
     setState(NoState);
 
     if (click) {
@@ -2583,6 +2589,8 @@ void QAbstractItemView::timerEvent(QTimerEvent *event)
         //we only get here if there was no double click
         if (d->pressedIndex.isValid() && d->pressedIndex == currentIndex())
             scrollTo(d->pressedIndex);
+    } else if (event->timerId() == d->pressClosedEditorWatcher.timerId()) {
+        d->pressClosedEditorWatcher.stop();
     }
 }
 
@@ -2852,6 +2860,12 @@ void QAbstractItemView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndE
         QModelIndex index = d->indexForEditor(editor);
         if (!index.isValid())
             return; // the editor was not registered
+
+        // start a timer that expires immediately when we return to the event loop
+        // to identify whether this close was triggered by a mousepress-initiated
+        // focus event
+        d->pressClosedEditorWatcher.start(0, this);
+        d->lastEditedIndex = index;
 
         if (!isPersistent) {
             setState(NoState);
@@ -3984,16 +3998,23 @@ QItemSelectionModel::SelectionFlags QAbstractItemViewPrivate::multiSelectionComm
                 return QItemSelectionModel::Toggle|selectionBehaviorFlags();
             break;
         case QEvent::MouseButtonPress:
-            if (static_cast<const QMouseEvent*>(event)->button() == Qt::LeftButton)
-                return QItemSelectionModel::Toggle|selectionBehaviorFlags(); // toggle
+            if (static_cast<const QMouseEvent*>(event)->button() == Qt::LeftButton) {
+                // since the press might start a drag, deselect only on release
+                if (!pressedAlreadySelected || !dragEnabled || !isIndexDragEnabled(index))
+                    return QItemSelectionModel::Toggle|selectionBehaviorFlags(); // toggle
+            }
             break;
         case QEvent::MouseButtonRelease:
-            if (static_cast<const QMouseEvent*>(event)->button() == Qt::LeftButton)
+            if (static_cast<const QMouseEvent*>(event)->button() == Qt::LeftButton) {
+                if (pressedAlreadySelected && dragEnabled && isIndexDragEnabled(index) && index == pressedIndex)
+                    return QItemSelectionModel::Toggle|selectionBehaviorFlags();
                 return QItemSelectionModel::NoUpdate|selectionBehaviorFlags(); // finalize
+            }
             break;
         case QEvent::MouseMove:
             if (static_cast<const QMouseEvent*>(event)->buttons() & Qt::LeftButton)
                 return QItemSelectionModel::ToggleCurrent|selectionBehaviorFlags(); // toggle drag select
+            break;
         default:
             break;
         }
@@ -4031,6 +4052,11 @@ QItemSelectionModel::SelectionFlags QAbstractItemViewPrivate::extendedSelectionC
                 return QItemSelectionModel::Clear;
             if (!index.isValid())
                 return QItemSelectionModel::NoUpdate;
+            // since the press might start a drag, deselect only on release
+            if (controlKeyPressed && !rightButtonPressed && pressedAlreadySelected
+                && dragEnabled && isIndexDragEnabled(index)) {
+                return QItemSelectionModel::NoUpdate;
+            }
             break;
         }
         case QEvent::MouseButtonRelease: {
@@ -4043,6 +4069,10 @@ QItemSelectionModel::SelectionFlags QAbstractItemViewPrivate::extendedSelectionC
                 || !index.isValid()) && state != QAbstractItemView::DragSelectingState
                 && !shiftKeyPressed && !controlKeyPressed && (!rightButtonPressed || !index.isValid()))
                 return QItemSelectionModel::ClearAndSelect|selectionBehaviorFlags();
+            if (index == pressedIndex && controlKeyPressed && !rightButtonPressed
+                && dragEnabled && isIndexDragEnabled(index)) {
+                break;
+            }
             return QItemSelectionModel::NoUpdate;
         }
         case QEvent::KeyPress: {

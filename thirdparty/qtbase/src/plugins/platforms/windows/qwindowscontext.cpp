@@ -192,6 +192,7 @@ void QWindowsUser32DLL::init()
 {
     QSystemLibrary library(QStringLiteral("user32"));
     setProcessDPIAware = (SetProcessDPIAware)library.resolve("SetProcessDPIAware");
+    setProcessDpiAwarenessContext = (SetProcessDpiAwarenessContext)library.resolve("SetProcessDpiAwarenessContext");
 
     addClipboardFormatListener = (AddClipboardFormatListener)library.resolve("AddClipboardFormatListener");
     removeClipboardFormatListener = (RemoveClipboardFormatListener)library.resolve("RemoveClipboardFormatListener");
@@ -199,18 +200,16 @@ void QWindowsUser32DLL::init()
     getDisplayAutoRotationPreferences = (GetDisplayAutoRotationPreferences)library.resolve("GetDisplayAutoRotationPreferences");
     setDisplayAutoRotationPreferences = (SetDisplayAutoRotationPreferences)library.resolve("SetDisplayAutoRotationPreferences");
 
-    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows8) {
-        enableMouseInPointer = (EnableMouseInPointer)library.resolve("EnableMouseInPointer");
-        getPointerType = (GetPointerType)library.resolve("GetPointerType");
-        getPointerInfo = (GetPointerInfo)library.resolve("GetPointerInfo");
-        getPointerDeviceRects = (GetPointerDeviceRects)library.resolve("GetPointerDeviceRects");
-        getPointerTouchInfo = (GetPointerTouchInfo)library.resolve("GetPointerTouchInfo");
-        getPointerFrameTouchInfo = (GetPointerFrameTouchInfo)library.resolve("GetPointerFrameTouchInfo");
-        getPointerFrameTouchInfoHistory = (GetPointerFrameTouchInfoHistory)library.resolve("GetPointerFrameTouchInfoHistory");
-        getPointerPenInfo = (GetPointerPenInfo)library.resolve("GetPointerPenInfo");
-        getPointerPenInfoHistory = (GetPointerPenInfoHistory)library.resolve("GetPointerPenInfoHistory");
-        skipPointerFrameMessages = (SkipPointerFrameMessages)library.resolve("SkipPointerFrameMessages");
-    }
+    enableMouseInPointer = (EnableMouseInPointer)library.resolve("EnableMouseInPointer");
+    getPointerType = (GetPointerType)library.resolve("GetPointerType");
+    getPointerInfo = (GetPointerInfo)library.resolve("GetPointerInfo");
+    getPointerDeviceRects = (GetPointerDeviceRects)library.resolve("GetPointerDeviceRects");
+    getPointerTouchInfo = (GetPointerTouchInfo)library.resolve("GetPointerTouchInfo");
+    getPointerFrameTouchInfo = (GetPointerFrameTouchInfo)library.resolve("GetPointerFrameTouchInfo");
+    getPointerFrameTouchInfoHistory = (GetPointerFrameTouchInfoHistory)library.resolve("GetPointerFrameTouchInfoHistory");
+    getPointerPenInfo = (GetPointerPenInfo)library.resolve("GetPointerPenInfo");
+    getPointerPenInfoHistory = (GetPointerPenInfoHistory)library.resolve("GetPointerPenInfoHistory");
+    skipPointerFrameMessages = (SkipPointerFrameMessages)library.resolve("SkipPointerFrameMessages");
 
     if (QOperatingSystemVersion::current()
         >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 14393)) {
@@ -219,6 +218,7 @@ void QWindowsUser32DLL::init()
         getWindowDpiAwarenessContext = (GetWindowDpiAwarenessContext)library.resolve("GetWindowDpiAwarenessContext");
         getAwarenessFromDpiAwarenessContext = (GetAwarenessFromDpiAwarenessContext)library.resolve("GetAwarenessFromDpiAwarenessContext");
         systemParametersInfoForDpi = (SystemParametersInfoForDpi)library.resolve("SystemParametersInfoForDpi");
+        getDpiForWindow = (GetDpiForWindow)library.resolve("GetDpiForWindow");
     }
 }
 
@@ -231,8 +231,6 @@ bool QWindowsUser32DLL::supportsPointerApi()
 
 void QWindowsShcoreDLL::init()
 {
-    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8_1)
-        return;
     QSystemLibrary library(QStringLiteral("SHCore"));
     getProcessDpiAwareness = (GetProcessDpiAwareness)library.resolve("GetProcessDpiAwareness");
     setProcessDpiAwareness = (SetProcessDpiAwareness)library.resolve("SetProcessDpiAwareness");
@@ -278,9 +276,11 @@ struct QWindowsContextPrivate {
     HPOWERNOTIFY m_powerNotification = nullptr;
     HWND m_powerDummyWindow = nullptr;
     static bool m_darkMode;
+    static bool m_v2DpiAware;
 };
 
 bool QWindowsContextPrivate::m_darkMode = false;
+bool QWindowsContextPrivate::m_v2DpiAware = false;
 
 QWindowsContextPrivate::QWindowsContextPrivate()
     : m_oleInitializeResult(OleInitialize(nullptr))
@@ -402,9 +402,6 @@ bool QWindowsContext::initPointer(unsigned integrationOptions)
     if (integrationOptions & QWindowsIntegration::DontUseWMPointer)
         return false;
 
-    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8)
-        return false;
-
     if (!QWindowsContext::user32dll.supportsPointerApi())
         return false;
 
@@ -501,6 +498,23 @@ void QWindowsContext::setProcessDpiAwareness(QtWindows::ProcessDpiAwareness dpiA
         if (dpiAwareness != QtWindows::ProcessDpiUnaware && QWindowsContext::user32dll.setProcessDPIAware) {
             if (!QWindowsContext::user32dll.setProcessDPIAware())
                 qErrnoWarning("SetProcessDPIAware() failed");
+        }
+    }
+}
+
+void QWindowsContext::setProcessDpiV2Awareness()
+{
+    qCDebug(lcQpaWindows) << __FUNCTION__;
+    const BOOL ok = QWindowsContext::user32dll.setProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if (ok) {
+        QWindowsContextPrivate::m_v2DpiAware = true;
+    } else {
+        const HRESULT errorCode = GetLastError();
+        // E_ACCESSDENIED means set externally (MSVC manifest or external app loading Qt plugin).
+        // Silence warning in that case unless debug is enabled.
+        if (errorCode != E_ACCESSDENIED || lcQpaWindows().isDebugEnabled()) {
+            qWarning().noquote().nospace() << "setProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) failed: "
+                << QWindowsContext::comErrorString(errorCode);
         }
     }
 }
@@ -1074,29 +1088,12 @@ static inline QWindowsInputContext *windowsInputContext()
     return qobject_cast<QWindowsInputContext *>(QWindowsIntegration::instance()->inputContext());
 }
 
-
-// Child windows, fixed-size windows or pop-ups and similar should not be resized
-static inline bool resizeOnDpiChanged(const QWindow *w)
-{
-    bool result = false;
-    if (w->isTopLevel()) {
-        switch (w->type()) {
-        case Qt::Window:
-        case Qt::Dialog:
-        case Qt::Sheet:
-        case Qt::Drawer:
-        case Qt::Tool:
-            result = !w->flags().testFlag(Qt::MSWindowsFixedSizeDialogHint);
-            break;
-        default:
-            break;
-        }
-    }
-    return result;
-}
-
 bool QWindowsContext::shouldHaveNonClientDpiScaling(const QWindow *window)
 {
+    // DPI aware V2 processes always have NonClientDpiScaling enabled.
+    if (QWindowsContextPrivate::m_v2DpiAware)
+        return true;
+
     return QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10
         && window->isTopLevel()
         && !window->property(QWindowsWindow::embeddedNativeParentHandleProperty).isValid()
@@ -1274,8 +1271,12 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
             d->m_creationContext->obtainedPos = QPoint(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             return true;
         case QtWindows::NonClientCreate:
-            if (shouldHaveNonClientDpiScaling(d->m_creationContext->window))
-                enableNonClientDpiScaling(msg.hwnd);
+            if (shouldHaveNonClientDpiScaling(d->m_creationContext->window) &&
+                // DPI aware V2 processes always have NonClientDpiScaling enabled
+                // and there is no need to make an API call to manually enable.
+                !QWindowsContextPrivate::m_v2DpiAware) {
+                    enableNonClientDpiScaling(msg.hwnd);
+                }
             return false;
         case QtWindows::CalculateSize:
             return QWindowsGeometryHint::handleCalculateSize(d->m_creationContext->customMargins, msg, result);
@@ -1453,24 +1454,32 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
 #endif
     }   break;
     case QtWindows::DpiChangedEvent: {
-        // Try to apply the suggested size first and then notify ScreenChanged
-        // so that the resize event sent from QGuiApplication incorporates it
-        // WM_DPICHANGED is sent with a size that avoids resize loops (by
-        // snapping back to the previous screen, see QTBUG-65580).
-        const bool doResize = resizeOnDpiChanged(platformWindow->window());
-        if (doResize) {
-            platformWindow->setFlag(QWindowsWindow::WithinDpiChanged);
-            platformWindow->updateFullFrameMargins();
-            const auto prcNewWindow = reinterpret_cast<RECT *>(lParam);
-            qCDebug(lcQpaWindows) << __FUNCTION__ << "WM_DPICHANGED"
-                << platformWindow->window() << *prcNewWindow;
-            SetWindowPos(hwnd, nullptr, prcNewWindow->left, prcNewWindow->top,
-                         prcNewWindow->right - prcNewWindow->left,
-                         prcNewWindow->bottom - prcNewWindow->top, SWP_NOZORDER | SWP_NOACTIVATE);
-            platformWindow->clearFlag(QWindowsWindow::WithinDpiChanged);
-        }
+
+        const UINT dpi = HIWORD(wParam);
+        const qreal scale = qreal(dpi) / qreal(platformWindow->savedDpi());
+        platformWindow->setSavedDpi(dpi);
+
+        // Send screen change first, so that the new sceen is set during any following resize
         platformWindow->checkForScreenChanged(QWindowsWindow::FromDpiChange);
-        return doResize;
+
+        // Apply the suggested window geometry to the native window. This will make
+        // sure the window tracks the mouse cursor during screen change, and also
+        // that the window size is scaled according to the DPI change.
+        platformWindow->updateFullFrameMargins();
+        const auto prcNewWindow = reinterpret_cast<RECT *>(lParam);
+        SetWindowPos(hwnd, nullptr, prcNewWindow->left, prcNewWindow->top,
+                     prcNewWindow->right - prcNewWindow->left,
+                     prcNewWindow->bottom - prcNewWindow->top, SWP_NOZORDER | SWP_NOACTIVATE);
+
+        // Scale child QPlatformWindow size. Windows sends WM_DPICHANGE to top-level windows only.
+        for (QWindow *childWindow : platformWindow->window()->findChildren<QWindow *>()) {
+            QWindowsWindow *platformChildWindow = static_cast<QWindowsWindow *>(childWindow->handle());
+            QRect currentGeometry = platformChildWindow->geometry();
+            QRect scaledGeometry = QRect(currentGeometry.topLeft() * scale, currentGeometry.size() * scale);
+            platformChildWindow->setGeometry(scaledGeometry);
+        }
+
+        return true;
     }
 #if QT_CONFIG(sessionmanager)
     case QtWindows::QueryEndSessionApplicationEvent: {
@@ -1729,11 +1738,7 @@ static inline QByteArray nativeEventType() { return QByteArrayLiteral("windows_g
 bool QWindowsContext::filterNativeEvent(MSG *msg, LRESULT *result)
 {
     QAbstractEventDispatcher *dispatcher = QAbstractEventDispatcher::instance();
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     qintptr filterResult = 0;
-#else
-    long filterResult = 0;
-#endif
     if (dispatcher && dispatcher->filterNativeEvent(nativeEventType(), msg, &filterResult)) {
         *result = LRESULT(filterResult);
         return true;
@@ -1744,11 +1749,7 @@ bool QWindowsContext::filterNativeEvent(MSG *msg, LRESULT *result)
 // Send to QWindowSystemInterface
 bool QWindowsContext::filterNativeEvent(QWindow *window, MSG *msg, LRESULT *result)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     qintptr filterResult = 0;
-#else
-    long filterResult = 0;
-#endif
     if (QWindowSystemInterface::handleNativeEvent(window, nativeEventType(), msg, &filterResult)) {
         *result = LRESULT(filterResult);
         return true;

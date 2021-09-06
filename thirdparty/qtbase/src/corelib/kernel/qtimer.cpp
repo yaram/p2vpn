@@ -54,10 +54,11 @@ class QTimerPrivate : public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(QTimer)
 public:
+    void setInterval(int msec) { q_func()->setInterval(msec); }
     bool isActiveActualCalculation() const { return id >= 0; }
 
     int id = INV_TIMER;
-    int inter = 0;
+    Q_OBJECT_COMPAT_PROPERTY_WITH_ARGS(QTimerPrivate, int, inter, &QTimerPrivate::setInterval, 0)
     Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QTimerPrivate, bool, single, false)
     bool nulltimer = false;
     Q_OBJECT_BINDABLE_PROPERTY_WITH_ARGS(QTimerPrivate, Qt::TimerType, type, Qt::CoarseTimer)
@@ -240,7 +241,7 @@ void QTimer::start()
         stop();
     d->nulltimer = (!d->inter && d->single);
     d->id = QObject::startTimer(d->inter, d->type);
-    d->isActiveData.markDirty();
+    d->isActiveData.notify();
 }
 
 /*!
@@ -256,8 +257,11 @@ void QTimer::start()
 void QTimer::start(int msec)
 {
     Q_D(QTimer);
-    d->inter = msec;
+    const bool intervalChanged = msec != d->inter;
+    d->inter.setValue(msec);
     start();
+    if (intervalChanged)
+        d->inter.notify();
 }
 
 
@@ -274,7 +278,7 @@ void QTimer::stop()
     if (d->id != INV_TIMER) {
         QObject::killTimer(d->id);
         d->id = INV_TIMER;
-        d->isActiveData.markDirty();
+        d->isActiveData.notify();
     }
 }
 
@@ -751,16 +755,26 @@ QBindable<bool> QTimer::bindableSingleShot()
 void QTimer::setInterval(int msec)
 {
     Q_D(QTimer);
-    d->inter = msec;
+    const bool intervalChanged = msec != d->inter;
+    d->inter.setValue(msec);
     if (d->id != INV_TIMER) {                        // create new timer
         QObject::killTimer(d->id);                        // restart timer
         d->id = QObject::startTimer(msec, d->type);
+        // No need to call markDirty() for d->isActiveData here,
+        // as timer state actually does not change
     }
+    if (intervalChanged)
+        d->inter.notify();
 }
 
 int QTimer::interval() const
 {
     return d_func()->inter;
+}
+
+QBindable<int> QTimer::bindableInterval()
+{
+    return QBindable<int>(&d_func()->inter);
 }
 
 /*!

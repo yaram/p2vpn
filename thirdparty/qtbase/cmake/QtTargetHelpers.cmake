@@ -188,14 +188,6 @@ function(qt_set_common_target_properties target)
             OBJCXX_VISIBILITY_PRESET hidden
             VISIBILITY_INLINES_HIDDEN 1)
     endif()
-    if(QT_FEATURE_static_runtime)
-        if(MSVC)
-            set_property(TARGET ${target} PROPERTY
-                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-        elseif(MINGW)
-            target_link_options(${target} INTERFACE "LINKER:-static")
-        endif()
-    endif()
     qt_internal_set_compile_pdb_names("${target}")
 endfunction()
 
@@ -256,7 +248,8 @@ endfunction()
 function(qt_internal_check_directory_or_type name dir type default result_var)
     if ("x${dir}" STREQUAL x)
         if("x${type}" STREQUAL x)
-            message(FATAL_ERROR "qt_internal_add_plugin called without setting either TYPE or ${name}.")
+            message(FATAL_ERROR
+                "qt_internal_add_plugin called without setting either PLUGIN_TYPE or ${name}.")
         endif()
         set(${result_var} "${default}" PARENT_SCOPE)
     else()
@@ -264,25 +257,25 @@ function(qt_internal_check_directory_or_type name dir type default result_var)
     endif()
 endfunction()
 
-function(qt_internal_strip_target_directory_scope_token target out_var)
-    # In CMake versions earlier than CMake 3.18, a subdirectory scope id is appended to the
-    # target name if the target is referenced in a target_link_libraries command from a
-    # different directory scope than where the target was created.
-    # Strip it.
-    #
-    # For informational purposes, in CMake 3.18, the target name looks as follows:
-    # ::@(0x5604cb3f6b50);Threads::Threads;::@
-    # This case doesn't have to be stripped (at least for now), because when we iterate over
-    # link libraries, the tokens appear as separate target names.
-    #
-    # Example: Threads::Threads::@<0x5604cb3f6b50>
-    # Output: Threads::Threads
-    string(REGEX REPLACE "::@<.+>$" "" target "${target}")
-    set("${out_var}" "${target}" PARENT_SCOPE)
-endfunction()
+macro(qt_internal_get_export_additional_targets_keywords option_args single_args multi_args)
+    set(${option_args}
+    )
+    set(${single_args}
+        EXPORT_NAME_PREFIX
+    )
+    set(${multi_args}
+        TARGETS
+        TARGET_EXPORT_NAMES
+    )
+endmacro()
 
 # Create a Qt*AdditionalTargetInfo.cmake file that is included by Qt*Config.cmake
 # and sets IMPORTED_*_<CONFIG> properties on the exported targets.
+#
+# The file also makes the targets global if the QT_PROMOTE_TO_GLOBAL_TARGETS property is set in the
+# consuming project.
+# When using a CMake version lower than 3.21, only the specified TARGETS are made global.
+# E.g. transitive non-Qt 3rd party targets of the specified targets are not made global.
 #
 # EXPORT_NAME_PREFIX:
 #    The portion of the file name before AdditionalTargetInfo.cmake
@@ -300,14 +293,75 @@ endfunction()
 #          TARGET_EXPORT_NAMES = Qt6::qmljs
 #
 function(qt_internal_export_additional_targets_file)
-    cmake_parse_arguments(arg "" "EXPORT_NAME_PREFIX;CONFIG_INSTALL_DIR"
-        "TARGETS;TARGET_EXPORT_NAMES" ${ARGN})
+    qt_internal_get_export_additional_targets_keywords(option_args single_args multi_args)
+    cmake_parse_arguments(arg
+        "${option_args}"
+        "${single_args};CONFIG_INSTALL_DIR"
+        "${multi_args}"
+        ${ARGN})
+
+    qt_internal_append_export_additional_targets()
+
+    set_property(GLOBAL APPEND PROPERTY _qt_export_additional_targets_ids "${id}")
+    set_property(GLOBAL APPEND
+        PROPERTY _qt_export_additional_targets_export_name_prefix_${id} "${arg_EXPORT_NAME_PREFIX}")
+    set_property(GLOBAL APPEND
+        PROPERTY _qt_export_additional_targets_config_install_dir_${id} "${arg_CONFIG_INSTALL_DIR}")
+
+    qt_add_list_file_finalizer(qt_internal_export_additional_targets_file_finalizer)
+endfunction()
+
+function(qt_internal_get_export_additional_targets_id export_name out_var)
+    string(MAKE_C_IDENTIFIER "${export_name}" id)
+    set(${out_var} "${id}" PARENT_SCOPE)
+endfunction()
+
+# Uses outer-scope variables to keep the implementation less verbose.
+macro(qt_internal_append_export_additional_targets)
+    qt_internal_validate_export_additional_targets(
+        EXPORT_NAME_PREFIX "${arg_EXPORT_NAME_PREFIX}"
+        TARGETS ${arg_TARGETS}
+        TARGET_EXPORT_NAMES ${arg_TARGET_EXPORT_NAMES})
+
+    qt_internal_get_export_additional_targets_id("${arg_EXPORT_NAME_PREFIX}" id)
+
+    set_property(GLOBAL APPEND
+        PROPERTY _qt_export_additional_targets_${id} "${arg_TARGETS}")
+    set_property(GLOBAL APPEND
+        PROPERTY _qt_export_additional_target_export_names_${id} "${arg_TARGET_EXPORT_NAMES}")
+endmacro()
+
+# Can be called to add additional targets to the file after the initial setup call.
+# Used for resources.
+function(qt_internal_add_targets_to_additional_targets_export_file)
+    qt_internal_get_export_additional_targets_keywords(option_args single_args multi_args)
+    cmake_parse_arguments(arg
+        "${option_args}"
+        "${single_args}"
+        "${multi_args}"
+        ${ARGN})
+
+    qt_internal_append_export_additional_targets()
+endfunction()
+
+function(qt_internal_validate_export_additional_targets)
+    qt_internal_get_export_additional_targets_keywords(option_args single_args multi_args)
+    cmake_parse_arguments(arg
+        "${option_args}"
+        "${single_args}"
+        "${multi_args}"
+        ${ARGN})
+
+    if(NOT arg_EXPORT_NAME_PREFIX)
+        message(FATAL_ERROR "qt_internal_validate_export_additional_targets: "
+            "Missing EXPORT_NAME_PREFIX argument.")
+    endif()
 
     list(LENGTH arg_TARGETS num_TARGETS)
     list(LENGTH arg_TARGET_EXPORT_NAMES num_TARGET_EXPORT_NAMES)
     if(num_TARGET_EXPORT_NAMES GREATER 0)
         if(NOT num_TARGETS EQUAL num_TARGET_EXPORT_NAMES)
-            message(FATAL_ERROR "qt_internal_export_additional_targets_file: "
+            message(FATAL_ERROR "qt_internal_validate_export_additional_targets: "
                 "TARGET_EXPORT_NAMES is set but has ${num_TARGET_EXPORT_NAMES} elements while "
                 "TARGETS has ${num_TARGETS} elements. "
                 "They must contain the same number of elements.")
@@ -315,6 +369,34 @@ function(qt_internal_export_additional_targets_file)
     else()
         set(arg_TARGET_EXPORT_NAMES ${arg_TARGETS})
     endif()
+
+    set(arg_TARGETS "${arg_TARGETS}" PARENT_SCOPE)
+    set(arg_TARGET_EXPORT_NAMES "${arg_TARGET_EXPORT_NAMES}" PARENT_SCOPE)
+endfunction()
+
+# The finalizer might be called multiple times in the same scope, but only the first one will
+# process all the ids.
+function(qt_internal_export_additional_targets_file_finalizer)
+    get_property(ids GLOBAL PROPERTY _qt_export_additional_targets_ids)
+
+    foreach(id ${ids})
+        qt_internal_export_additional_targets_file_handler("${id}")
+    endforeach()
+
+    set_property(GLOBAL PROPERTY _qt_export_additional_targets_ids "")
+endfunction()
+
+function(qt_internal_export_additional_targets_file_handler id)
+    get_property(arg_EXPORT_NAME_PREFIX GLOBAL PROPERTY
+        _qt_export_additional_targets_export_name_prefix_${id})
+    get_property(arg_CONFIG_INSTALL_DIR GLOBAL PROPERTY
+        _qt_export_additional_targets_config_install_dir_${id})
+    get_property(arg_TARGETS GLOBAL PROPERTY
+        _qt_export_additional_targets_${id})
+    get_property(arg_TARGET_EXPORT_NAMES GLOBAL PROPERTY
+        _qt_export_additional_target_export_names_${id})
+
+    list(LENGTH arg_TARGETS num_TARGETS)
 
     # Determine the release configurations we're currently building
     if(QT_GENERATOR_IS_MULTI_CONFIG)
@@ -354,27 +436,77 @@ if(NOT DEFINED QT_DEFAULT_IMPORT_CONFIGURATION)
     set(QT_DEFAULT_IMPORT_CONFIGURATION ${uc_default_cfg})
 endif()
 ")
+
     math(EXPR n "${num_TARGETS} - 1")
     foreach(i RANGE ${n})
         list(GET arg_TARGETS ${i} target)
         list(GET arg_TARGET_EXPORT_NAMES ${i} target_export_name)
-        get_target_property(target_type ${target} TYPE)
-        if(target_type STREQUAL "INTERFACE_LIBRARY")
-            continue()
-        endif()
+
         set(full_target ${target_export_name})
         if(NOT full_target MATCHES "^${QT_CMAKE_EXPORT_NAMESPACE}::")
             string(PREPEND full_target "${QT_CMAKE_EXPORT_NAMESPACE}::")
         endif()
+
+        # Tools are already made global unconditionally in QtFooToolsConfig.cmake.
+        # And the
+        get_target_property(target_type ${target} TYPE)
+        if(NOT target_type STREQUAL "EXECUTABLE")
+            string(APPEND content
+                "__qt_internal_promote_target_to_global_checked(${full_target})\n")
+        endif()
+
+        # INTERFACE libraries don't have IMPORTED_LOCATION-like properties.
+        # OBJECT libraries have properties like IMPORTED_OBJECTS instead.
+        # Skip the rest of the procesing for those.
+        if(target_type STREQUAL "INTERFACE_LIBRARY" OR target_type STREQUAL "OBJECT_LIBRARY")
+            continue()
+        endif()
+
         set(properties_retrieved TRUE)
+
+        # Non-prefix debug-and-release builds: add check for the existence of the debug binary of
+        # the target.  It is not built by default.
+        if(NOT QT_WILL_INSTALL AND QT_FEATURE_debug_and_release)
+            get_target_property(excluded_genex ${target} EXCLUDE_FROM_ALL)
+            if(NOT excluded_genex STREQUAL "")
+                string(APPEND content "
+# ${full_target} is not built by default in the Debug configuration. Check existence.
+get_target_property(_qt_imported_location ${full_target} IMPORTED_LOCATION_DEBUG)
+if(NOT EXISTS \"$\\{_qt_imported_location}\")
+    get_target_property(_qt_imported_configs ${full_target} IMPORTED_CONFIGURATIONS)
+    list(REMOVE_ITEM _qt_imported_configs DEBUG)
+    set_property(TARGET ${full_target} PROPERTY IMPORTED_CONFIGURATIONS $\\{_qt_imported_configs})
+    set_property(TARGET ${full_target} PROPERTY IMPORTED_LOCATION_DEBUG)
+endif()\n\n")
+            endif()
+        endif()
+
+        set(write_implib FALSE)
+        set(write_soname FALSE)
+        if(target_type STREQUAL "SHARED_LIBRARY")
+            if(WIN32)
+                set(write_implib TRUE)
+            else()
+                set(write_soname TRUE)
+            endif()
+        endif()
+
         if(NOT "${uc_release_cfg}" STREQUAL "")
             string(APPEND content "get_target_property(_qt_imported_location ${full_target} IMPORTED_LOCATION_${uc_release_cfg})\n")
-            string(APPEND content "get_target_property(_qt_imported_implib ${full_target} IMPORTED_IMPLIB_${uc_release_cfg})\n")
-            string(APPEND content "get_target_property(_qt_imported_soname ${full_target} IMPORTED_SONAME_${uc_release_cfg})\n")
+            if(write_implib)
+                string(APPEND content "get_target_property(_qt_imported_implib ${full_target} IMPORTED_IMPLIB_${uc_release_cfg})\n")
+            endif()
+            if(write_soname)
+                string(APPEND content "get_target_property(_qt_imported_soname ${full_target} IMPORTED_SONAME_${uc_release_cfg})\n")
+            endif()
         endif()
         string(APPEND content "get_target_property(_qt_imported_location_default ${full_target} IMPORTED_LOCATION_$\\{QT_DEFAULT_IMPORT_CONFIGURATION})\n")
-        string(APPEND content "get_target_property(_qt_imported_implib_default ${full_target} IMPORTED_IMPLIB_$\\{QT_DEFAULT_IMPORT_CONFIGURATION})\n")
-        string(APPEND content "get_target_property(_qt_imported_soname_default ${full_target} IMPORTED_SONAME_$\\{QT_DEFAULT_IMPORT_CONFIGURATION})\n")
+        if(write_implib)
+            string(APPEND content "get_target_property(_qt_imported_implib_default ${full_target} IMPORTED_IMPLIB_$\\{QT_DEFAULT_IMPORT_CONFIGURATION})\n")
+        endif()
+        if(write_soname)
+            string(APPEND content "get_target_property(_qt_imported_soname_default ${full_target} IMPORTED_SONAME_$\\{QT_DEFAULT_IMPORT_CONFIGURATION})\n")
+        endif()
         foreach(config ${configurations_to_export} "")
             string(TOUPPER "${config}" ucconfig)
             if("${config}" STREQUAL "")
@@ -392,14 +524,20 @@ set_property(TARGET ${full_target} APPEND PROPERTY IMPORTED_CONFIGURATIONS ${ucc
             string(APPEND content "
 if(_qt_imported_location${var_suffix})
     set_property(TARGET ${full_target} PROPERTY IMPORTED_LOCATION${property_suffix} \"$\\{_qt_imported_location${var_suffix}}\")
-endif()
+endif()")
+            if(write_implib)
+                string(APPEND content "
 if(_qt_imported_implib${var_suffix})
     set_property(TARGET ${full_target} PROPERTY IMPORTED_IMPLIB${property_suffix} \"$\\{_qt_imported_implib${var_suffix}}\")
-endif()
+endif()")
+            endif()
+            if(write_soname)
+                string(APPEND content "
 if(_qt_imported_soname${var_suffix})
     set_property(TARGET ${full_target} PROPERTY IMPORTED_SONAME${property_suffix} \"$\\{_qt_imported_soname${var_suffix}}\")
-endif()
-")
+endif()")
+            endif()
+            string(APPEND content "\n")
         endforeach()
     endforeach()
 
@@ -408,7 +546,8 @@ endif()
 unset(_qt_imported_location)
 unset(_qt_imported_location_default)
 unset(_qt_imported_soname)
-unset(_qt_imported_soname_default)")
+unset(_qt_imported_soname_default)
+unset(_qt_imported_configs)")
     endif()
 
     qt_path_join(output_file "${arg_CONFIG_INSTALL_DIR}"
@@ -559,6 +698,114 @@ function(qt_internal_install_pdb_files target install_dir_path)
     endif()
 endfunction()
 
+# Certain targets might have dependencies on libraries that don't have an Apple Silicon arm64
+# slice. When doing a universal macOS build, force those targets to be built only for the
+# Intel x86_64 arch.
+# This behavior can be disabled for all targets by setting the QT_FORCE_MACOS_ALL_ARCHES cache
+# variable to TRUE or by setting the target specific cache variable
+# QT_FORCE_MACOS_ALL_ARCHES_${target} to TRUE.
+#
+# TODO: Ideally we'd use something like _apple_resolve_supported_archs_for_sdk_from_system_lib
+# from CMake's codebase to parse which architectures are available in a library, but it's
+# not straightforward to extract the library absolute file path from a CMake target. Furthermore
+# Apple started using a built-in dynamic linker cache of all system-provided libraries as per
+# https://gitlab.kitware.com/cmake/cmake/-/issues/20863
+# so if the target is a library in the dynamic cache, that might further complicate how to get
+# the list of arches in it.
+function(qt_internal_force_macos_intel_arch target)
+    if(MACOS AND QT_IS_MACOS_UNIVERSAL AND NOT QT_FORCE_MACOS_ALL_ARCHES
+            AND NOT QT_FORCE_MACOS_ALL_ARCHES_${target})
+        set(arches "x86_64")
+        set_target_properties(${target} PROPERTIES OSX_ARCHITECTURES "${arches}")
+    endif()
+endfunction()
+
 function(qt_disable_apple_app_extension_api_only target)
     set_target_properties("${target}" PROPERTIES QT_NO_APP_EXTENSION_ONLY_API TRUE)
+endfunction()
+
+# Common function to add Qt prefixes to the target name
+function(qt_internal_qtfy_target out_var target)
+    set(${out_var} "Qt${target}" PARENT_SCOPE)
+    set(${out_var}_versioned "Qt${PROJECT_VERSION_MAJOR}${target}" PARENT_SCOPE)
+endfunction()
+
+function(qt_internal_get_main_cmake_configuration out_var)
+    if(CMAKE_BUILD_TYPE)
+        set(config "${CMAKE_BUILD_TYPE}")
+    elseif(QT_MULTI_CONFIG_FIRST_CONFIG)
+        set(config "${QT_MULTI_CONFIG_FIRST_CONFIG}")
+    endif()
+    set("${out_var}" "${config}" PARENT_SCOPE)
+endfunction()
+
+function(qt_internal_get_upper_case_main_cmake_configuration out_var)
+    qt_internal_get_main_cmake_configuration("${out_var}")
+    string(TOUPPER "${${out_var}}" upper_config)
+    set("${out_var}" "${upper_config}" PARENT_SCOPE)
+endfunction()
+
+function(qt_internal_adjust_main_config_runtime_output_dir target output_dir)
+    # When building Qt with multiple configurations, place the main configuration executable
+    # directly in ${output_dir}, rather than a ${output_dir}/<CONFIG> subdirectory.
+    qt_internal_get_upper_case_main_cmake_configuration(main_cmake_configuration)
+    set_target_properties("${target}" PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY_${main_cmake_configuration} "${output_dir}"
+    )
+endfunction()
+
+# Marks a target with a property that it is a library (shared or static) which was built using the
+# internal Qt API (qt_internal_add_module, qt_internal_add_plugin, etc) as opposed to it being
+# a user project library (qt_add_library, qt_add_plugin, etc).
+#
+# Needed to allow selectively applying certain flags via PlatformXInternal targets.
+function(qt_internal_mark_as_internal_library target)
+    set_target_properties(${target} PROPERTIES _qt_is_internal_library TRUE)
+endfunction()
+
+function(qt_internal_link_internal_platform_for_object_library target)
+    # We need to apply iOS bitcode flags to object libraries that are associated with internal
+    # modules or plugins (e.g. object libraries added by qt_internal_add_resource,
+    # qt_internal_add_plugin, etc.)
+    # The flags are needed when building iOS apps because Xcode expects bitcode to be
+    # present by default.
+    # Achieve this by compiling the cpp files with the PlatformModuleInternal compile flags.
+    target_link_libraries("${target}" PRIVATE Qt::PlatformModuleInternal)
+endfunction()
+
+
+# Use ${dep_target}'s include dirs when building ${target} and optionally propagate the include
+# dirs to consumers of ${target}.
+
+# Assumes ${dep_target} is an INTERFACE_LIBRARY that only propagates include dirs and ${target}
+# is a Qt module / plugin.
+#
+# Building ${target} requires ${dep_target}'s include dirs.
+#
+# User projects that don't have ${dep_target}'s headers installed in their system should still
+# configure successfully.
+#
+# To achieve that, consumers of ${target} will only get the include directories of ${dep_target}
+# if the latter package and target exists.
+#
+# A find_package(dep_target) dependency is added to ${target}'s ModuleDependencies.cmake file.
+#
+# We use target_include_directories(PRIVATE) instead of target_link_libraries(PRIVATE) because the
+# latter would propagate a mandatory LINK_ONLY dependency on the ${dep_target} in a static Qt build.
+#
+# The main use case is for propagating WrapVulkanHeaders::WrapVulkanHeaders.
+function(qt_internal_add_target_include_dirs_and_optionally_propagate target dep_target)
+    if(NOT TARGET "${target}")
+        message(FATAL_ERROR "${target} is not a valid target.")
+    endif()
+    if(NOT TARGET "${dep_target}")
+        message(FATAL_ERROR "${dep_target} is not a valid target.")
+    endif()
+
+    target_include_directories("${target}" PRIVATE
+        "$<TARGET_PROPERTY:${dep_target},INTERFACE_INCLUDE_DIRECTORIES>")
+
+    target_link_libraries("${target}" INTERFACE "$<TARGET_NAME_IF_EXISTS:${dep_target}>")
+
+    qt_record_extra_third_party_dependency("${target}" "${dep_target}")
 endfunction()

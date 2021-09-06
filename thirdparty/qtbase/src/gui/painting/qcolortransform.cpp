@@ -271,6 +271,24 @@ static void applyMatrix(QColorVector *buffer, const qsizetype len, const QColorM
         cx = _mm_max_ps(cx, minV);
         _mm_storeu_ps(&buffer[j].x, cx);
     }
+#elif defined(__ARM_NEON__)
+    const float32x4_t minV = vdupq_n_f32(0.0f);
+    const float32x4_t maxV = vdupq_n_f32(1.0f);
+    const float32x4_t xMat = vld1q_f32(&colorMatrix.r.x);
+    const float32x4_t yMat = vld1q_f32(&colorMatrix.g.x);
+    const float32x4_t zMat = vld1q_f32(&colorMatrix.b.x);
+    for (qsizetype j = 0; j < len; ++j) {
+        float32x4_t c = vld1q_f32(&buffer[j].x);
+        float32x4_t cx = vmulq_n_f32(xMat, vgetq_lane_f32(c, 0));
+        float32x4_t cy = vmulq_n_f32(yMat, vgetq_lane_f32(c, 1));
+        float32x4_t cz = vmulq_n_f32(zMat, vgetq_lane_f32(c, 2));
+        cx = vaddq_f32(cx, cy);
+        cx = vaddq_f32(cx, cz);
+        // Clamp:
+        cx = vminq_f32(cx, maxV);
+        cx = vmaxq_f32(cx, minV);
+        vst1q_f32(&buffer[j].x, cx);
+    }
 #else
     for (int j = 0; j < len; ++j) {
         const QColorVector cv = colorMatrix.map(buffer[j]);
@@ -280,6 +298,24 @@ static void applyMatrix(QColorVector *buffer, const qsizetype len, const QColorM
     }
 #endif
 }
+
+#if defined(__SSE2__) || defined(__ARM_NEON__)
+template<typename T>
+static constexpr inline bool isArgb();
+template<>
+constexpr inline bool isArgb<QRgb>() { return true; }
+template<>
+constexpr inline bool isArgb<QRgba64>() { return false; }
+
+template<typename T>
+static inline int getAlpha(const T &p);
+template<>
+inline int getAlpha<QRgb>(const QRgb &p)
+{   return qAlpha(p); }
+template<>
+inline int getAlpha<QRgba64>(const QRgba64 &p)
+{    return p.alpha(); }
+#endif
 
 template<typename T>
 static void loadPremultiplied(QColorVector *buffer, const T *src, const qsizetype len, const QColorTransformPrivate *d_ptr);
@@ -312,8 +348,6 @@ inline void loadP<QRgba64>(const QRgba64 &p, __m128i &v)
 #else
     v = _mm_unpacklo_epi16(v, _mm_setzero_si128());
 #endif
-    // Shuffle to ARGB as the template below expects it
-    v = _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 0, 1, 2));
 }
 
 template<typename T>
@@ -321,6 +355,7 @@ static void loadPremultiplied(QColorVector *buffer, const T *src, const qsizetyp
 {
     const __m128 v4080 = _mm_set1_ps(4080.f);
     const __m128 iFF00 = _mm_set1_ps(1.0f / (255 * 256));
+    constexpr bool isARGB = isArgb<T>();
     for (qsizetype i = 0; i < len; ++i) {
         __m128i v;
         loadP<T>(src[i], v);
@@ -338,9 +373,9 @@ static void loadPremultiplied(QColorVector *buffer, const T *src, const qsizetyp
 
         // LUT
         v = _mm_cvtps_epi32(_mm_mul_ps(vf, v4080));
-        const int ridx = _mm_extract_epi16(v, 4);
+        const int ridx = isARGB ? _mm_extract_epi16(v, 4) : _mm_extract_epi16(v, 0);
         const int gidx = _mm_extract_epi16(v, 2);
-        const int bidx = _mm_extract_epi16(v, 0);
+        const int bidx = isARGB ? _mm_extract_epi16(v, 0) : _mm_extract_epi16(v, 4);
         v = _mm_insert_epi16(v, d_ptr->colorSpaceIn->lut[0]->m_toLinear[ridx], 0);
         v = _mm_insert_epi16(v, d_ptr->colorSpaceIn->lut[1]->m_toLinear[gidx], 2);
         v = _mm_insert_epi16(v, d_ptr->colorSpaceIn->lut[2]->m_toLinear[bidx], 4);
@@ -378,20 +413,19 @@ inline void loadPU<QRgba64>(const QRgba64 &p, __m128i &v)
     v = _mm_unpacklo_epi16(v, _mm_setzero_si128());
 #endif
     v = _mm_srli_epi32(v, 4);
-    // Shuffle to ARGB as the template below expects it
-    v = _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 0, 1, 2));
 }
 
 template<typename T>
 void loadUnpremultiplied(QColorVector *buffer, const T *src, const qsizetype len, const QColorTransformPrivate *d_ptr)
 {
+    constexpr bool isARGB = isArgb<T>();
     const __m128 iFF00 = _mm_set1_ps(1.0f / (255 * 256));
     for (qsizetype i = 0; i < len; ++i) {
         __m128i v;
         loadPU<T>(src[i], v);
-        const int ridx = _mm_extract_epi16(v, 4);
+        const int ridx = isARGB ? _mm_extract_epi16(v, 4) : _mm_extract_epi16(v, 0);
         const int gidx = _mm_extract_epi16(v, 2);
-        const int bidx = _mm_extract_epi16(v, 0);
+        const int bidx = isARGB ? _mm_extract_epi16(v, 0) : _mm_extract_epi16(v, 4);
         v = _mm_insert_epi16(v, d_ptr->colorSpaceIn->lut[0]->m_toLinear[ridx], 0);
         v = _mm_insert_epi16(v, d_ptr->colorSpaceIn->lut[1]->m_toLinear[gidx], 2);
         v = _mm_insert_epi16(v, d_ptr->colorSpaceIn->lut[2]->m_toLinear[bidx], 4);
@@ -400,6 +434,100 @@ void loadUnpremultiplied(QColorVector *buffer, const T *src, const qsizetype len
     }
 }
 
+#elif defined(__ARM_NEON__)
+// Load to [0-alpha] in 4x32 SIMD
+template<typename T>
+static inline void loadP(const T &p, uint32x4_t &v);
+
+template<>
+inline void loadP<QRgb>(const QRgb &p, uint32x4_t &v)
+{
+    v = vmovl_u16(vget_low_u16(vmovl_u8(vreinterpret_u8_u32(vmov_n_u32(p)))));
+}
+
+template<>
+inline void loadP<QRgba64>(const QRgba64 &p, uint32x4_t &v)
+{
+    v = vmovl_u16(vreinterpret_u16_u64(vld1_u64(reinterpret_cast<const uint64_t *>(&p))));
+}
+
+template<typename T>
+static void loadPremultiplied(QColorVector *buffer, const T *src, const qsizetype len, const QColorTransformPrivate *d_ptr)
+{
+    constexpr bool isARGB = isArgb<T>();
+    const float iFF00 = 1.0f / (255 * 256);
+    for (qsizetype i = 0; i < len; ++i) {
+        uint32x4_t v;
+        loadP<T>(src[i], v);
+        float32x4_t vf = vcvtq_f32_u32(v);
+        // Approximate 1/a:
+        float32x4_t va = vdupq_n_f32(vgetq_lane_f32(vf, 3));
+        float32x4_t via = vrecpeq_f32(va); // estimate 1/a
+        via = vmulq_f32(vrecpsq_f32(va, via), via);
+
+        // v * (1/a)
+        vf = vmulq_f32(vf, via);
+
+        // Handle zero alpha
+#if defined(Q_PROCESSOR_ARM_64)
+        uint32x4_t vAlphaMask = vceqzq_f32(va);
+#else
+        uint32x4_t vAlphaMask = vceqq_f32(va, vdupq_n_f32(0.0));
+#endif
+        vf = vreinterpretq_f32_u32(vbicq_u32(vreinterpretq_u32_f32(vf), vAlphaMask));
+
+        // LUT
+        v = vcvtq_u32_f32(vaddq_f32(vmulq_n_f32(vf, 4080.f), vdupq_n_f32(0.5f)));
+        const int ridx = isARGB ? vgetq_lane_u32(v, 2) : vgetq_lane_u32(v, 0);
+        const int gidx = vgetq_lane_u32(v, 1);
+        const int bidx = isARGB ? vgetq_lane_u32(v, 0) : vgetq_lane_u32(v, 2);
+        v = vsetq_lane_u32(d_ptr->colorSpaceIn->lut[0]->m_toLinear[ridx], v, 0);
+        v = vsetq_lane_u32(d_ptr->colorSpaceIn->lut[1]->m_toLinear[gidx], v, 1);
+        v = vsetq_lane_u32(d_ptr->colorSpaceIn->lut[2]->m_toLinear[bidx], v, 2);
+        vf = vmulq_n_f32(vcvtq_f32_u32(v), iFF00);
+
+        vst1q_f32(&buffer[i].x, vf);
+    }
+}
+
+// Load to [0-4080] in 4x32 SIMD
+template<typename T>
+static inline void loadPU(const T &p, uint32x4_t &v);
+
+template<>
+inline void loadPU<QRgb>(const QRgb &p, uint32x4_t &v)
+{
+    v = vmovl_u16(vget_low_u16(vmovl_u8(vreinterpret_u8_u32(vmov_n_u32(p)))));
+    v = vshlq_n_u32(v, 4);
+}
+
+template<>
+inline void loadPU<QRgba64>(const QRgba64 &p, uint32x4_t &v)
+{
+    uint16x4_t v16 = vreinterpret_u16_u64(vld1_u64(reinterpret_cast<const uint64_t *>(&p)));
+    v16 = vsub_u16(v16, vshr_n_u16(v16, 8));
+    v = vmovl_u16(v16);
+    v = vshrq_n_u32(v, 4);
+}
+
+template<typename T>
+void loadUnpremultiplied(QColorVector *buffer, const T *src, const qsizetype len, const QColorTransformPrivate *d_ptr)
+{
+    constexpr bool isARGB = isArgb<T>();
+    const float iFF00 = 1.0f / (255 * 256);
+    for (qsizetype i = 0; i < len; ++i) {
+        uint32x4_t v;
+        loadPU<T>(src[i], v);
+        const int ridx = isARGB ? vgetq_lane_u32(v, 2) : vgetq_lane_u32(v, 0);
+        const int gidx = vgetq_lane_u32(v, 1);
+        const int bidx = isARGB ? vgetq_lane_u32(v, 0) : vgetq_lane_u32(v, 2);
+        v = vsetq_lane_u32(d_ptr->colorSpaceIn->lut[0]->m_toLinear[ridx], v, 0);
+        v = vsetq_lane_u32(d_ptr->colorSpaceIn->lut[1]->m_toLinear[gidx], v, 1);
+        v = vsetq_lane_u32(d_ptr->colorSpaceIn->lut[2]->m_toLinear[bidx], v, 2);
+        float32x4_t vf = vmulq_n_f32(vcvtq_f32_u32(v), iFF00);
+        vst1q_f32(&buffer[i].x, vf);
+    }
+}
 #else
 template<>
 void loadPremultiplied<QRgb>(QColorVector *buffer, const QRgb *src, const qsizetype len, const QColorTransformPrivate *d_ptr)
@@ -464,33 +592,214 @@ void loadUnpremultiplied<QRgba64>(QColorVector *buffer, const QRgba64 *src, cons
 }
 #endif
 
-static void storePremultiplied(QRgb *dst, const QRgb *src, const QColorVector *buffer, const qsizetype len,
+#if defined(__SSE2__)
+template<typename T>
+static inline void storeP(T &p, __m128i &v, int a);
+template<>
+inline void storeP<QRgb>(QRgb &p, __m128i &v, int a)
+{
+    v = _mm_packs_epi32(v, v);
+    v = _mm_insert_epi16(v, a, 3);
+    p = _mm_cvtsi128_si32(_mm_packus_epi16(v, v));
+}
+template<>
+inline void storeP<QRgba64>(QRgba64 &p, __m128i &v, int a)
+{
+#if defined(__SSE4_1__)
+    v = _mm_packus_epi32(v, v);
+    v = _mm_insert_epi16(v, a, 3);
+    _mm_storel_epi64((__m128i *)&p, v);
+#else
+    const int r = _mm_extract_epi16(v, 0);
+    const int g = _mm_extract_epi16(v, 2);
+    const int b = _mm_extract_epi16(v, 4);
+    p = qRgba64(r, g, b, a);
+#endif
+}
+
+template<typename T>
+static void storePremultiplied(T *dst, const T *src, const QColorVector *buffer, const qsizetype len,
                                const QColorTransformPrivate *d_ptr)
 {
-#if defined(__SSE2__)
     const __m128 v4080 = _mm_set1_ps(4080.f);
     const __m128 iFF00 = _mm_set1_ps(1.0f / (255 * 256));
+    constexpr bool isARGB = isArgb<T>();
     for (qsizetype i = 0; i < len; ++i) {
-        const int a = qAlpha(src[i]);
+        const int a = getAlpha<T>(src[i]);
         __m128 vf = _mm_loadu_ps(&buffer[i].x);
         __m128i v = _mm_cvtps_epi32(_mm_mul_ps(vf, v4080));
-        __m128 va = _mm_set1_ps(a);
-        va = _mm_mul_ps(va, iFF00);
+        __m128 va = _mm_mul_ps(_mm_set1_ps(a), iFF00);
         const int ridx = _mm_extract_epi16(v, 0);
         const int gidx = _mm_extract_epi16(v, 2);
         const int bidx = _mm_extract_epi16(v, 4);
-        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], 4);
+        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], isARGB ? 4 : 0);
         v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[1]->m_fromLinear[gidx], 2);
-        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], 0);
+        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], isARGB ? 0 : 4);
         vf = _mm_cvtepi32_ps(v);
         vf = _mm_mul_ps(vf, va);
         v = _mm_cvtps_epi32(vf);
-        v = _mm_packs_epi32(v, v);
-        v = _mm_insert_epi16(v, a, 3);
-        v = _mm_packus_epi16(v, v);
-        dst[i] = _mm_cvtsi128_si32(v);
+        storeP<T>(dst[i], v, a);
     }
+}
+
+template<typename T>
+static inline void storePU(T &p, __m128i &v, int a);
+template<>
+inline void storePU<QRgb>(QRgb &p, __m128i &v, int a)
+{
+    v = _mm_add_epi16(v, _mm_set1_epi16(0x80));
+    v = _mm_srli_epi16(v, 8);
+    v = _mm_insert_epi16(v, a, 3);
+    p = _mm_cvtsi128_si32(_mm_packus_epi16(v, v));
+}
+template<>
+inline void storePU<QRgba64>(QRgba64 &p, __m128i &v, int a)
+{
+    v = _mm_add_epi16(v, _mm_srli_epi16(v, 8));
+    v = _mm_insert_epi16(v, a, 3);
+    _mm_storel_epi64((__m128i *)&p, v);
+}
+
+template<typename T>
+static void storeUnpremultiplied(T *dst, const T *src, const QColorVector *buffer, const qsizetype len,
+                                 const QColorTransformPrivate *d_ptr)
+{
+    const __m128 v4080 = _mm_set1_ps(4080.f);
+    constexpr bool isARGB = isArgb<T>();
+    for (qsizetype i = 0; i < len; ++i) {
+        const int a = getAlpha<T>(src[i]);
+        __m128 vf = _mm_loadu_ps(&buffer[i].x);
+        __m128i v = _mm_cvtps_epi32(_mm_mul_ps(vf, v4080));
+        const int ridx = _mm_extract_epi16(v, 0);
+        const int gidx = _mm_extract_epi16(v, 2);
+        const int bidx = _mm_extract_epi16(v, 4);
+        v = _mm_setzero_si128();
+        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], isARGB ? 2 : 0);
+        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[1]->m_fromLinear[gidx], 1);
+        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], isARGB ? 0 : 2);
+        storePU<T>(dst[i], v, a);
+    }
+}
+
+template<typename T>
+static void storeOpaque(T *dst, const T *src, const QColorVector *buffer, const qsizetype len,
+                        const QColorTransformPrivate *d_ptr)
+{
+    Q_UNUSED(src);
+    const __m128 v4080 = _mm_set1_ps(4080.f);
+    constexpr bool isARGB = isArgb<T>();
+    for (qsizetype i = 0; i < len; ++i) {
+        __m128 vf = _mm_loadu_ps(&buffer[i].x);
+        __m128i v = _mm_cvtps_epi32(_mm_mul_ps(vf, v4080));
+        const int ridx = _mm_extract_epi16(v, 0);
+        const int gidx = _mm_extract_epi16(v, 2);
+        const int bidx = _mm_extract_epi16(v, 4);
+        v = _mm_setzero_si128();
+        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], isARGB ? 2 : 0);
+        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[1]->m_fromLinear[gidx], 1);
+        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], isARGB ? 0 : 2);
+        storePU<T>(dst[i], v, isARGB ? 255 : 0xffff);
+    }
+}
+#elif defined(__ARM_NEON__)
+template<typename T>
+static inline void storeP(T &p, const uint16x4_t &v);
+template<>
+inline void storeP<QRgb>(QRgb &p, const uint16x4_t &v)
+{
+    p = vget_lane_u32(vreinterpret_u32_u8(vmovn_u16(vcombine_u16(v, v))), 0);
+}
+template<>
+inline void storeP<QRgba64>(QRgba64 &p, const uint16x4_t &v)
+{
+    vst1_u16((uint16_t *)&p, v);
+}
+
+template<typename T>
+static void storePremultiplied(T *dst, const T *src, const QColorVector *buffer, const qsizetype len,
+                               const QColorTransformPrivate *d_ptr)
+{
+    const float iFF00 = 1.0f / (255 * 256);
+    constexpr bool isARGB = isArgb<T>();
+    for (qsizetype i = 0; i < len; ++i) {
+        const int a = getAlpha<T>(src[i]);
+        float32x4_t vf = vld1q_f32(&buffer[i].x);
+        uint32x4_t v = vcvtq_u32_f32(vaddq_f32(vmulq_n_f32(vf, 4080.f), vdupq_n_f32(0.5f)));
+        const int ridx = vgetq_lane_u32(v, 0);
+        const int gidx = vgetq_lane_u32(v, 1);
+        const int bidx = vgetq_lane_u32(v, 2);
+        v = vsetq_lane_u32(d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], v, isARGB ? 2 : 0);
+        v = vsetq_lane_u32(d_ptr->colorSpaceOut->lut[1]->m_fromLinear[gidx], v, 1);
+        v = vsetq_lane_u32(d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], v, isARGB ? 0 : 2);
+        vf = vcvtq_f32_u32(v);
+        vf = vmulq_n_f32(vf, a * iFF00);
+        vf = vaddq_f32(vf, vdupq_n_f32(0.5f));
+        v = vcvtq_u32_f32(vf);
+        uint16x4_t v16 = vmovn_u32(v);
+        v16 = vset_lane_u16(a, v16, 3);
+        storeP<T>(dst[i], v16);
+    }
+}
+
+template<typename T>
+static inline void storePU(T &p, uint16x4_t &v, int a);
+template<>
+inline void storePU<QRgb>(QRgb &p, uint16x4_t &v, int a)
+{
+    v = vadd_u16(v, vdup_n_u16(0x80));
+    v = vshr_n_u16(v, 8);
+    v = vset_lane_u16(a, v, 3);
+    p = vget_lane_u32(vreinterpret_u32_u8(vmovn_u16(vcombine_u16(v, v))), 0);
+}
+template<>
+inline void storePU<QRgba64>(QRgba64 &p, uint16x4_t &v, int a)
+{
+    v = vadd_u16(v, vshr_n_u16(v, 8));
+    v = vset_lane_u16(a, v, 3);
+    vst1_u16((uint16_t *)&p, v);
+}
+
+template<typename T>
+static void storeUnpremultiplied(T *dst, const T *src, const QColorVector *buffer, const qsizetype len,
+                                 const QColorTransformPrivate *d_ptr)
+{
+    constexpr bool isARGB = isArgb<T>();
+    for (qsizetype i = 0; i < len; ++i) {
+        const int a = getAlpha<T>(src[i]);
+        float32x4_t vf = vld1q_f32(&buffer[i].x);
+        uint16x4_t v = vmovn_u32(vcvtq_u32_f32(vaddq_f32(vmulq_n_f32(vf, 4080.f), vdupq_n_f32(0.5f))));
+        const int ridx = vget_lane_u16(v, 0);
+        const int gidx = vget_lane_u16(v, 1);
+        const int bidx = vget_lane_u16(v, 2);
+        v = vset_lane_u16(d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], v, isARGB ? 2 : 0);
+        v = vset_lane_u16(d_ptr->colorSpaceOut->lut[1]->m_fromLinear[gidx], v, 1);
+        v = vset_lane_u16(d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], v, isARGB ? 0 : 2);
+        storePU<T>(dst[i], v, a);
+    }
+}
+
+template<typename T>
+static void storeOpaque(T *dst, const T *src, const QColorVector *buffer, const qsizetype len,
+                        const QColorTransformPrivate *d_ptr)
+{
+    Q_UNUSED(src);
+    constexpr bool isARGB = isArgb<T>();
+    for (qsizetype i = 0; i < len; ++i) {
+        float32x4_t vf = vld1q_f32(&buffer[i].x);
+        uint16x4_t v = vmovn_u32(vcvtq_u32_f32(vaddq_f32(vmulq_n_f32(vf, 4080.f), vdupq_n_f32(0.5f))));
+        const int ridx = vget_lane_u16(v, 0);
+        const int gidx = vget_lane_u16(v, 1);
+        const int bidx = vget_lane_u16(v, 2);
+        v = vset_lane_u16(d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], v, isARGB ? 2 : 0);
+        v = vset_lane_u16(d_ptr->colorSpaceOut->lut[1]->m_fromLinear[gidx], v, 1);
+        v = vset_lane_u16(d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], v, isARGB ? 0 : 2);
+        storePU<T>(dst[i], v, isARGB ? 255 : 0xffff);
+    }
+}
 #else
+static void storePremultiplied(QRgb *dst, const QRgb *src, const QColorVector *buffer, const qsizetype len,
+                               const QColorTransformPrivate *d_ptr)
+{
     for (qsizetype i = 0; i < len; ++i) {
         const int a = qAlpha(src[i]);
         const float fa = a / (255.0f * 256.0f);
@@ -499,71 +808,29 @@ static void storePremultiplied(QRgb *dst, const QRgb *src, const QColorVector *b
         const float b = d_ptr->colorSpaceOut->lut[2]->m_fromLinear[int(buffer[i].z * 4080.0f + 0.5f)];
         dst[i] = qRgba(r * fa + 0.5f, g * fa + 0.5f, b * fa + 0.5f, a);
     }
-#endif
 }
 
 static void storeUnpremultiplied(QRgb *dst, const QRgb *src, const QColorVector *buffer, const qsizetype len,
                                  const QColorTransformPrivate *d_ptr)
 {
-#if defined(__SSE2__)
-    const __m128 v4080 = _mm_set1_ps(4080.f);
-    for (qsizetype i = 0; i < len; ++i) {
-        const int a = qAlpha(src[i]);
-        __m128 vf = _mm_loadu_ps(&buffer[i].x);
-        __m128i v = _mm_cvtps_epi32(_mm_mul_ps(vf, v4080));
-        const int ridx = _mm_extract_epi16(v, 0);
-        const int gidx = _mm_extract_epi16(v, 2);
-        const int bidx = _mm_extract_epi16(v, 4);
-        v = _mm_setzero_si128();
-        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], 2);
-        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[1]->m_fromLinear[gidx], 1);
-        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], 0);
-        v = _mm_add_epi16(v, _mm_set1_epi16(0x80));
-        v = _mm_srli_epi16(v, 8);
-        v = _mm_insert_epi16(v, a, 3);
-        v = _mm_packus_epi16(v, v);
-        dst[i] = _mm_cvtsi128_si32(v);
-    }
-#else
     for (qsizetype i = 0; i < len; ++i) {
         const int r = d_ptr->colorSpaceOut->lut[0]->u8FromLinearF32(buffer[i].x);
         const int g = d_ptr->colorSpaceOut->lut[1]->u8FromLinearF32(buffer[i].y);
         const int b = d_ptr->colorSpaceOut->lut[2]->u8FromLinearF32(buffer[i].z);
         dst[i] = (src[i] & 0xff000000) | (r << 16) | (g << 8) | (b << 0);
     }
-#endif
 }
 
 static void storeOpaque(QRgb *dst, const QRgb *src, const QColorVector *buffer, const qsizetype len,
                         const QColorTransformPrivate *d_ptr)
 {
     Q_UNUSED(src);
-#if defined(__SSE2__)
-    const __m128 v4080 = _mm_set1_ps(4080.f);
-    for (qsizetype i = 0; i < len; ++i) {
-        __m128 vf = _mm_loadu_ps(&buffer[i].x);
-        __m128i v = _mm_cvtps_epi32(_mm_mul_ps(vf, v4080));
-        const int ridx = _mm_extract_epi16(v, 0);
-        const int gidx = _mm_extract_epi16(v, 2);
-        const int bidx = _mm_extract_epi16(v, 4);
-        v = _mm_setzero_si128();
-        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[0]->m_fromLinear[ridx], 2);
-        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[1]->m_fromLinear[gidx], 1);
-        v = _mm_insert_epi16(v, d_ptr->colorSpaceOut->lut[2]->m_fromLinear[bidx], 0);
-        v = _mm_add_epi16(v, _mm_set1_epi16(0x80));
-        v = _mm_srli_epi16(v, 8);
-        v = _mm_insert_epi16(v, 255, 3);
-        v = _mm_packus_epi16(v, v);
-        dst[i] = _mm_cvtsi128_si32(v);
-    }
-#else
     for (qsizetype i = 0; i < len; ++i) {
         const int r = d_ptr->colorSpaceOut->lut[0]->u8FromLinearF32(buffer[i].x);
         const int g = d_ptr->colorSpaceOut->lut[1]->u8FromLinearF32(buffer[i].y);
         const int b = d_ptr->colorSpaceOut->lut[2]->u8FromLinearF32(buffer[i].z);
         dst[i] = 0xff000000 | (r << 16) | (g << 8) | (b << 0);
     }
-#endif
 }
 
 static void storePremultiplied(QRgba64 *dst, const QRgba64 *src, const QColorVector *buffer, const qsizetype len,
@@ -600,6 +867,23 @@ static void storeOpaque(QRgba64 *dst, const QRgba64 *src, const QColorVector *bu
         const int b = d_ptr->colorSpaceOut->lut[2]->u16FromLinearF32(buffer[i].z);
         dst[i] = qRgba64(r, g, b, 0xFFFF);
     }
+}
+#endif
+
+static void storeGray(quint8 *dst, const QRgb *src, const QColorVector *buffer, const qsizetype len,
+                      const QColorTransformPrivate *d_ptr)
+{
+    Q_UNUSED(src);
+    for (qsizetype i = 0; i < len; ++i)
+        dst[i] = d_ptr->colorSpaceOut->lut[1]->u8FromLinearF32(buffer[i].y);
+}
+
+static void storeGray(quint16 *dst, const QRgba64 *src, const QColorVector *buffer, const qsizetype len,
+                      const QColorTransformPrivate *d_ptr)
+{
+    Q_UNUSED(src);
+    for (qsizetype i = 0; i < len; ++i)
+        dst[i] = d_ptr->colorSpaceOut->lut[1]->u16FromLinearF32(buffer[i].y);
 }
 
 static constexpr qsizetype WorkBlockSize = 256;
@@ -643,6 +927,33 @@ void QColorTransformPrivate::apply(T *dst, const T *src, qsizetype count, Transf
             storePremultiplied(dst + i, src + i, buffer, len, this);
         else
             storeUnpremultiplied(dst + i, src + i, buffer, len, this);
+
+        i += len;
+    }
+}
+
+template<typename D, typename S>
+void QColorTransformPrivate::applyReturnGray(D *dst, const S *src, qsizetype count, TransformFlags flags) const
+{
+    if (!colorMatrix.isValid())
+        return;
+
+    updateLutsIn();
+    updateLutsOut();
+
+    QUninitialized<QColorVector, WorkBlockSize> buffer;
+
+    qsizetype i = 0;
+    while (i < count) {
+        const qsizetype len = qMin(count - i, WorkBlockSize);
+        if (flags & InputPremultiplied)
+            loadPremultiplied(buffer, src + i, len, this);
+        else
+            loadUnpremultiplied(buffer, src + i, len, this);
+
+        applyMatrix(buffer, len, colorMatrix);
+
+        storeGray(dst + i, src + i, buffer, len, this);
 
         i += len;
     }
@@ -706,6 +1017,26 @@ void QColorTransformPrivate::apply(QRgb *dst, const QRgb *src, qsizetype count, 
 void QColorTransformPrivate::apply(QRgba64 *dst, const QRgba64 *src, qsizetype count, TransformFlags flags) const
 {
     apply<QRgba64>(dst, src, count, flags);
+}
+
+/*!
+    \internal
+    Is to be called on a color-transform to XYZ, returns only luminance values.
+
+*/
+void QColorTransformPrivate::apply(quint8 *dst, const QRgb *src, qsizetype count, TransformFlags flags) const
+{
+    applyReturnGray<quint8, QRgb>(dst, src, count, flags);
+}
+
+/*!
+    \internal
+    Is to be called on a color-transform to XYZ, returns only luminance values.
+
+*/
+void QColorTransformPrivate::apply(quint16 *dst, const QRgba64 *src, qsizetype count, TransformFlags flags) const
+{
+    applyReturnGray<quint16, QRgba64>(dst, src, count, flags);
 }
 
 

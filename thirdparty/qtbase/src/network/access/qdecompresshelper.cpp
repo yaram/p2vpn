@@ -42,6 +42,7 @@
 #include <QtCore/private/qbytearray_p.h>
 #include <QtCore/qiodevice.h>
 
+#include <limits>
 #include <zlib.h>
 
 #if QT_CONFIG(brotli)
@@ -328,7 +329,7 @@ bool QDecompressHelper::countInternal(const QByteArray &data)
     if (countDecompressed) {
         if (!countHelper) {
             countHelper = std::make_unique<QDecompressHelper>();
-            countHelper->setArchiveBombDetectionEnabled(archiveBombDetectionEnabled);
+            countHelper->setDecompressedSafetyCheckThreshold(archiveBombCheckThreshold);
             countHelper->setEncoding(contentEncoding);
         }
         countHelper->feed(data);
@@ -346,7 +347,7 @@ bool QDecompressHelper::countInternal(const QByteDataBuffer &buffer)
     if (countDecompressed) {
         if (!countHelper) {
             countHelper = std::make_unique<QDecompressHelper>();
-            countHelper->setArchiveBombDetectionEnabled(archiveBombDetectionEnabled);
+            countHelper->setDecompressedSafetyCheckThreshold(archiveBombCheckThreshold);
             countHelper->setEncoding(contentEncoding);
         }
         countHelper->feed(buffer);
@@ -393,32 +394,23 @@ qsizetype QDecompressHelper::read(char *data, qsizetype maxSize)
 
 /*!
     \internal
-    Disables or enables checking the decompression ratio of archives
-    according to the value of \a enable.
-    Only for enabling us to test handling of large decompressed files
-    without needing to bundle large compressed files.
+    Set the \a threshold required before the archive bomb detection kicks in.
+    By default this is 10MB. Setting it to -1 is treated as disabling the
+    feature.
 */
-void QDecompressHelper::setArchiveBombDetectionEnabled(bool enable)
+void QDecompressHelper::setDecompressedSafetyCheckThreshold(qint64 threshold)
 {
-    archiveBombDetectionEnabled = enable;
-    if (countHelper)
-        countHelper->setArchiveBombDetectionEnabled(enable);
-}
-
-void QDecompressHelper::setMinimumArchiveBombSize(qint64 threshold)
-{
-    minimumArchiveBombSize = threshold;
+    if (threshold == -1)
+        threshold = std::numeric_limits<qint64>::max();
+    archiveBombCheckThreshold = threshold;
 }
 
 bool QDecompressHelper::isPotentialArchiveBomb() const
 {
-    if (!archiveBombDetectionEnabled)
-        return false;
-
     if (totalCompressedBytes == 0)
         return false;
 
-    if (totalUncompressedBytes <= minimumArchiveBombSize)
+    if (totalUncompressedBytes <= archiveBombCheckThreshold)
         return false;
 
     // Some protection against malicious or corrupted compressed files that expand far more than
@@ -430,12 +422,16 @@ bool QDecompressHelper::isPotentialArchiveBomb() const
         break;
     case Deflate:
     case GZip:
+        // This value is mentioned in docs for
+        // QNetworkRequest::setMinimumArchiveBombSize, keep synchronized
         if (ratio > 40) {
             return true;
         }
         break;
     case Brotli:
     case Zstandard:
+        // This value is mentioned in docs for
+        // QNetworkRequest::setMinimumArchiveBombSize, keep synchronized
         if (ratio > 100) {
             return true;
         }

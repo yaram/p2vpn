@@ -41,7 +41,9 @@
 
 #include "qunicodetables_p.h"
 #include "qvarlengtharray.h"
+#if QT_CONFIG(library)
 #include "qlibrary.h"
+#endif
 
 #include <limits.h>
 
@@ -1392,6 +1394,7 @@ static th_brk_def th_brk = nullptr;
 static th_next_cell_def th_next_cell = nullptr;
 
 static int init_libthai() {
+#if QT_CONFIG(library)
     static bool initialized = false;
     if (!initialized && (!th_brk || !th_next_cell)) {
         th_brk = reinterpret_cast<th_brk_def>(QLibrary::resolve(QLatin1String("thai"), static_cast<int>(LIBTHAI_MAJOR), "th_brk"));
@@ -1401,6 +1404,7 @@ static int init_libthai() {
     if (th_brk && th_next_cell)
         return 1;
     else
+#endif
         return 0;
 }
 
@@ -1411,11 +1415,11 @@ static void to_tis620(const char16_t *string, qsizetype len, char *cstr)
 
     for (i = 0; i < len; ++i) {
         if (string[i] <= 0xa0)
-            result[i] = (unsigned char)string[i];
+            result[i] = static_cast<unsigned char>(string[i]);
         else if (string[i] >= 0xe01 && string[i] <= 0xe5b)
-            result[i] = (unsigned char)(string[i] - 0xe00 + 0xa0);
+            result[i] = static_cast<unsigned char>(string[i] - 0xe00 + 0xa0);
         else
-            result[i] = (unsigned char)~0; // Same encoding as libthai uses for invalid chars
+            result[i] = static_cast<unsigned char>(~0); // Same encoding as libthai uses for invalid chars
     }
 
     result[len] = 0;

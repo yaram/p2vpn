@@ -18,7 +18,7 @@ if(OpenSSL_FOUND)
         else()
             set(writableLib OpenSSL::Crypto)
         endif()
-        set_property(TARGET ${writableLib} APPEND PROPERTY INTERFACE_LINK_LIBRARIES Ws2_32 Crypt32)
+        set_property(TARGET ${writableLib} APPEND PROPERTY INTERFACE_LINK_LIBRARIES ws2_32 crypt32)
         unset(libType)
         unset(writableLib)
     endif()
@@ -30,4 +30,10 @@ if(OpenSSL_FOUND)
 endif()
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(WrapOpenSSL DEFAULT_MSG WrapOpenSSL_FOUND)
+find_package_handle_standard_args(WrapOpenSSL
+    REQUIRED_VARS
+        OPENSSL_CRYPTO_LIBRARY
+        OPENSSL_INCLUDE_DIR
+    VERSION_VAR
+        OPENSSL_VERSION
+)

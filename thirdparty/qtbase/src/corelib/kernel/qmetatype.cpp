@@ -37,7 +37,9 @@
 **
 ****************************************************************************/
 
+#define QT_QMETATYPE_BC_COMPAT 1
 #include "qmetatype.h"
+#undef QT_QMETATYPE_BC_COMPAT
 #include "qmetatype_p.h"
 #include "qobjectdefs.h"
 #include "qdatetime.h"
@@ -422,6 +424,7 @@ Q_GLOBAL_STATIC(QMetaTypeCustomRegistry, customTypeRegistry)
     \omitvalue IsGadget \omit This type is a Q_GADGET and it's corresponding QMetaObject can be accessed with QMetaType::metaObject Since 5.5. \endomit
     \omitvalue PointerToGadget
     \omitvalue IsQmlList
+    \value IsConst Indicates that values of this types are immutable; for instance because they are pointers to const objects.
 */
 
 /*!
@@ -487,15 +490,29 @@ bool QMetaType::isRegistered() const
 
     Returns id type hold by this QMetatype instance.
 */
+
+// keep in sync with version in header
+// ### Qt 7::remove BC helper
 int QMetaType::id() const
 {
     if (d_ptr) {
-        if (d_ptr->typeId)
-            return d_ptr->typeId;
-        auto reg = customTypeRegistry();
-        if (reg) {
-            return reg->registerCustomType(d_ptr);
-        }
+        if (int id = d_ptr->typeId.loadRelaxed())
+            return id;
+        return idHelper();
+    }
+    return 0;
+}
+
+/*!
+    \internal
+    The slowpath of id(). Precondition: d_ptr != nullptr
+*/
+int QMetaType::idHelper() const
+{
+    Q_ASSERT(d_ptr);
+    auto reg = customTypeRegistry();
+    if (reg) {
+        return reg->registerCustomType(d_ptr);
     }
     return 0;
 }
@@ -1711,12 +1728,12 @@ bool QMetaType::debugStream(QDebug& dbg, const void *rhs)
 /*!
     \fn bool QMetaType::debugStream(QDebug& dbg, const void *rhs, int typeId)
     \overload
-    \obsolete
+    \deprecated
 */
 
 /*!
     \fn bool QMetaType::hasRegisteredDebugStreamOperator()
-    \obsolete
+    \deprecated
     \since 5.2
 
     Returns \c true, if the meta type system has a registered debug stream operator for type T.
@@ -1724,7 +1741,7 @@ bool QMetaType::debugStream(QDebug& dbg, const void *rhs)
 
 /*!
     \fn bool QMetaType::hasRegisteredDebugStreamOperator(int typeId)
-    \obsolete Use QMetaType::hasRegisteredDebugStreamOperator() instead.
+    \deprecated Use QMetaType::hasRegisteredDebugStreamOperator() instead.
 
     Returns \c true, if the meta type system has a registered debug stream operator for type
     id \a typeId.
@@ -1832,7 +1849,7 @@ static bool convertFromEnum(QMetaType fromType, const void *from, QMetaType toTy
 static bool convertToEnum(QMetaType fromType, const void *from, QMetaType toType, void *to)
 {
     int fromTypeId = fromType.id();
-    qlonglong value;
+    qlonglong value = -1;
     bool ok = false;
 #ifndef QT_NO_QOBJECT
     if (fromTypeId == QMetaType::QString || fromTypeId == QMetaType::QByteArray) {
@@ -2157,7 +2174,7 @@ static bool convertQObject(QMetaType fromType, const void *from, QMetaType toTyp
 
 /*!
     \fn bool QMetaType::convert(const void *from, int fromTypeId, void *to, int toTypeId)
-    \obsolete
+    \deprecated
 
     Converts the object at \a from from \a fromTypeId to the preallocated space at \a to
     typed \a toTypeId. Returns \c true, if the conversion succeeded, otherwise false.
@@ -2671,7 +2688,7 @@ bool QMetaType::save(QDataStream &stream, const void *data) const
 /*!
    \fn bool QMetaType::save(QDataStream &stream, int type, const void *data)
    \overload
-   \obsolete
+   \deprecated
 */
 
 /*!
@@ -2729,7 +2746,7 @@ bool QMetaType::hasRegisteredDataStreamOperators() const
 /*!
    \fn bool QMetaType::load(QDataStream &stream, int type, void *data)
    \overload
-   \obsolete
+   \deprecated
 */
 #endif // QT_NO_DATASTREAM
 

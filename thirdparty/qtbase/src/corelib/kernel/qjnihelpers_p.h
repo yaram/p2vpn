@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -54,12 +54,8 @@
 #include <jni.h>
 #include <functional>
 #include <QtCore/private/qglobal_p.h>
-#include <QHash>
-#include <QMetaType>
 
 QT_BEGIN_NAMESPACE
-
-class QRunnable;
 
 namespace QtAndroidPrivate
 {
@@ -106,14 +102,6 @@ namespace QtAndroidPrivate
         virtual jobject onBind(jobject intent) = 0;
     };
 
-    enum class PermissionsResult {
-        Granted,
-        Denied
-    };
-    typedef QHash<QString,  QtAndroidPrivate::PermissionsResult> PermissionsHash;
-    typedef std::function<void()> Runnable;
-    typedef std::function<void(const PermissionsHash &)> PermissionsResultFunc;
-
     Q_CORE_EXPORT jobject activity();
     Q_CORE_EXPORT jobject service();
     Q_CORE_EXPORT jobject context();
@@ -122,13 +110,9 @@ namespace QtAndroidPrivate
     Q_CORE_EXPORT jclass findClass(const char *className, JNIEnv *env);
     jobject classLoader();
     Q_CORE_EXPORT jint androidSdkVersion();
-    Q_CORE_EXPORT void runOnAndroidThread(const Runnable &runnable, JNIEnv *env);
-    Q_CORE_EXPORT void runOnAndroidThreadSync(const Runnable &runnable, JNIEnv *env, int timeoutMs = INT_MAX);
-    Q_CORE_EXPORT void runOnUiThread(QRunnable *runnable, JNIEnv *env);
-    Q_CORE_EXPORT void requestPermissions(JNIEnv *env, const QStringList &permissions, const PermissionsResultFunc &callbackFunc, bool directCall = false);
-    Q_CORE_EXPORT PermissionsHash requestPermissionsSync(JNIEnv *env, const QStringList &permissions, int timeoutMs = INT_MAX);
-    Q_CORE_EXPORT PermissionsResult checkPermission(const QString &permission);
-    Q_CORE_EXPORT bool shouldShowRequestPermissionRationale(const QString &permission);
+
+    bool registerPermissionNatives();
+    bool registerNativeInterfaceNatives();
 
     Q_CORE_EXPORT void handleActivityResult(jint requestCode, jint resultCode, jobject data);
     Q_CORE_EXPORT void registerActivityResultListener(ActivityResultListener *listener);
@@ -149,18 +133,51 @@ namespace QtAndroidPrivate
     Q_CORE_EXPORT void registerKeyEventListener(KeyEventListener *listener);
     Q_CORE_EXPORT void unregisterKeyEventListener(KeyEventListener *listener);
 
-    Q_CORE_EXPORT void hideSplashScreen(JNIEnv *env, int duration = 0);
-
-
     Q_CORE_EXPORT void waitForServiceSetup();
     Q_CORE_EXPORT int acuqireServiceSetup(int flags);
     Q_CORE_EXPORT void setOnBindListener(OnBindListener *listener);
     Q_CORE_EXPORT jobject callOnBindListener(jobject intent);
-
 }
 
-QT_END_NAMESPACE
+#define Q_JNI_FIND_AND_CHECK_CLASS(CLASS_NAME) \
+    clazz = env.findClass(CLASS_NAME); \
+    if (!clazz) { \
+        __android_log_print(ANDROID_LOG_FATAL, m_qtTag, QtAndroid::classErrorMsgFmt(), CLASS_NAME);\
+        return JNI_FALSE; \
+    }
 
-Q_DECLARE_METATYPE(QtAndroidPrivate::PermissionsHash)
+#define Q_JNI_GET_AND_CHECK_METHOD(ID, CLASS, METHOD_NAME, METHOD_SIGNATURE) \
+    ID = env.findMethod(CLASS, METHOD_NAME, METHOD_SIGNATURE); \
+    if (!ID) { \
+        __android_log_print(ANDROID_LOG_FATAL, m_qtTag, QtAndroid::methodErrorMsgFmt(), \
+                            METHOD_NAME, METHOD_SIGNATURE); \
+        return JNI_FALSE; \
+    }
+
+#define Q_JNI_GET_AND_CHECK_STATIC_METHOD(ID, CLASS, METHOD_NAME, METHOD_SIGNATURE) \
+    ID = env.findStaticMethod(CLASS, METHOD_NAME, METHOD_SIGNATURE); \
+    if (!ID) { \
+        __android_log_print(ANDROID_LOG_FATAL, m_qtTag, QtAndroid::methodErrorMsgFmt(), \
+                            METHOD_NAME, METHOD_SIGNATURE); \
+        return JNI_FALSE; \
+    }
+
+#define Q_JNI_GET_AND_CHECK_FIELD(ID, CLASS, FIELD_NAME, FIELD_SIGNATURE) \
+    ID = env.findField(CLASS, FIELD_NAME, FIELD_SIGNATURE); \
+    if (!ID) { \
+        __android_log_print(ANDROID_LOG_FATAL, m_qtTag, QtAndroid::fieldErrorMsgFmt(), \
+                            FIELD_NAME, FIELD_SIGNATURE); \
+        return JNI_FALSE; \
+    }
+
+#define Q_JNI_GET_AND_CHECK_STATIC_FIELD(ID, CLASS, FIELD_NAME, FIELD_SIGNATURE) \
+    ID = env.findStaticField(CLASS, FIELD_NAME, FIELD_SIGNATURE); \
+    if (!ID) { \
+        __android_log_print(ANDROID_LOG_FATAL, m_qtTag, QtAndroid::fieldErrorMsgFmt(), \
+                            FIELD_NAME, FIELD_SIGNATURE); \
+        return JNI_FALSE; \
+    }
+
+QT_END_NAMESPACE
 
 #endif // QJNIHELPERS_H

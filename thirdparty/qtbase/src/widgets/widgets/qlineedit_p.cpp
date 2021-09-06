@@ -86,6 +86,18 @@ int QLineEditPrivate::xToPos(int x, QTextLine::CursorPosition betweenOrOn) const
     return control->xToPos(x, betweenOrOn);
 }
 
+QString QLineEditPrivate::textBeforeCursor(int curPos) const
+{
+    const QString &text = control->text();
+    return text.mid(0, curPos);
+}
+
+QString QLineEditPrivate::textAfterCursor(int curPos) const
+{
+    const QString &text = control->text();
+    return text.mid(curPos);
+}
+
 bool QLineEditPrivate::inSelection(int x) const
 {
     x -= adjustedContentsRect().x() - hscroll + horizontalMargin;
@@ -496,7 +508,7 @@ QLineEditPrivate::SideWidgetParameters QLineEditPrivate::sideWidgetParameters() 
 {
     Q_Q(const QLineEdit);
     SideWidgetParameters result;
-    result.iconSize = q->style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, q);
+    result.iconSize = q->style()->pixelMetric(QStyle::PM_LineEditIconSize, nullptr, q);
     result.margin = result.iconSize / 4;
     result.widgetWidth = result.iconSize + 6;
     result.widgetHeight = result.iconSize + 2;

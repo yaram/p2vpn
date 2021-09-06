@@ -62,6 +62,7 @@
 #include <private/qguiapplication_p.h>
 #include <private/qcoregraphics_p.h>
 #include <private/qwindow_p.h>
+#include <private/qpointingdevice_p.h>
 #include "qcocoabackingstore.h"
 #ifndef QT_NO_OPENGL
 #include "qcocoaglcontext.h"
@@ -125,6 +126,7 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSViewMouseMoveHelper);
     Qt::MouseButtons m_frameStrutButtons;
     QString m_composingText;
     QPointer<QObject> m_composingFocusObject;
+    bool m_lastKeyDead;
     bool m_sendKeyEvent;
     bool m_dontOverrideCtrlLMB;
     bool m_sendUpAsRightButton;
@@ -142,6 +144,7 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSViewMouseMoveHelper);
 {
     if ((self = [super initWithFrame:NSZeroRect])) {
         m_platformWindow = platformWindow;
+        m_lastKeyDead = false;
         m_sendKeyEvent = false;
         m_inputSource = nil;
         m_resendKeyEvent = false;

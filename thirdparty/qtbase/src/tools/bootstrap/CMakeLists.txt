@@ -7,7 +7,7 @@
 # special case begin
 # The bootstrap library has a few manual tweaks compared to other
 # libraries.
-add_library(Bootstrap STATIC)
+qt_add_library(Bootstrap STATIC)
 # special case end
 qt_internal_extend_target(Bootstrap
     SOURCES
@@ -289,4 +289,9 @@ qt_internal_extend_target(Bootstrap CONDITION MSVC
     DEFINES
         _CRT_SECURE_NO_WARNINGS
 )
+
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.20.0" AND QT_FEATURE_debug_and_release)
+    set_property(TARGET Bootstrap
+        PROPERTY EXCLUDE_FROM_ALL "$<NOT:$<CONFIG:${QT_MULTI_CONFIG_FIRST_CONFIG}>>")
+endif()
 # special case end

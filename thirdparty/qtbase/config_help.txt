@@ -9,8 +9,6 @@ Top-level installation directories:
                        -developer-build]
   -extprefix <dir> ... The installation directory, as seen on the host machine.
                        [SYSROOT/PREFIX]
-  -external-hostbindir <path> ... Path to Qt tools built for this machine.
-                       This option is required when cross-compiling Qt.
 
 Fine tuning of installation directory layout. Note that all directories
 except -sysconfdir should be located under -prefix:
@@ -57,6 +55,8 @@ Build options:
                          CMake instead of auto-detecting one.
   -cmake-use-default-generator ... Turn off auto-detection of the CMake build
                          system generator.
+  -cmake-file-api ...... Let CMake store build metadata for loading the build
+                         into an IDE. [no; yes if -developer-build]
   -no-guess-compiler ... Do not guess the compiler from the target mkspec.
   -release ............. Build Qt with debugging turned off [yes]
   -debug ............... Build Qt with debugging turned on [no]
@@ -105,11 +105,6 @@ Build options:
                          Note that some sanitizers cannot be combined;
                          for example, -sanitize address cannot be combined with
                          -sanitize thread.
-
-  -coverage {trace-pc-guard|source-based}
-                         Specify the 'trace-pc-guard' coverage instrumentation for
-                         sanitizers or generate instrumented code to collect execution
-                         counts and enable code coverage analysis, respectively. (Clang only)
 
   -c++std <edition> .... Select C++ standard <edition> [c++20/c++17/c++14/c++11]
 

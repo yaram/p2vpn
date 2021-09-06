@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -75,17 +75,14 @@ using namespace QRoundingDown;
     Julian Calendar}
  */
 
-QJulianCalendar::QJulianCalendar()
-    : QRomanCalendar(QStringLiteral("Julian"), QCalendar::System::Julian) {}
-
 QString QJulianCalendar::name() const
 {
     return QStringLiteral("Julian");
 }
 
-QCalendar::System QJulianCalendar::calendarSystem() const
+QStringList QJulianCalendar::nameList()
 {
-    return QCalendar::System::Julian;
+    return { QStringLiteral("Julian") };
 }
 
 bool QJulianCalendar::isLeapYear(int year) const

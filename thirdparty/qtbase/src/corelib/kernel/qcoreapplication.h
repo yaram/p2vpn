@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -43,12 +43,17 @@
 #include <QtCore/qglobal.h>
 #include <QtCore/qstring.h>
 #ifndef QT_NO_QOBJECT
-#include <QtCore/qobject.h>
 #include <QtCore/qcoreevent.h>
 #include <QtCore/qeventloop.h>
+#if QT_CONFIG(future)
+#include <QtCore/qfuture.h>
+#include <QtCore/qapplicationpermission.h>
+#endif
+#include <QtCore/qobject.h>
 #else
 #include <QtCore/qscopedpointer.h>
 #endif
+#include <QtCore/qnativeinterface.h>
 #ifndef QT_NO_DEBUGSTREAM
 #include <QtCore/qdebug.h>
 #endif
@@ -77,10 +82,14 @@ class Q_CORE_EXPORT QCoreApplication
 {
 #ifndef QT_NO_QOBJECT
     Q_OBJECT
-    Q_PROPERTY(QString applicationName READ applicationName WRITE setApplicationName NOTIFY applicationNameChanged)
-    Q_PROPERTY(QString applicationVersion READ applicationVersion WRITE setApplicationVersion NOTIFY applicationVersionChanged)
-    Q_PROPERTY(QString organizationName READ organizationName WRITE setOrganizationName NOTIFY organizationNameChanged)
-    Q_PROPERTY(QString organizationDomain READ organizationDomain WRITE setOrganizationDomain NOTIFY organizationDomainChanged)
+    Q_PROPERTY(QString applicationName READ applicationName WRITE setApplicationName
+               NOTIFY applicationNameChanged)
+    Q_PROPERTY(QString applicationVersion READ applicationVersion WRITE setApplicationVersion
+               NOTIFY applicationVersionChanged)
+    Q_PROPERTY(QString organizationName READ organizationName WRITE setOrganizationName
+               NOTIFY organizationNameChanged)
+    Q_PROPERTY(QString organizationDomain READ organizationDomain WRITE setOrganizationDomain
+               NOTIFY organizationDomainChanged)
     Q_PROPERTY(bool quitLockEnabled READ isQuitLockEnabled WRITE setQuitLockEnabled)
 #endif
 
@@ -155,6 +164,8 @@ public:
                              const char * disambiguation = nullptr,
                              int n = -1);
 
+    QT_DECLARE_NATIVE_INTERFACE_ACCESSOR(QCoreApplication)
+
 #ifndef QT_NO_QOBJECT
     void installNativeEventFilter(QAbstractNativeEventFilter *filterObj);
     void removeNativeEventFilter(QAbstractNativeEventFilter *filterObj);
@@ -214,7 +225,6 @@ private:
     friend bool qt_sendSpontaneousEvent(QObject *, QEvent *);
 #endif
     friend Q_CORE_EXPORT QString qAppName();
-    friend class QClassFactory;
     friend class QCommandLineParserPrivate;
 };
 
@@ -246,5 +256,7 @@ Q_CORE_EXPORT QDebug operator<<(QDebug, const MSG &);
 #endif
 
 QT_END_NAMESPACE
+
+#include <QtCore/qcoreapplication_platform.h>
 
 #endif // QCOREAPPLICATION_H

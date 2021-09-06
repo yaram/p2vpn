@@ -369,4 +369,20 @@ QPlatformSurface *QOffscreenSurface::surfaceHandle() const
     return d->platformOffscreenSurface;
 }
 
+using namespace QNativeInterface;
+
+void *QOffscreenSurface::resolveInterface(const char *name, int revision) const
+{
+    Q_UNUSED(name); Q_UNUSED(revision);
+
+    Q_D(const QOffscreenSurface);
+    Q_UNUSED(d);
+
+#if defined(Q_OS_ANDROID)
+    QT_NATIVE_INTERFACE_RETURN_IF(QAndroidOffscreenSurface, d->platformOffscreenSurface);
+#endif
+
+    return nullptr;
+}
+
 QT_END_NAMESPACE

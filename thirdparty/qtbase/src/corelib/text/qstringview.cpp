@@ -130,11 +130,6 @@ QT_BEGIN_NAMESPACE
     \typedef QStringView::size_type
 
     Alias for qsizetype. Provided for compatibility with the STL.
-
-    Unlike other Qt classes, QStringView uses qsizetype as its \c size_type, to allow
-    accepting data from \c{std::basic_string} without truncation. The Qt API functions,
-    for example length(), return \c int, while the STL-compatible functions, for example
-    size(), return \c size_type.
 */
 
 /*!
@@ -530,13 +525,9 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn int QStringView::length() const
 
-    Same as size(), except returns the result as an \c int.
+    Same as size().
 
     This function is provided for compatibility with other Qt containers.
-
-    \warning QStringView can represent strings with more than 2\sup{31} characters.
-    Calling this function on a string view for which size() returns a value greater
-    than \c{INT_MAX} constitutes undefined behavior.
 
     \sa empty(), isEmpty(), isNull(), size()
 */
@@ -638,7 +629,7 @@ QT_BEGIN_NAMESPACE
     Returns the substring of length \a length starting at position
     \a start in this object.
 
-    \obsolete Use sliced() instead in new code.
+    \deprecated Use sliced() instead in new code.
 
     Returns an empty string view if \a start exceeds the
     length of the string. If there are less than \a length characters
@@ -652,7 +643,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn QStringView QStringView::left(qsizetype length) const
 
-    \obsolete Use first() instead in new code.
+    \deprecated Use first() instead in new code.
 
     Returns the substring of length \a length starting at position
     0 in this object.
@@ -666,7 +657,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn QStringView QStringView::right(qsizetype length) const
 
-    \obsolete Use last() instead in new code.
+    \deprecated Use last() instead in new code.
 
     Returns the substring of length \a length starting at position
     size() - \a length in this object.

@@ -61,6 +61,7 @@
 #include "QtCore/qsharedpointer.h"
 #include "QtCore/qvariant.h"
 #include "QtCore/qproperty.h"
+#include "QtCore/private/qproperty_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -89,7 +90,6 @@ class Q_CORE_EXPORT QAbstractDeclarativeData
 {
 public:
     static void (*destroyed)(QAbstractDeclarativeData *, QObject *);
-    static void (*parentChanged)(QAbstractDeclarativeData *, QObject *, QObject *);
     static void (*signalEmitted)(QAbstractDeclarativeData *, QObject *, int, void **);
     static int  (*receivers)(QAbstractDeclarativeData *, const QObject *, int);
     static bool (*isSignalConnected)(QAbstractDeclarativeData *, const QObject *, int);
@@ -103,12 +103,26 @@ class Q_CORE_EXPORT QObjectPrivate : public QObjectData
 public:
     struct ExtraData
     {
-        ExtraData() {}
+        ExtraData(QObjectPrivate *ptr) : parent(ptr) { }
+
+        inline void setObjectNameForwarder(const QString &name)
+        {
+            parent->q_func()->setObjectName(name);
+        }
+
+        inline void nameChangedForwarder(const QString &name)
+        {
+            Q_EMIT parent->q_func()->objectNameChanged(name, QObject::QPrivateSignal());
+        }
+
         QList<QByteArray> propertyNames;
         QList<QVariant> propertyValues;
         QList<int> runningTimers;
         QList<QPointer<QObject>> eventFilters;
-        QString objectName;
+        Q_OBJECT_COMPAT_PROPERTY(QObjectPrivate::ExtraData, QString, objectName,
+                                 &QObjectPrivate::ExtraData::setObjectNameForwarder,
+                                 &QObjectPrivate::ExtraData::nameChangedForwarder)
+        QObjectPrivate *parent;
     };
 
     typedef void (*StaticMetaCallFunction)(QObject *, QMetaObject::Call, int, void **);
@@ -329,6 +343,8 @@ public:
     QObjectPrivate(int version = QObjectPrivateVersion);
     virtual ~QObjectPrivate();
     void deleteChildren();
+    // used to clear binding storage early in ~QObject
+    void clearBindingStorage();
 
     inline void checkForIncompatibleLibraryVersion(int version) const;
 
@@ -387,8 +403,9 @@ public:
         cd->ref.ref();
         connections.storeRelaxed(cd);
     }
+
 public:
-    ExtraData *extraData;    // extra data set by the user
+    mutable ExtraData *extraData; // extra data set by the user
     // This atomic requires acquire/release semantics in a few places,
     // e.g. QObject::moveToThread must synchronize with QCoreApplication::postEvent,
     // because postEvent is thread-safe.
@@ -637,7 +654,14 @@ inline QBindingStorage *qGetBindingStorage(QObjectPrivate *o)
 {
     return &o->bindingStorage;
 }
-
+inline const QBindingStorage *qGetBindingStorage(const QObjectPrivate::ExtraData *ed)
+{
+    return &ed->parent->bindingStorage;
+}
+inline QBindingStorage *qGetBindingStorage(QObjectPrivate::ExtraData *ed)
+{
+    return &ed->parent->bindingStorage;
+}
 
 QT_END_NAMESPACE
 

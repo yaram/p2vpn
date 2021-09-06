@@ -20,6 +20,10 @@ if(ANDROID)
     set(corelib_extra_cmake_files
         "${CMAKE_CURRENT_SOURCE_DIR}/${QT_CMAKE_EXPORT_NAMESPACE}AndroidMacros.cmake")
 endif()
+if(WASM)
+    set(corelib_extra_cmake_files
+        "${CMAKE_CURRENT_SOURCE_DIR}/${QT_CMAKE_EXPORT_NAMESPACE}WasmMacros.cmake")
+endif()
 # special case end
 
 #####################################################################
@@ -28,6 +32,7 @@ endif()
 
 qt_internal_add_module(Core
     QMAKE_MODULE_CONFIG moc resources
+    NO_GENERATE_METATYPES # metatypes are extracted manually below
     EXCEPTIONS
     SOURCES
         global/archdetect.cpp
@@ -40,10 +45,11 @@ qt_internal_add_module(Core
         global/qglobal.cpp global/qglobal.h
         global/qglobalstatic.h
         global/qhooks.cpp global/qhooks_p.h
-        global/qlibraryinfo.cpp global/qlibraryinfo.h
+        global/qlibraryinfo.cpp global/qlibraryinfo.h global/qlibraryinfo_p.h
         global/qlogging.cpp global/qlogging.h
         global/qmalloc.cpp
         global/qnamespace.h # this header is specified on purpose so AUTOMOC processes it
+        global/qnativeinterface.h
         global/qnumeric.cpp global/qnumeric.h global/qnumeric_p.h
         global/qoperatingsystemversion.cpp global/qoperatingsystemversion.h global/qoperatingsystemversion_p.h
         global/qprocessordetection.h
@@ -93,6 +99,7 @@ qt_internal_add_module(Core
         kernel/qassociativeiterable.cpp kernel/qassociativeiterable.h
         kernel/qbasictimer.cpp kernel/qbasictimer.h
         kernel/qcoreapplication.cpp kernel/qcoreapplication.h kernel/qcoreapplication_p.h
+        kernel/qcoreapplication_platform.h
         kernel/qcorecmdlineargs_p.h
         kernel/qcoreevent.cpp kernel/qcoreevent.h
         kernel/qcoreglobaldata.cpp kernel/qcoreglobaldata_p.h
@@ -113,6 +120,7 @@ qt_internal_add_module(Core
         kernel/qobjectcleanuphandler.cpp kernel/qobjectcleanuphandler.h
         kernel/qobjectdefs.h
         kernel/qobjectdefs_impl.h
+        kernel/qapplicationpermission.h
         kernel/qpointer.cpp kernel/qpointer.h
         kernel/qproperty.cpp kernel/qproperty.h kernel/qproperty_p.h
         kernel/qpropertyprivate.h
@@ -263,19 +271,16 @@ qt_internal_add_module(Core
     # special case end
 )
 
+qt_update_ignore_pch_source(Core kernel/qmetatype.cpp )
+
 # special case begin
 add_dependencies(Core qmodule_pri)
-add_dependencies(Core ${QT_CMAKE_EXPORT_NAMESPACE}::moc)
-add_dependencies(Core ${QT_CMAKE_EXPORT_NAMESPACE}::rcc)
-add_dependencies(CorePrivate ${QT_CMAKE_EXPORT_NAMESPACE}::moc)
-add_dependencies(CorePrivate ${QT_CMAKE_EXPORT_NAMESPACE}::rcc)
 
-if (QT_NAMESPACE STREQUAL "")
-else()
+if (NOT QT_NAMESPACE STREQUAL "")
     target_compile_definitions(Core PUBLIC "QT_NAMESPACE=${QT_NAMESPACE}")
 endif()
 
-qt_generate_qconfig_cpp()
+qt_generate_qconfig_cpp(global/qconfig.cpp.in global/qconfig.cpp)
 
 set_target_properties(Core PROPERTIES INTERFACE_QT_COORD_TYPE "${QT_COORD_TYPE}")
 set_property(TARGET Core APPEND PROPERTY COMPATIBLE_INTERFACE_STRING QT_COORD_TYPE)
@@ -304,8 +309,7 @@ set(core_metatype_args MANUAL_MOC_JSON_FILES ${core_qobject_metatypes_json_list}
 
 set(metatypes_install_dir ${INSTALL_LIBDIR}/metatypes)
 if (NOT QT_WILL_INSTALL)
-    list(APPEND core_metatype_args
-         COPY_OVER_INSTALL INSTALL_DIR "${QT_BUILD_DIR}/${metatypes_install_dir}")
+    list(APPEND core_metatype_args __QT_INTERNAL_NO_INSTALL)
 else()
     list(APPEND core_metatype_args INSTALL_DIR "${metatypes_install_dir}")
 endif()
@@ -424,8 +428,13 @@ qt_internal_extend_target(Core CONDITION MSVC AND (TEST_architecture_arch STREQU
         "/BASE:0x67000000"
 )
 
-#### Keys ignored in scope 6:.:.:corelib.pro:FREEBSD OR OPENBSD:
-# QMAKE_LFLAGS_NOUNDEF = <EMPTY>
+# QtCore can't be compiled with -Wl,-no-undefined because it uses the
+# "environ" variable and FreeBSD does not include a weak symbol for it
+# in libc.
+qt_internal_extend_target(Core CONDITION FREEBSD
+    LINK_OPTIONS
+      "LINKER:--warn-unresolved-symbols"
+)
 
 qt_internal_extend_target(Core CONDITION QT_FEATURE_animation
     SOURCES
@@ -436,6 +445,18 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_animation
         animation/qpropertyanimation.cpp animation/qpropertyanimation.h animation/qpropertyanimation_p.h
         animation/qsequentialanimationgroup.cpp animation/qsequentialanimationgroup.h animation/qsequentialanimationgroup_p.h
         animation/qvariantanimation.cpp animation/qvariantanimation.h animation/qvariantanimation_p.h
+)
+
+# This needs to be done before one below adds kernel32 because the symbols we use
+# from synchronization also appears in kernel32 in the version of MinGW we use in CI.
+# However, when picking the symbols from libkernel32.a it will try to load the symbols
+# from the wrong DLL at runtime and crash!
+qt_internal_extend_target(Core CONDITION QT_FEATURE_thread AND WIN32
+    SOURCES
+        thread/qmutex_win.cpp
+        thread/qwaitcondition_win.cpp
+    LIBRARIES
+        synchronization
 )
 
 qt_internal_extend_target(Core CONDITION WIN32
@@ -628,12 +649,6 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_thread
         thread/qthreadstorage.cpp
 )
 
-qt_internal_extend_target(Core CONDITION QT_FEATURE_thread AND WIN32
-    SOURCES
-        thread/qmutex_win.cpp
-        thread/qwaitcondition_win.cpp
-)
-
 qt_internal_extend_target(Core CONDITION QT_FEATURE_thread AND UNIX
     SOURCES
         thread/qwaitcondition_unix.cpp
@@ -642,11 +657,6 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_thread AND UNIX
 qt_internal_extend_target(Core CONDITION APPLE AND QT_FEATURE_thread
     SOURCES
         thread/qmutex_mac.cpp
-)
-
-qt_internal_extend_target(Core CONDITION LINUX AND QT_FEATURE_thread
-    SOURCES
-        thread/qmutex_linux.cpp
 )
 
 qt_internal_extend_target(Core CONDITION QT_FEATURE_thread AND UNIX AND NOT APPLE AND NOT LINUX
@@ -709,6 +719,11 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_commandlineparser
         tools/qcommandlineparser.cpp tools/qcommandlineparser.h
 )
 
+qt_internal_extend_target(Core CONDITION QT_FEATURE_backtrace
+    LIBRARIES
+        WrapBacktrace::WrapBacktrace
+)
+
 qt_internal_extend_target(Core CONDITION QT_FEATURE_system_doubleconversion
     LIBRARIES
         WrapDoubleConversion::WrapDoubleConversion
@@ -716,29 +731,29 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_system_doubleconversion
 
 qt_internal_extend_target(Core CONDITION QT_FEATURE_doubleconversion AND NOT QT_FEATURE_system_doubleconversion
     SOURCES
-        ../3rdparty/double-conversion/cached-powers.h
-        ../3rdparty/double-conversion/double-to-string.cc
-        ../3rdparty/double-conversion/ieee.h
-        ../3rdparty/double-conversion/fast-dtoa.cc
-        ../3rdparty/double-conversion/diy-fp.h
-        ../3rdparty/double-conversion/strtod.h
-        ../3rdparty/double-conversion/fixed-dtoa.h
-        ../3rdparty/double-conversion/strtod.cc
-        ../3rdparty/double-conversion/bignum.h
-        ../3rdparty/double-conversion/bignum.cc
-        ../3rdparty/double-conversion/cached-powers.cc
-        ../3rdparty/double-conversion/bignum-dtoa.cc
-        ../3rdparty/double-conversion/fast-dtoa.h
-        ../3rdparty/double-conversion/fixed-dtoa.cc
-        ../3rdparty/double-conversion/string-to-double.cc
-        ../3rdparty/double-conversion/bignum-dtoa.h
-        ../3rdparty/double-conversion/include/double-conversion/utils.h
-        ../3rdparty/double-conversion/include/double-conversion/double-to-string.h
-        ../3rdparty/double-conversion/include/double-conversion/double-conversion.h
-        ../3rdparty/double-conversion/include/double-conversion/string-to-double.h
+        ../3rdparty/double-conversion/double-conversion/bignum.cc
+        ../3rdparty/double-conversion/double-conversion/bignum-dtoa.cc
+        ../3rdparty/double-conversion/double-conversion/bignum-dtoa.h
+        ../3rdparty/double-conversion/double-conversion/bignum.h
+        ../3rdparty/double-conversion/double-conversion/cached-powers.cc
+        ../3rdparty/double-conversion/double-conversion/cached-powers.h
+        ../3rdparty/double-conversion/double-conversion/diy-fp.h
+        ../3rdparty/double-conversion/double-conversion/double-conversion.h
+        ../3rdparty/double-conversion/double-conversion/double-to-string.cc
+        ../3rdparty/double-conversion/double-conversion/double-to-string.h
+        ../3rdparty/double-conversion/double-conversion/fast-dtoa.cc
+        ../3rdparty/double-conversion/double-conversion/fast-dtoa.h
+        ../3rdparty/double-conversion/double-conversion/fixed-dtoa.cc
+        ../3rdparty/double-conversion/double-conversion/fixed-dtoa.h
+        ../3rdparty/double-conversion/double-conversion/ieee.h
+        ../3rdparty/double-conversion/double-conversion/string-to-double.cc
+        ../3rdparty/double-conversion/double-conversion/string-to-double.h
+        ../3rdparty/double-conversion/double-conversion/strtod.cc
+        ../3rdparty/double-conversion/double-conversion/strtod.h
+        ../3rdparty/double-conversion/double-conversion/utils.h
     INCLUDE_DIRECTORIES
-        ../3rdparty
-        ../3rdparty/double-conversion/include
+        ../3rdparty/double-conversion/double-conversion
+        ../3rdparty/double-conversion
 )
 
 qt_internal_extend_target(Core CONDITION QT_FEATURE_system_libb2
@@ -959,11 +974,11 @@ qt_internal_extend_target(Core CONDITION ANDROID AND NOT ANDROID_EMBEDDED
     SOURCES
         io/qstandardpaths_android.cpp
         io/qstorageinfo_unix.cpp
-        kernel/qjni.cpp kernel/qjni_p.h
         kernel/qjnienvironment.cpp kernel/qjnienvironment.h
         kernel/qjniobject.cpp kernel/qjniobject.h
         kernel/qjnihelpers.cpp kernel/qjnihelpers_p.h
-        kernel/qjnionload.cpp
+        platform/android/qandroidextras_p.h platform/android/qandroidextras.cpp
+        platform/android/qandroidnativeinterface.cpp
 )
 
 qt_internal_extend_target(Core CONDITION HAIKU AND (ANDROID_EMBEDDED OR NOT ANDROID)
@@ -992,7 +1007,7 @@ qt_internal_extend_target(Core CONDITION QT_FEATURE_concatenatetablesproxymodel 
 
 qt_internal_extend_target(Core CONDITION QT_FEATURE_identityproxymodel AND QT_FEATURE_proxymodel
     SOURCES
-        itemmodels/qidentityproxymodel.cpp itemmodels/qidentityproxymodel.h
+        itemmodels/qidentityproxymodel.cpp itemmodels/qidentityproxymodel.h itemmodels/qidentityproxymodel_p.h
 )
 
 qt_internal_extend_target(Core CONDITION QT_FEATURE_proxymodel AND QT_FEATURE_sortfilterproxymodel
@@ -1141,7 +1156,8 @@ if(QT_FEATURE_mimetype AND QT_FEATURE_mimetype_database)
     include(${CMAKE_CURRENT_SOURCE_DIR}/mimetypes/mimetypes_resources.cmake)
 
 # Generate qmimeprovider_database.cpp
-    set(qmimeprovider_db_output "${CMAKE_CURRENT_BINARY_DIR}/.rcc/qmimeprovider_database.cpp")
+    set(qmimeprovider_db_output_dir "${CMAKE_CURRENT_BINARY_DIR}/.rcc")
+    set(qmimeprovider_db_output "${qmimeprovider_db_output_dir}/qmimeprovider_database.cpp")
     if(CMAKE_VERSION VERSION_LESS 3.18 OR QT_AVOID_CMAKE_ARCHIVING_API)
         set(command_args "")
         set(mime_dir "${CMAKE_CURRENT_SOURCE_DIR}/mimetypes/mime")
@@ -1150,6 +1166,7 @@ if(QT_FEATURE_mimetype AND QT_FEATURE_mimetype_database)
             list(APPEND command_args "${mime_dir}/generate.bat")
             list(APPEND command_depends "${mime_dir}/generate.bat" "${mime_dir}/hexdump.ps1" )
         else()
+            file(MAKE_DIRECTORY ${qmimeprovider_db_output_dir})
             list(APPEND command_args perl "${mime_dir}/generate.pl" )
         endif()
 
@@ -1166,6 +1183,11 @@ if(QT_FEATURE_mimetype AND QT_FEATURE_mimetype_database)
         )
     else()
         if(QT_FEATURE_zstd)
+            if(NOT QT_CMAKE_ZSTD_SUPPORT)
+                message(FATAL_ERROR
+                    "CMake was not built with zstd support. "
+                    "Rebuild CMake or set QT_AVOID_CMAKE_ARCHIVING_API=ON.")
+            endif()
             set(qmime_db_compression Zstd)
             string(APPEND qmime_db_content "#define MIME_DATABASE_IS_ZSTD\n")
         else()
@@ -1269,7 +1291,6 @@ else()
 endif()
 
 set_source_files_properties(
-    thread/qmutex_linux.cpp
     thread/qmutex_mac.cpp
     thread/qmutex_unix.cpp
     thread/qmutex_win.cpp
@@ -1288,10 +1309,10 @@ qt_internal_apply_gc_binaries_conditional(Core PUBLIC)
 # Add entry-point on platforms that need it. A project can opt-out of using the
 # entrypoint by setting the qt_no_entrypoint property to TRUE on a target.
 if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    # find_package(Qt6Core) should call find_package(Qt6EntryPoint) so that we can
-    # link against EntryPoint. Normally this is handled automatically for deps, but
-    # for some reason it doesn't work for the EntryPoint, so we need to add it manually.
-    qt_record_extra_qt_package_dependency(Core EntryPoint "${PROJECT_VERSION}")
+    # find_package(Qt6Core) should call find_package(Qt6EntryPointPrivate) so that we can
+    # link against EntryPointPrivate. Normally this is handled automatically for deps, but
+    # for some reason it doesn't work for the EntryPointPrivate, so we need to add it manually.
+    qt_record_extra_qt_package_dependency(Core EntryPointPrivate "${PROJECT_VERSION}")
 
     set(entrypoint_conditions "$<NOT:$<BOOL:$<TARGET_PROPERTY:qt_no_entrypoint>>>")
     list(APPEND entrypoint_conditions "$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>")
@@ -1303,7 +1324,9 @@ if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
     list(JOIN entrypoint_conditions "," entrypoint_conditions)
     set(entrypoint_conditions "$<AND:${entrypoint_conditions}>")
 
-    target_link_libraries(Core INTERFACE "$<${entrypoint_conditions}:${QT_CMAKE_EXPORT_NAMESPACE}::EntryPoint>")
+    target_link_libraries(Core INTERFACE
+        "$<${entrypoint_conditions}:${QT_CMAKE_EXPORT_NAMESPACE}::EntryPointPrivate>"
+    )
 endif()
 
 # Record darwin minimum deployment target.
@@ -1324,7 +1347,7 @@ qt_internal_add_docs(Core
 # Handle qtzlib.pro to create headers for the
 # QtZlibPrivate target, equivalent to Qt += zlib-private
 if(NOT QT_FEATURE_system_zlib)
-    qt_internal_add_module(Zlib
+    qt_internal_add_module(ZlibPrivate
         INTERNAL_MODULE
         HEADER_MODULE
         NO_CONFIG_HEADER_FILE

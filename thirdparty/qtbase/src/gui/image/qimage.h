@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
@@ -47,6 +47,7 @@
 #include <QtGui/qpixelformat.h>
 #include <QtGui/qtransform.h>
 #include <QtCore/qbytearray.h>
+#include <QtCore/qbytearrayview.h>
 #include <QtCore/qrect.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qcontainerfwd.h>
@@ -104,6 +105,12 @@ public:
         Format_RGBA64_Premultiplied,
         Format_Grayscale16,
         Format_BGR888,
+        Format_RGBX16FPx4,
+        Format_RGBA16FPx4,
+        Format_RGBA16FPx4_Premultiplied,
+        Format_RGBX32FPx4,
+        Format_RGBA32FPx4,
+        Format_RGBA32FPx4_Premultiplied,
 #ifndef Q_QDOC
         NImageFormats
 #endif
@@ -219,6 +226,7 @@ public:
 
     qreal devicePixelRatio() const;
     void setDevicePixelRatio(qreal scaleFactor);
+    QSizeF deviceIndependentSize() const;
 
     void fill(uint pixel);
     void fill(const QColor &color);
@@ -266,16 +274,18 @@ public:
 
     bool load(QIODevice *device, const char *format);
     bool load(const QString &fileName, const char *format = nullptr);
-    bool loadFromData(const uchar *buf, int len, const char *format = nullptr);
-    bool loadFromData(const QByteArray &data, const char *aformat = nullptr)
-    { return loadFromData(reinterpret_cast<const uchar *>(data.constData()), data.size(), aformat); }
+    bool loadFromData(QByteArrayView data, const char *format = nullptr);
+    bool loadFromData(const uchar *buf, int len, const char *format = nullptr); // ### Qt 7: qsizetype
+    bool loadFromData(const QByteArray &data, const char *format = nullptr) // ### Qt 7: drop
+    { return loadFromData(QByteArrayView(data), format); }
 
     bool save(const QString &fileName, const char *format = nullptr, int quality = -1) const;
     bool save(QIODevice *device, const char *format = nullptr, int quality = -1) const;
 
-    static QImage fromData(const uchar *data, int size, const char *format = nullptr);
-    static QImage fromData(const QByteArray &data, const char *format = nullptr)
-    { return fromData(reinterpret_cast<const uchar *>(data.constData()), data.size(), format); }
+    static QImage fromData(QByteArrayView data, const char *format = nullptr);
+    static QImage fromData(const uchar *data, int size, const char *format = nullptr); // ### Qt 7: qsizetype
+    static QImage fromData(const QByteArray &data, const char *format = nullptr)  // ### Qt 7: drop
+    { return fromData(QByteArrayView(data), format); }
 
     qint64 cacheKey() const;
 
@@ -319,7 +329,6 @@ protected:
     QImage smoothScaled(int w, int h) const;
 
 private:
-    friend class QWSOnScreenSurface;
     QImageData *d;
 
     friend class QRasterPlatformPixmap;

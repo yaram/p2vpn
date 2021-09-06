@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2020 Intel Corporation.
+** Copyright (C) 2021 Intel Corporation.
 ** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -43,19 +43,20 @@
 
 #include "qrandom.h"
 #include "qrandom_p.h"
-#include <qobjectdefs.h>
+#include <qendian.h>
 #include <qmutex.h>
+#include <qobjectdefs.h>
 #include <qthreadstorage.h>
 
 #include <errno.h>
 
+#if QT_CONFIG(getauxval)
+#  include <sys/auxv.h>
+#endif
+
 #if !QT_CONFIG(getentropy) && (!defined(Q_OS_BSD4) || defined(__GLIBC__)) && !defined(Q_OS_WIN)
 #  include "qdeadlinetimer.h"
 #  include "qhashfunctions.h"
-
-#  if QT_CONFIG(getauxval)
-#    include <sys/auxv.h>
-#  endif
 #endif // !QT_CONFIG(getentropy)
 
 #ifdef Q_OS_UNIX
@@ -91,6 +92,10 @@ enum {
     // may be "overridden" by a member enum
     FillBufferNoexcept = true
 };
+
+#if defined(QT_BUILD_INTERNAL)
+QBasicAtomicInteger<uint> qt_randomdevice_control = Q_BASIC_ATOMIC_INITIALIZER(0U);
+#endif
 
 struct QRandomGenerator::SystemGenerator
 {
@@ -165,7 +170,7 @@ struct QRandomGenerator::SystemGenerator
     }
 
 #elif defined(Q_OS_WIN)
-    qsizetype fillBuffer(void *buffer, qsizetype count) noexcept
+    static qsizetype fillBuffer(void *buffer, qsizetype count) noexcept
     {
         auto RtlGenRandom = SystemFunction036;
         return RtlGenRandom(buffer, ULONG(count)) ? count: 0;
@@ -364,13 +369,8 @@ struct QRandomGenerator::SystemAndGlobalGenerators
 
     void confirmLiteral()
     {
-#if !defined(Q_CC_MSVC) && !defined(Q_OS_INTEGRITY)
-        // Currently fails to compile with MSVC 2017, saying QBasicMutex is not
-        // a literal type. Disassembly with MSVC 2013 and 2015 shows it is
-        // actually a literal; MSVC 2017 has a bug relating to this, so we're
-        // withhold judgement for now.  Integrity's compiler is unable to
-        // guarantee g's alignment for some reason.
-
+#if !defined(Q_OS_INTEGRITY)
+        // Integrity's compiler is unable to guarantee g's alignment for some reason.
         constexpr SystemAndGlobalGenerators g = {};
         Q_UNUSED(g);
 #endif
@@ -1292,6 +1292,56 @@ quint64 QRandomGenerator::_fillRange(void *buffer, qptrdiff count)
     if (end - begin == 1)
         return *begin;
     return begin[0] | (quint64(begin[1]) << 32);
+}
+
+// helper function to call fillBuffer, since we need something to be
+// argument-dependent
+template <typename Generator, typename FillBufferType, typename T>
+static qsizetype callFillBuffer(FillBufferType f, T *v)
+{
+    if constexpr (std::is_member_function_pointer_v<FillBufferType>) {
+        // member function, need an object
+        return (Generator::self().*f)(v, sizeof(*v));
+    } else {
+        // static, call directly
+        return f(v, sizeof(*v));
+    }
+}
+
+/*!
+    \internal
+
+    Returns an initial random value (useful for QHash's global seed). This
+    function attempts to use OS-provided random values to avoid initializing
+    QRandomGenerator::system() and qsimd.cpp.
+
+    Note: on some systems, this functionn may rerturn the same value every time
+    it is called.
+ */
+QRandomGenerator::InitialRandomData qt_initial_random_value() noexcept
+{
+#if QT_CONFIG(getauxval) && defined(AT_RANDOM)
+    auto at_random_ptr = reinterpret_cast<size_t *>(getauxval(AT_RANDOM));
+    if (at_random_ptr)
+        return qFromUnaligned<QRandomGenerator::InitialRandomData>(at_random_ptr);
+#endif
+
+    // bypass the hardware RNG, which would mean initializing qsimd.cpp
+
+    QRandomGenerator::InitialRandomData v;
+    for (int attempts = 16; attempts; --attempts) {
+        using Generator = QRandomGenerator::SystemGenerator;
+        auto fillBuffer = &Generator::fillBuffer;
+        if (callFillBuffer<Generator>(fillBuffer, &v) != sizeof(v))
+            continue;
+
+        return v;
+    }
+
+    quint32 data[sizeof(v) / sizeof(quint32)];
+    fallback_fill(data, std::size(data));
+    memcpy(v.data, data, sizeof(v.data));
+    return v;
 }
 
 QT_END_NAMESPACE

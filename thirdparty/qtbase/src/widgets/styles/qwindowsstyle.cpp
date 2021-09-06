@@ -1169,7 +1169,7 @@ void QWindowsStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPai
                 if (!dis)
                     newMi.state |= State_Enabled;
                 if (act)
-                    newMi.state |= State_On;
+                    newMi.state |= State_On | State_Selected;
                 newMi.rect = visualRect(opt->direction, menuitem->rect, QRect(menuitem->rect.x() + QWindowsStylePrivate::windowsItemFrame,
                                                                               menuitem->rect.y() + QWindowsStylePrivate::windowsItemFrame,
                                                                               checkcol - 2 * QWindowsStylePrivate::windowsItemFrame,
@@ -2320,12 +2320,11 @@ QSize QWindowsStyle::sizeFromContents(ContentsType ct, const QStyleOption *opt,
             int minwidth = int(QStyleHelper::dpiScaled(75, dpi));
             int minheight = int(QStyleHelper::dpiScaled(23, dpi));
 
-#ifndef QT_QWS_SMALL_PUSHBUTTON
             if (w < minwidth + defwidth && !btn->text.isEmpty())
                 w = minwidth + defwidth;
             if (h < minheight + defwidth)
                 h = minheight + defwidth;
-#endif
+
             sz = QSize(w, h);
         }
         break;

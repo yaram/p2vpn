@@ -139,6 +139,11 @@ static QPalette *qt_mac_createSystemPalette()
 
     palette->setColor(QPalette::Normal, QPalette::Link, qt_mac_toQColor([NSColor linkColor]));
 
+    qc = qt_mac_toQColor([NSColor placeholderTextColor]);
+    palette->setColor(QPalette::Active, QPalette::PlaceholderText, qc);
+    palette->setColor(QPalette::Inactive, QPalette::PlaceholderText, qc);
+    palette->setColor(QPalette::Disabled, QPalette::PlaceholderText, qc);
+
     return palette;
 }
 
@@ -519,6 +524,8 @@ QVariant QCocoaTheme::themeHint(ThemeHint hint) const
         return QVariant(int(QTextCharFormat::DotLine));
     case QPlatformTheme::UseFullScreenForPopupMenu:
         return QVariant(bool([[NSApplication sharedApplication] presentationOptions] & NSApplicationPresentationFullScreen));
+    case QPlatformTheme::InteractiveResizeAcrossScreens:
+        return !NSScreen.screensHaveSeparateSpaces;
     default:
         break;
     }

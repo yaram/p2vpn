@@ -49,9 +49,8 @@ QModelIndex QTransposeProxyModelPrivate::uncheckedMapToSource(const QModelIndex 
 {
     if (!model || !proxyIndex.isValid())
         return QModelIndex();
-    if (proxyIndex.internalPointer())
-        return model->createIndex(proxyIndex.column(), proxyIndex.row(), proxyIndex.internalPointer());
-    return model->index(proxyIndex.column(), proxyIndex.row());
+    Q_Q(const QTransposeProxyModel);
+    return q->createSourceIndex(proxyIndex.column(), proxyIndex.row(), proxyIndex.internalPointer());
 }
 
 QModelIndex QTransposeProxyModelPrivate::uncheckedMapFromSource(const QModelIndex &sourceIndex) const
@@ -65,6 +64,7 @@ QModelIndex QTransposeProxyModelPrivate::uncheckedMapFromSource(const QModelInde
 void QTransposeProxyModelPrivate::onLayoutChanged(const QList<QPersistentModelIndex> &parents, QAbstractItemModel::LayoutChangeHint hint)
 {
     Q_Q(QTransposeProxyModel);
+    Q_ASSERT(layoutChangeProxyIndexes.size() == layoutChangePersistentIndexes.size());
     QModelIndexList toList;
     toList.reserve(layoutChangePersistentIndexes.size());
     for (const QPersistentModelIndex &persistIdx : qAsConst(layoutChangePersistentIndexes))
@@ -84,9 +84,26 @@ void QTransposeProxyModelPrivate::onLayoutChanged(const QList<QPersistentModelIn
     emit q->layoutChanged(proxyParents, proxyHint);
 }
 
-void QTransposeProxyModelPrivate::onLayoutAboutToBeChanged(const QList<QPersistentModelIndex> &parents, QAbstractItemModel::LayoutChangeHint hint)
+void QTransposeProxyModelPrivate::onLayoutAboutToBeChanged(const QList<QPersistentModelIndex> &sourceParents, QAbstractItemModel::LayoutChangeHint hint)
 {
     Q_Q(QTransposeProxyModel);
+    QList<QPersistentModelIndex> proxyParents;
+    proxyParents.reserve(sourceParents.size());
+    for (const QPersistentModelIndex &parent : sourceParents) {
+        if (!parent.isValid()) {
+            proxyParents << QPersistentModelIndex();
+            continue;
+        }
+        const QModelIndex mappedParent = q->mapFromSource(parent);
+        Q_ASSERT(mappedParent.isValid());
+        proxyParents << mappedParent;
+    }
+    QAbstractItemModel::LayoutChangeHint proxyHint = QAbstractItemModel::NoLayoutChangeHint;
+    if (hint == QAbstractItemModel::VerticalSortHint)
+        proxyHint = QAbstractItemModel::HorizontalSortHint;
+    else if (hint == QAbstractItemModel::HorizontalSortHint)
+        proxyHint = QAbstractItemModel::VerticalSortHint;
+    emit q->layoutAboutToBeChanged(proxyParents, proxyHint);
     const QModelIndexList proxyPersistentIndexes = q->persistentIndexList();
     layoutChangeProxyIndexes.clear();
     layoutChangePersistentIndexes.clear();
@@ -99,16 +116,6 @@ void QTransposeProxyModelPrivate::onLayoutAboutToBeChanged(const QList<QPersiste
         Q_ASSERT(srcPersistentIndex.isValid());
         layoutChangePersistentIndexes << srcPersistentIndex;
     }
-    QList<QPersistentModelIndex> proxyParents;
-    proxyParents.reserve(parents.size());
-    for (auto& srcParent : parents)
-        proxyParents << q->mapFromSource(srcParent);
-    QAbstractItemModel::LayoutChangeHint proxyHint = QAbstractItemModel::NoLayoutChangeHint;
-    if (hint == QAbstractItemModel::VerticalSortHint)
-        proxyHint = QAbstractItemModel::HorizontalSortHint;
-    else if (hint == QAbstractItemModel::HorizontalSortHint)
-        proxyHint = QAbstractItemModel::VerticalSortHint;
-    emit q->layoutAboutToBeChanged(proxyParents, proxyHint);
 }
 
 void QTransposeProxyModelPrivate::onDataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,

@@ -58,7 +58,6 @@ using namespace QtAndroid;
 namespace QtAndroidInput
 {
     static bool m_ignoreMouseEvents = false;
-    static bool m_softwareKeyboardVisible = false;
     static QRect m_softwareKeyboardRect;
 
     static QList<QWindowSystemInterface::TouchPoint> m_touchPoints;
@@ -79,15 +78,16 @@ namespace QtAndroidInput
                                            candidatesEnd);
     }
 
-    void showSoftwareKeyboard(int left, int top, int width, int height, int inputHints, int enterKeyType)
+    void showSoftwareKeyboard(int left, int top, int width, int height, int editorHeight, int inputHints, int enterKeyType)
     {
         QJniObject::callStaticMethod<void>(applicationClass(),
                                            "showSoftwareKeyboard",
-                                           "(IIIIII)V",
+                                           "(IIIIIII)V",
                                            left,
                                            top,
                                            width,
                                            height,
+                                           editorHeight,
                                            inputHints,
                                            enterKeyType);
 #ifdef QT_DEBUG_ANDROID_IM_PROTOCOL
@@ -113,12 +113,17 @@ namespace QtAndroidInput
 
     bool isSoftwareKeyboardVisible()
     {
-        return m_softwareKeyboardVisible;
+        return QJniObject::callStaticMethod<jboolean>(applicationClass(), "isSoftwareKeyboardVisible");
     }
 
     QRect softwareKeyboardRect()
     {
         return m_softwareKeyboardRect;
+    }
+
+    int getSelectHandleWidth()
+    {
+        return QJniObject::callStaticMethod<jint>(applicationClass(), "getSelectHandleWidth");
     }
 
     void updateHandles(int mode, QPoint editMenuPos, uint32_t editButtons, QPoint cursor, QPoint anchor, bool rtl)
@@ -127,6 +132,17 @@ namespace QtAndroidInput
                                            mode, editMenuPos.x(), editMenuPos.y(), editButtons,
                                            cursor.x(), cursor.y(),
                                            anchor.x(), anchor.y(), rtl);
+    }
+
+    void updateInputItemRectangle(int left, int top, int width, int height)
+    {
+        QJniObject::callStaticMethod<void>(applicationClass(),
+                                            "updateInputItemRectangle",
+                                            "(IIII)V",
+                                            left,
+                                            top,
+                                            width,
+                                            height);
     }
 
     static void mouseDown(JNIEnv */*env*/, jobject /*thiz*/, jint /*winId*/, jint x, jint y)
@@ -795,7 +811,6 @@ namespace QtAndroidInput
 
     static void keyboardVisibilityChanged(JNIEnv */*env*/, jobject /*thiz*/, jboolean visibility)
     {
-        m_softwareKeyboardVisible = visibility;
         if (!visibility)
             m_softwareKeyboardRect = QRect();
 

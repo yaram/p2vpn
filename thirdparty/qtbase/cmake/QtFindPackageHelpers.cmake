@@ -7,10 +7,10 @@
 # Only works if called from qt_find_package(), because the promotion needs to happen in the same
 # directory scope where the imported target is first created.
 #
-# Uses qt_internal_walk_libs.
+# Uses __qt_internal_walk_libs.
 function(qt_find_package_promote_targets_to_global_scope target)
-    qt_internal_walk_libs("${target}" _discarded_out_var _discarded_out_var_2
-                          "qt_find_package_targets_dict" "promote_global")
+    __qt_internal_walk_libs("${target}" _discarded_out_var _discarded_out_var_2
+                            "qt_find_package_targets_dict" "promote_global")
 endfunction()
 
 macro(qt_find_package)
@@ -43,6 +43,12 @@ macro(qt_find_package)
             message(AUTHOR_WARNING "qt_find_package(${ARGV0}) called even though the package "
                    "was already found. Consider removing the call.")
         endif()
+    endif()
+
+    # When configure.cmake is included only to record summary entries, there's no point in looking
+    # for the packages.
+    if(__QtFeature_only_record_summary_entries)
+        set(_qt_find_package_skip_find_package TRUE)
     endif()
 
     # Get the version if specified.
@@ -80,16 +86,31 @@ macro(qt_find_package)
         # in their own way. CMake has FindSQLite3.cmake and with the original
         # qt_find_package(SQLite3) call it is our intention to use the cmake package
         # in module mode.
-        if (${ARGV0}_FOUND AND arg_PROVIDED_TARGETS)
-            unset(any_target_found)
+        unset(_qt_any_target_found)
+        unset(_qt_should_unset_found_var)
+        if(${ARGV0}_FOUND AND arg_PROVIDED_TARGETS)
             foreach(expected_target ${arg_PROVIDED_TARGETS})
                 if (TARGET ${expected_target})
-                    set(any_target_found TRUE)
+                    set(_qt_any_target_found TRUE)
                     break()
                 endif()
             endforeach()
-            if(NOT any_target_found)
-                unset(${ARGV0}_FOUND)
+            if(NOT _qt_any_target_found)
+                set(_qt_should_unset_found_var TRUE)
+            endif()
+        endif()
+        # If we consider the package not to be found, make sure to unset both regular
+        # and CACHE vars, otherwise CMP0126 set to NEW might cause issues with
+        # packages not being found correctly.
+        if(NOT ${ARGV0}_FOUND OR _qt_should_unset_found_var)
+            unset(${ARGV0}_FOUND)
+            unset(${ARGV0}_FOUND CACHE)
+
+            # Unset the NOTFOUND ${package}_DIR var that might have been set by the previous
+            # find_package call, to get rid of "not found" messages in the feature summary
+            # if the package is found by the next find_package call.
+            if(DEFINED CACHE{${ARGV0}_DIR} AND NOT ${ARGV0}_DIR)
+                unset(${ARGV0}_DIR CACHE)
             endif()
         endif()
     endif()
@@ -105,13 +126,6 @@ macro(qt_find_package)
     # E.g. find_package(Qt6 COMPONENTS BuildInternals) followed by
     # qt_find_package(Qt6 COMPONENTS Core) doesn't end up calling find_package(Qt6Core).
     if (NOT ${ARGV0}_FOUND AND NOT _qt_find_package_skip_find_package)
-        # Unset the NOTFOUND ${package}_DIR var that might have been set by the previous
-        # find_package call, to get rid of "not found" messagees in the feature summary
-        # if the package is found by the next find_package call.
-        if(DEFINED CACHE{${ARGV0}_DIR} AND NOT ${ARGV0}_DIR)
-            unset(${ARGV0}_DIR CACHE)
-        endif()
-
         # Call original function without our custom arguments.
         find_package(${arg_UNPARSED_ARGUMENTS})
     endif()
@@ -163,8 +177,7 @@ macro(qt_find_package)
                 qt_internal_should_not_promote_package_target_to_global(
                     "${qt_find_package_target_name}" should_not_promote)
                 if(NOT is_global AND NOT should_not_promote)
-                    set_property(TARGET ${qt_find_package_target_name} PROPERTY
-                                                                       IMPORTED_GLOBAL TRUE)
+                    __qt_internal_promote_target_to_global(${qt_find_package_target_name})
                     qt_find_package_promote_targets_to_global_scope(
                         "${qt_find_package_target_name}")
                 endif()
@@ -213,17 +226,17 @@ endfunction()
 
 # This function records a dependency between ${main_target_name} and ${dep_target_name}
 # at the CMake package level.
-# E.g. Qt6CoreConfig.cmake needs to find_package(Qt6EntryPoint).
+# E.g. Qt6CoreConfig.cmake needs to find_package(Qt6EntryPointPrivate).
 # main_target_name = Core
-# dep_target_name = EntryPoint
+# dep_target_name = EntryPointPrivate
 # This is just a convenience function that deals with Qt targets and their associated packages
 # instead of raw package names.
 function(qt_record_extra_qt_package_dependency main_target_name dep_target_name
                                                                 dep_package_version)
-    # EntryPoint -> Qt6EntryPoint.
-    qt_internal_module_info(qtfied_target_name "${dep_target_name}")
-    qt_record_extra_package_dependency("${main_target_name}" "${qtfied_target_name_versioned}"
-                                                             "${dep_package_version}")
+    # EntryPointPrivate -> Qt6EntryPointPrivate.
+    qt_internal_qtfy_target(qtfied_target_name "${dep_target_name}")
+    qt_record_extra_package_dependency("${main_target_name}"
+        "${qtfied_target_name_versioned}" "${dep_package_version}")
 endfunction()
 
 # This function records a 'QtFooTools' package dependency for the ${main_target_name} target
@@ -259,12 +272,35 @@ function(qt_record_extra_qt_main_tools_package_dependency main_target_name
                                                           dep_non_versioned_package_name
                                                           dep_package_version)
     # WaylandScannerTools -> Qt6WaylandScannerTools.
-    qt_internal_module_info(qtfied_package_name "${dep_non_versioned_package_name}")
+    qt_internal_qtfy_target(qtfied_package_name "${dep_non_versioned_package_name}")
     qt_record_extra_main_tools_package_dependency(
         "${main_target_name}" "${qtfied_package_name_versioned}" "${dep_package_version}")
 endfunction()
 
-# This function stores the list of Qt modules a library depend on,
+# Record an extra 3rd party target as a dependency for ${main_target_name}.
+#
+# Adds a find_package(${dep_target_package_name}) in ${main_target_name}Dependencies.cmake.
+#
+# Needed to record a dependency on the package that provides WrapVulkanHeaders::WrapVulkanHeaders.
+# The package version, components, whether the package is optional, etc, are queried from the
+# ${dep_target} target properties.
+function(qt_record_extra_third_party_dependency main_target_name dep_target)
+    if(NOT TARGET "${main_target_name}")
+        qt_get_tool_target_name(main_target_name "${main_target_name}")
+    endif()
+    if(TARGET "${main_target_name}")
+        get_target_property(extra_deps "${main_target_name}" _qt_extra_third_party_dep_targets)
+        if(NOT extra_deps)
+            set(extra_deps "")
+        endif()
+
+        list(APPEND extra_deps "${dep_target}")
+        set_target_properties("${main_target_name}" PROPERTIES _qt_extra_third_party_dep_targets
+                                                               "${extra_deps}")
+    endif()
+endfunction()
+
+# This function stores the list of Qt targets a library depend on,
 # along with their version info, for usage in ${target}Depends.cmake file
 function(qt_register_target_dependencies target public_libs private_libs)
     get_target_property(target_deps "${target}" _qt_target_deps)
@@ -282,15 +318,13 @@ function(qt_register_target_dependencies target public_libs private_libs)
     foreach(lib IN LISTS lib_list)
         if ("${lib}" MATCHES "^Qt::(.*)")
             set(lib "${CMAKE_MATCH_1}")
-            if (lib STREQUAL Platform
-                    OR lib STREQUAL GlobalConfig
-                    OR lib STREQUAL GlobalConfigPrivate
-                    OR lib STREQUAL PlatformModuleInternal
-                    OR lib STREQUAL PlatformPluginInternal
-                    OR lib STREQUAL PlatformToolInternal)
+            if (lib STREQUAL "Platform"
+                    OR lib STREQUAL "GlobalConfig"
+                    OR lib STREQUAL "GlobalConfigPrivate"
+                    OR lib STREQUAL "PlatformModuleInternal"
+                    OR lib STREQUAL "PlatformPluginInternal"
+                    OR lib STREQUAL "PlatformToolInternal")
                 list(APPEND target_deps "Qt6\;${PROJECT_VERSION}")
-            elseif ("${lib}" MATCHES "(.*)Private")
-                list(APPEND target_deps "${INSTALL_CMAKE_NAMESPACE}${CMAKE_MATCH_1}\;${PROJECT_VERSION}")
             else()
                 list(APPEND target_deps "${INSTALL_CMAKE_NAMESPACE}${lib}\;${PROJECT_VERSION}")
             endif()
@@ -304,8 +338,4 @@ endfunction()
 function(qt_internal_should_not_promote_package_target_to_global target out_var)
     get_property(should_not_promote TARGET "${target}" PROPERTY _qt_no_promote_global)
     set("${out_var}" "${should_not_promote}" PARENT_SCOPE)
-endfunction()
-
-function(qt_internal_disable_find_package_global_promotion target)
-    set_target_properties("${target}" PROPERTIES _qt_no_promote_global TRUE)
 endfunction()

@@ -6,7 +6,7 @@
 
 qt_internal_add_plugin(QEglFSKmsEglDeviceIntegrationPlugin
     OUTPUT_NAME qeglfs-kms-egldevice-integration
-    TYPE egldeviceintegrations
+    PLUGIN_TYPE egldeviceintegrations
     SOURCES
         qeglfskmsegldevice.cpp qeglfskmsegldevice.h
         qeglfskmsegldeviceintegration.cpp qeglfskmsegldeviceintegration.h
@@ -14,7 +14,7 @@ qt_internal_add_plugin(QEglFSKmsEglDeviceIntegrationPlugin
         qeglfskmsegldevicescreen.cpp qeglfskmsegldevicescreen.h
     DEFINES
         QT_EGL_NO_X11
-    PUBLIC_LIBRARIES
+    LIBRARIES
         Libdrm::Libdrm
         Qt::Core
         Qt::CorePrivate

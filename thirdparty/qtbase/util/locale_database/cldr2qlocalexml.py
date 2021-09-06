@@ -1,8 +1,8 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # coding=utf8
 #############################################################################
 ##
-## Copyright (C) 2020 The Qt Company Ltd.
+## Copyright (C) 2021 The Qt Company Ltd.
 ## Contact: https://www.qt.io/licensing/
 ##
 ## This file is part of the test suite of the Qt Toolkit.
@@ -27,7 +27,7 @@
 ## $QT_END_LICENSE$
 ##
 #############################################################################
-"""Convert CLDR data to qLocaleXML
+"""Convert CLDR data to QLocaleXML
 
 The CLDR data can be downloaded from CLDR_, which has a sub-directory
 for each version; you need the ``core.zip`` file for your version of
@@ -42,7 +42,7 @@ standard output. This file is the input needed by
 
 When you update the CLDR data, be sure to also update
 src/corelib/text/qt_attribution.json's entry for unicode-cldr. Check
-this script's output for unknown language, country or script messages;
+this script's output for unknown language, territory or script messages;
 if any can be resolved, use their entry in common/main/en.xml to
 append new entries to enumdata.py's lists and update documentation in
 src/corelib/text/qlocale.qdoc, adding the new entries in alphabetic
@@ -51,71 +51,63 @@ order.
 While updating the locale data, check also for updates to MS-Win's
 time zone names; see cldr2qtimezone.py for details.
 
+All the scripts mentioned support --help to tell you how to use them.
+
 .. _CLDR: ftp://unicode.org/Public/cldr/
 """
 
-import os
+from pathlib import Path
 import sys
+import argparse
 
 from cldr import CldrReader
 from qlocalexml import QLocaleXmlWriter
-from enumdata import language_list, script_list, country_list
 
-def usage(name, err, message = ''):
-    err.write("""Usage: {} path/to/cldr/common/main [out-file.xml]
-""".format(name)) # TODO: expand command-line, improve help message
-    if message:
-        err.write('\n' + message + '\n')
 
-def main(args, out, err):
-    # TODO: make calendars a command-line option
-    calendars = ['gregorian', 'persian', 'islamic'] # 'hebrew'
+def main(out, err):
+    all_calendars = ['gregorian', 'persian', 'islamic']  # 'hebrew'
 
-    # TODO: make argument parsing more sophisticated
-    name = args.pop(0)
-    if not args:
-        usage(name, err, 'Where is your CLDR data tree ?')
-        return 1
+    parser = argparse.ArgumentParser(
+        description='Generate QLocaleXML from CLDR data.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('cldr_path', help='path to the root of the CLDR tree')
+    parser.add_argument('out_file', help='output XML file name',
+                        nargs='?', metavar='out-file.xml')
+    parser.add_argument('--calendars', help='select calendars to emit data for',
+                        nargs='+', metavar='CALENDAR',
+                        choices=all_calendars, default=all_calendars)
 
-    root = args.pop(0)
-    if not os.path.exists(os.path.join(root, 'common', 'main', 'root.xml')):
-        usage(name, err,
-              'First argument is the root of the CLDR tree: found no common/main/root.xml under '
-              + root)
-        return 1
+    args = parser.parse_args()
 
-    xml = args.pop(0) if args else None
+    root = Path(args.cldr_path)
+    root_xml_path = 'common/main/root.xml'
+
+    if not root.joinpath(root_xml_path).exists():
+        parser.error('First argument is the root of the CLDR tree: '
+                     f'found no {root_xml_path} under {root}')
+
+    xml = args.out_file
     if not xml or xml == '-':
         emit = out
     elif not xml.endswith('.xml'):
-        usage(name, err, 'Please use a .xml extension on your output file name, not ' + xml)
-        return 1
+        parser.error(f'Please use a .xml extension on your output file name, not {xml}')
     else:
         try:
             emit = open(xml, 'w')
         except IOError as e:
-            usage(name, err, 'Failed to open "{}" to write output to it\n'.format(xml))
-            return 1
-
-    if args:
-        usage(name, err, 'Too many arguments - excess: ' + ' '.join(args))
-        return 1
-
-    if emit.encoding != 'UTF-8' or (emit.encoding is None and sys.getdefaultencoding() != 'UTF-8'):
-        reload(sys) # Weirdly, this gets a richer sys module than the plain import got us !
-        sys.setdefaultencoding('UTF-8')
+            parser.error(f'Failed to open "{xml}" to write output to it')
 
     # TODO - command line options to tune choice of grumble and whitter:
     reader = CldrReader(root, err.write, err.write)
     writer = QLocaleXmlWriter(emit.write)
 
     writer.version(reader.root.cldrVersion)
-    writer.enumData(language_list, script_list, country_list)
+    writer.enumData()
     writer.likelySubTags(reader.likelySubTags())
-    writer.locales(reader.readLocales(calendars), calendars)
+    writer.locales(reader.readLocales(args.calendars), args.calendars)
 
-    writer.close()
+    writer.close(err.write)
     return 0
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv, sys.stdout, sys.stderr))
+    sys.exit(main(sys.stdout, sys.stderr))

@@ -52,24 +52,16 @@ QT_BEGIN_NAMESPACE
 template<typename T>
 class QPromise
 {
-    static_assert (std::is_copy_constructible_v<T>
-                   || std::is_move_constructible_v<T>
+    static_assert (std::is_move_constructible_v<T>
                    || std::is_same_v<T, void>,
-                   "Type with copy or move constructors or type void is required");
+                   "A move-constructible type or type void is required");
 public:
     QPromise() = default;
     Q_DISABLE_COPY(QPromise)
-    QPromise(QPromise<T> &&other) : d(other.d)
-    {
-        other.d = QFutureInterface<T>();
-    }
-    QPromise(QFutureInterface<T> &other) : d(other) {}
-    QPromise& operator=(QPromise<T> &&other)
-    {
-        QPromise<T> tmp(std::move(other));
-        tmp.swap(*this);
-        return *this;
-    }
+    QPromise(QPromise<T> &&other) = default;
+    QPromise(const QFutureInterface<T> &other) : d(other) {}
+    QPromise(QFutureInterface<T> &&other) noexcept : d(std::move(other)) {}
+    QT_MOVE_ASSIGNMENT_OPERATOR_IMPL_VIA_MOVE_AND_SWAP(QPromise)
     ~QPromise()
     {
         const int state = d.loadState();
@@ -93,7 +85,11 @@ public:
     }
 #ifndef QT_NO_EXCEPTIONS
     void setException(const QException &e) { d.reportException(e); }
+#if QT_VERSION < QT_VERSION_CHECK(7, 0, 0)
     void setException(std::exception_ptr e) { d.reportException(e); }
+#else
+    void setException(const std::exception_ptr &e) { d.reportException(e); }
+#endif
 #endif
     void start() { d.reportStarted(); }
     void finish() { d.reportFinished(); }
@@ -120,7 +116,7 @@ public:
     bool addResult(T &&result, int index = -1) { }
 #endif
 private:
-    mutable QFutureInterface<T> d = QFutureInterface<T>();
+    mutable QFutureInterface<T> d;
 };
 
 template<typename T>

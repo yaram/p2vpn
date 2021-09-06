@@ -210,9 +210,6 @@ do {\
         return;\
 } while (false)
 
-#define QWARN(msg)\
-    QTest::qWarn(static_cast<const char *>(msg), __FILE__, __LINE__)
-
 #ifdef QT_TESTCASE_BUILDDIR
 
 #ifndef QT_TESTCASE_SOURCEDIR
@@ -297,6 +294,7 @@ namespace QTest
     Q_TESTLIB_EXPORT char *toString(const char *);
     Q_TESTLIB_EXPORT char *toString(const volatile void *);
     Q_TESTLIB_EXPORT char *toString(const void *); // ### FIXME: Qt 7: Remove
+    Q_TESTLIB_EXPORT char *toString(const volatile QObject *);
 
     Q_TESTLIB_EXPORT void qInit(QObject *testObject, int argc = 0, char **argv = nullptr);
     Q_TESTLIB_EXPORT int qRun();
@@ -419,6 +417,27 @@ namespace QTest
     {
         return compare_helper(t1 == t2, "Compared pointers are not the same",
                               toString(t1), toString(t2), actual, expected, file, line);
+    }
+
+    inline bool compare_ptr_helper(const volatile QObject *t1, const volatile QObject *t2, const char *actual,
+                                   const char *expected, const char *file, int line)
+    {
+        return compare_helper(t1 == t2, "Compared QObject pointers are not the same",
+                              toString(t1), toString(t2), actual, expected, file, line);
+    }
+
+    inline bool compare_ptr_helper(const volatile QObject *t1, std::nullptr_t, const char *actual,
+                                   const char *expected, const char *file, int line)
+    {
+        return compare_helper(t1 == nullptr, "Compared QObject pointers are not the same",
+                              toString(t1), toString(nullptr), actual, expected, file, line);
+    }
+
+    inline bool compare_ptr_helper(std::nullptr_t, const volatile QObject *t2, const char *actual,
+                                   const char *expected, const char *file, int line)
+    {
+        return compare_helper(nullptr == t2, "Compared QObject pointers are not the same",
+                              toString(nullptr), toString(t2), actual, expected, file, line);
     }
 
     inline bool compare_ptr_helper(const volatile void *t1, std::nullptr_t, const char *actual,
@@ -553,6 +572,19 @@ namespace QTest
 }
 
 #undef QTEST_COMPARE_DECL
+
+#if QT_DEPRECATED_SINCE(6, 2)
+namespace QTestPrivate {
+QT_DEPRECATED_VERSION_X_6_2("Use qWarning() instead")
+Q_DECL_UNUSED static inline void qWarnMacro(const char *message, const char *file = nullptr, int line = 0)
+{
+    QTest::qWarn(message, file, line);
+}
+}
+#endif
+
+#define QWARN(msg) \
+    QTestPrivate::qWarnMacro(static_cast<const char *>(msg), __FILE__, __LINE__)
 
 QT_END_NAMESPACE
 

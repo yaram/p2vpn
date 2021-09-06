@@ -277,7 +277,7 @@ bool QFSFileEngine::open(QIODevice::OpenMode openMode, FILE *fh, QFile::FileHand
 
     d->openMode = res.openMode;
     d->lastFlushFailed = false;
-    d->closeFileHandle = (handleFlags & QFile::AutoCloseHandle);
+    d->closeFileHandle = handleFlags.testAnyFlag(QFile::AutoCloseHandle);
     d->fileEntry.clear();
     d->tried_stat = 0;
     d->fd = -1;
@@ -339,7 +339,7 @@ bool QFSFileEngine::open(QIODevice::OpenMode openMode, int fd, QFile::FileHandle
 
     d->openMode = res.openMode;
     d->lastFlushFailed = false;
-    d->closeFileHandle = (handleFlags & QFile::AutoCloseHandle);
+    d->closeFileHandle = handleFlags.testAnyFlag(QFile::AutoCloseHandle);
     d->fileEntry.clear();
     d->fh = nullptr;
     d->fd = -1;
@@ -981,7 +981,10 @@ QString QFSFileEngine::tempPath()
   Creates a link from the file currently specified by fileName() to
   \a newName. What a link is depends on the underlying filesystem
   (be it a shortcut on Windows or a symbolic link on Unix). Returns
-  true if successful; otherwise returns \c false.
+  \c true if successful; otherwise returns \c false.
+
+  \note On Windows \a newName is expected to end with .lnk as the filename
+  extension.
 */
 
 

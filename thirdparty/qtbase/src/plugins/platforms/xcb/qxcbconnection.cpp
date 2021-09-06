@@ -471,11 +471,7 @@ const char *xcb_protocol_request_codes[] =
 
 void QXcbConnection::handleXcbError(xcb_generic_error_t *error)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     qintptr result = 0;
-#else
-    long result = 0;
-#endif
     QAbstractEventDispatcher* dispatcher = QAbstractEventDispatcher::instance();
     if (dispatcher && dispatcher->filterNativeEvent(m_nativeInterface->nativeEventType(), error, &result))
         return;
@@ -570,11 +566,7 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
     if (Q_UNLIKELY(lcQpaEvents().isDebugEnabled()))
         printXcbEvent(lcQpaEvents(), "Event", event);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     qintptr result = 0; // Used only by MS Windows
-#else
-    long result = 0; // Used only by MS Windows
-#endif
     if (QAbstractEventDispatcher *dispatcher = QAbstractEventDispatcher::instance()) {
         if (dispatcher->filterNativeEvent(m_nativeInterface->nativeEventType(), event, &result))
             return;
@@ -706,6 +698,8 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
             QXcbVirtualDesktop *virtualDesktop = virtualDesktopForRootWindow(propertyNotify->window);
             if (virtualDesktop)
                 virtualDesktop->updateWorkArea();
+        } else if (propertyNotify->atom == atom(QXcbAtom::_NET_SUPPORTED)) {
+            m_wmSupport->updateNetWMAtoms();
         } else {
             HANDLE_PLATFORM_WINDOW_EVENT(xcb_property_notify_event_t, window, handlePropertyNotifyEvent);
         }

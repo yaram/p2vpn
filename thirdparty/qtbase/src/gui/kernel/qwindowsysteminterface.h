@@ -244,11 +244,7 @@ public:
                                               Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers);
 #endif // QT_CONFIG(draganddrop)
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     static bool handleNativeEvent(QWindow *window, const QByteArray &eventType, void *message, qintptr *result);
-#else
-    static bool handleNativeEvent(QWindow *window, const QByteArray &eventType, void *message, long *result);
-#endif
 
     // Changes to the screen
     static void handleScreenAdded(QPlatformScreen *screen, bool isPrimary = false);
@@ -299,11 +295,11 @@ public:
 
 #ifndef QT_NO_GESTURES
     static bool handleGestureEvent(QWindow *window, ulong timestamp, const QPointingDevice *device,  Qt::NativeGestureType type,
-                                   const QPointF &local, const QPointF &global);
+                                   const QPointF &local, const QPointF &global, int fingerCount = 0);
     static bool handleGestureEventWithRealValue(QWindow *window, ulong timestamp, const QPointingDevice *device, Qt::NativeGestureType type,
-                                                qreal value, const QPointF &local, const QPointF &global);
-    static bool handleGestureEventWithSequenceIdAndValue(QWindow *window, ulong timestamp, const QPointingDevice *device, Qt::NativeGestureType type,
-                                                         ulong sequenceId, quint64 value, const QPointF &local, const QPointF &global);
+                                                qreal value, const QPointF &local, const QPointF &global, int fingerCount = 2);
+    static bool handleGestureEventWithValueAndDelta(QWindow *window, ulong timestamp, const QPointingDevice *device, Qt::NativeGestureType type, qreal value,
+                                                    const QPointF &delta, const QPointF &local, const QPointF &global, int fingerCount = 2);
 #endif // QT_NO_GESTURES
 
     static void handlePlatformPanelEvent(QWindow *window);

@@ -52,7 +52,7 @@
 
 #include <qglobal.h>
 
-#if QT_HAS_INCLUDE(<memory_resource>) && __cplusplus > 201402L
+#if __has_include(<memory_resource>) && __cplusplus > 201402L
 #  include <unordered_set>
 #  include <memory_resource>
 #  include <qhash.h> // for the hashing helpers
@@ -67,7 +67,7 @@ class QDuplicateTracker {
 #ifdef __cpp_lib_memory_resource
     template <typename HT>
     struct QHasher {
-        size_t storedSeed = qGlobalQHashSeed();
+        size_t storedSeed = QHashSeed::globalSeed();
         size_t operator()(const HT &t) const {
             return QHashPrivate::calculateHash(t, storedSeed);
         }
@@ -89,6 +89,13 @@ class QDuplicateTracker {
 #endif
     Q_DISABLE_COPY_MOVE(QDuplicateTracker);
 public:
+    static constexpr inline bool uses_pmr =
+        #ifdef __cpp_lib_memory_resource
+            true
+        #else
+            false
+        #endif
+            ;
     QDuplicateTracker() = default;
     void reserve(qsizetype n) { set.reserve(n); }
     [[nodiscard]] bool hasSeen(const T &s)
@@ -117,10 +124,21 @@ public:
     }
 
     template <typename C>
-    void appendTo(C &c) const
+    void appendTo(C &c) const &
     {
         for (const auto &e : set)
             c.push_back(e);
+    }
+
+    template <typename C>
+    void appendTo(C &c) &&
+    {
+        if constexpr (uses_pmr) {
+            while (!set.empty())
+                c.push_back(std::move(set.extract(set.begin()).value()));
+        } else {
+            return appendTo(c); // lvalue version
+        }
     }
 };
 

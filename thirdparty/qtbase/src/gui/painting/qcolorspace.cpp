@@ -146,13 +146,17 @@ QColorMatrix QColorSpacePrimaries::toXyzMatrix() const
         QColorVector srcCone = abrad.map(wXyz);
         QColorVector dstCone = abrad.map(wXyzD50);
 
-        QColorMatrix wToD50 = { { dstCone.x / srcCone.x, 0, 0 },
-                                { 0, dstCone.y / srcCone.y, 0 },
-                                { 0, 0, dstCone.z / srcCone.z } };
+        if (srcCone.x && srcCone.y && srcCone.z) {
+            QColorMatrix wToD50 = { { dstCone.x / srcCone.x, 0, 0 },
+                                    { 0, dstCone.y / srcCone.y, 0 },
+                                    { 0, 0, dstCone.z / srcCone.z } };
 
 
-        QColorMatrix chromaticAdaptation = abradinv * (wToD50 * abrad);
-        toXyz = chromaticAdaptation * toXyz;
+            QColorMatrix chromaticAdaptation = abradinv * (wToD50 * abrad);
+            toXyz = chromaticAdaptation * toXyz;
+        } else {
+            toXyz.r = {0, 0, 0}; // set to invalid value
+        }
     }
 
     return toXyz;
@@ -452,6 +456,17 @@ QColorTransform QColorSpacePrivate::transformationToColorSpace(const QColorSpace
     ptr->colorSpaceOut = out;
     ptr->colorMatrix = out->toXyz.inverted() * toXyz;
     return combined;
+}
+
+QColorTransform QColorSpacePrivate::transformationToXYZ() const
+{
+    QColorTransform transform;
+    auto ptr = new QColorTransformPrivate;
+    transform.d = ptr;
+    ptr->colorSpaceIn = this;
+    ptr->colorSpaceOut = this;
+    ptr->colorMatrix = toXyz;
+    return transform;
 }
 
 /*!
@@ -1012,6 +1027,35 @@ QColorTransform QColorSpace::transformationToColorSpace(const QColorSpace &color
 QColorSpace::operator QVariant() const
 {
     return QVariant::fromValue(*this);
+}
+
+/*!
+    Returns the name or short description. If a description hasn't been given
+    in setDescription(), the original name of the profile is returned if the
+    profile is unmodified, a guessed name is returned if the profile has been
+    recognized as a known color space, otherwise an empty string is returned.
+
+    \since 6.2
+*/
+QString QColorSpace::description() const noexcept
+{
+    if (d_ptr)
+        return d_ptr->userDescription.isEmpty() ? d_ptr->description : d_ptr->userDescription;
+    return QString();
+}
+
+/*!
+    Sets the name or short description of the color space to \a description.
+
+    If set to empty description() will return original or guessed descriptions
+    instead.
+
+    \since 6.2
+*/
+void QColorSpace::setDescription(const QString &description)
+{
+    detach();
+    d_ptr->userDescription = description;
 }
 
 /*****************************************************************************

@@ -67,7 +67,7 @@ namespace QTest {
         AI_Failures = 3,
         AI_Errors = 4,
         AI_Type = 5,
-        AI_Description = 6,
+        AI_Message = 6,
         AI_PropertyValue = 7,
         AI_QTestVersion = 8,
         AI_QtVersion = 9,
@@ -78,7 +78,10 @@ namespace QTest {
         AI_Value = 14,
         AI_Iterations = 15,
         AI_Time = 16,
-        AI_Timestamp = 17
+        AI_Timestamp = 17,
+        AI_Hostname = 18,
+        AI_Classname = 19,
+        AI_Skipped = 20
     };
 
     enum LogElementType
@@ -87,12 +90,14 @@ namespace QTest {
         LET_Property = 0,
         LET_Properties = 1,
         LET_Failure = 2,
-        LET_Message = 3,
+        LET_Error = 3,
         LET_TestCase = 4,
         LET_TestSuite = 5,
         LET_Benchmark = 6,
-        LET_SystemError = 7,
-        LET_SystemOutput = 8
+        LET_Message = 7,
+        LET_SystemError = 8,
+        LET_SystemOutput = 9,
+        LET_Skipped = 10
     };
 }
 

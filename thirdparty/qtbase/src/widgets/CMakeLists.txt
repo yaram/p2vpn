@@ -5,7 +5,6 @@
 #####################################################################
 
 qt_internal_add_module(Widgets
-    GENERATE_METATYPES
     QMAKE_MODULE_CONFIG uic
     PLUGIN_TYPES styles
     SOURCES
@@ -65,8 +64,6 @@ qt_internal_add_module(Widgets
     PRECOMPILED_HEADER
         "kernel/qt_widgets_pch.h"
 )
-
-add_dependencies(Widgets ${QT_CMAKE_EXPORT_NAMESPACE}::uic)  # special case
 
 # Resources:
 set(qstyle_resource_files
@@ -826,3 +823,14 @@ qt_internal_add_docs(Widgets
     doc/qtwidgets.qdocconf
 )
 
+# include the snippet projects for developer-builds
+if(QT_FEATURE_private_tests)
+    add_subdirectory(doc/snippets/customviewstyle)
+    add_subdirectory(doc/snippets/filedialogurls)
+    add_subdirectory(doc/snippets/graphicssceneadditem)
+    if(QT_FEATURE_opengl AND QT_FEATURE_printdialog)
+        add_subdirectory(doc/snippets/graphicsview)
+    endif()
+    add_subdirectory(doc/snippets/mdiarea)
+    add_subdirectory(doc/snippets/myscrollarea)
+endif()

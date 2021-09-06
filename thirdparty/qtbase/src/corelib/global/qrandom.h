@@ -83,7 +83,7 @@ public:
 
     quint32 generate()
     {
-        return _fillRange(nullptr, 1);
+        return quint32(_fillRange(nullptr, 1));
     }
 
     quint64 generate64()
@@ -217,6 +217,10 @@ protected:
 private:
     Q_CORE_EXPORT quint64 _fillRange(void *buffer, qptrdiff count);
 
+    struct InitialRandomData {
+        quintptr data[16 / sizeof(quintptr)];
+    };
+    friend InitialRandomData qt_initial_random_value() noexcept;
     friend class QRandomGenerator64;
     struct SystemGenerator;
     struct SystemAndGlobalGenerators;

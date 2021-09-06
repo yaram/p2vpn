@@ -88,15 +88,6 @@ static bool hasValidCoords(QRectF r)
     return isValidCoord(r.x()) && isValidCoord(r.y()) && isValidCoord(r.width()) && isValidCoord(r.height());
 }
 
-struct QPainterPathPrivateDeleter
-{
-    static inline void cleanup(QPainterPathPrivate *d)
-    {
-        if (d && !d->ref.deref())
-            delete d;
-    }
-};
-
 // This value is used to determine the length of control point vectors
 // when approximating arc segments as curves. The factor is multiplied
 // with the radius of the circle.
@@ -554,12 +545,7 @@ QPainterPath::QPainterPath() noexcept
 
     \sa operator=()
 */
-QPainterPath::QPainterPath(const QPainterPath &other)
-    : d_ptr(other.d_ptr.data())
-{
-    if (d_ptr)
-        d_ptr->ref.ref();
-}
+QPainterPath::QPainterPath(const QPainterPath &other) = default;
 
 /*!
     Creates a QPainterPath object with the given \a startPoint as its
@@ -575,18 +561,8 @@ QPainterPath::QPainterPath(const QPointF &startPoint)
 
 void QPainterPath::detach()
 {
-    if (d_ptr->ref.loadRelaxed() != 1)
-        detach_helper();
+    d_ptr.detach();
     setDirty(true);
-}
-
-/*!
-    \internal
-*/
-void QPainterPath::detach_helper()
-{
-    QPainterPathPrivate *data = new QPainterPathPrivate(*d_func());
-    d_ptr.reset(data);
 }
 
 /*!
@@ -611,12 +587,8 @@ void QPainterPath::ensureData_helper()
 */
 QPainterPath &QPainterPath::operator=(const QPainterPath &other)
 {
-    if (other.d_func() != d_func()) {
-        QPainterPathPrivate *data = other.d_func();
-        if (data)
-            data->ref.ref();
-        d_ptr.reset(data);
-    }
+    QPainterPath copy(other);
+    swap(copy);
     return *this;
 }
 

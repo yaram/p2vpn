@@ -168,13 +168,6 @@ public:
 
     QMetaObject *toMetaObject() const;
 
-#ifndef QT_NO_DATASTREAM
-    void serialize(QDataStream& stream) const;
-    void deserialize
-        (QDataStream& stream,
-         const QMap<QByteArray, const QMetaObject *>& references);
-#endif
-
 private:
     Q_DISABLE_COPY_MOVE(QMetaObjectBuilder)
 
@@ -210,6 +203,9 @@ public:
 
     int attributes() const;
     void setAttributes(int value);
+
+    int isConst() const;
+    void setConst(bool methodIsConst=true);
 
     int revision() const;
     void setRevision(int revision);

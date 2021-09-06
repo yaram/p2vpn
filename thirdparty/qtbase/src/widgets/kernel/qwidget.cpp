@@ -4200,7 +4200,7 @@ QWidget *QWidget::nativeParentWidget() const
 }
 
 /*! \fn QWidget *QWidget::topLevelWidget() const
-    \obsolete
+    \deprecated
 
     Use window() instead.
 */
@@ -4721,7 +4721,9 @@ void QWidgetPrivate::resolveLayoutDirection()
 /*!
     \property QWidget::layoutDirection
 
-    \brief the layout direction for this widget
+    \brief the layout direction for this widget.
+
+    \note This method no longer affects text layout direction since Qt 4.7.
 
     By default, this property is set to Qt::LeftToRight.
 
@@ -4732,7 +4734,6 @@ void QWidgetPrivate::resolveLayoutDirection()
     has been called for the parent do not inherit the parent's layout
     direction.
 
-    This method no longer affects text layout direction since Qt 4.7.
 
     \sa QApplication::layoutDirection
 */
@@ -5939,7 +5940,7 @@ void QWidgetPrivate::setWindowIconText_sys(const QString &iconText)
     new \a iconText as an argument.
 
     \since 5.2
-    \obsolete
+    \deprecated
 
     This signal is deprecated.
 */
@@ -6071,7 +6072,7 @@ void QWidgetPrivate::setWindowIcon_sys()
     It is only implemented on the X11 platform, and only certain
     window managers use this window property.
 
-    \obsolete
+    \deprecated
     This property is deprecated.
 
     \sa windowIcon, windowTitle
@@ -9693,16 +9694,16 @@ QVariant QWidget::inputMethodQuery(Qt::InputMethodQuery query) const
 */
 Qt::InputMethodHints QWidget::inputMethodHints() const
 {
-#ifndef QT_NO_IM
+#if QT_CONFIG(im)
     const QWidgetPrivate *priv = d_func();
     while (priv->inheritsInputMethodHints) {
         priv = priv->q_func()->parentWidget()->d_func();
         Q_ASSERT(priv);
     }
     return priv->imHints;
-#else //QT_NO_IM
-    return 0;
-#endif //QT_NO_IM
+#else
+    return Qt::ImhNone;
+#endif
 }
 
 void QWidget::setInputMethodHints(Qt::InputMethodHints hints)
@@ -11666,7 +11667,7 @@ void QWidgetPrivate::stackUnder_sys(QWidget*)
 
 /*!
     \fn bool QWidget::isTopLevel() const
-    \obsolete
+    \deprecated
 
     Use isWindow() instead.
 */
@@ -11995,7 +11996,7 @@ void QWidgetPrivate::adjustQuitOnCloseAttribute()
 QOpenGLContext *QWidgetPrivate::shareContext() const
 {
 #ifdef QT_NO_OPENGL
-    return 0;
+    return nullptr;
 #else
     if (!extra || !extra->topextra || !extra->topextra->window)
         return nullptr;

@@ -193,20 +193,20 @@ public:
         knownFlagsMask &= ~flags;
     }
 
-    bool exists() const                     { return (entryFlags & ExistsAttribute); }
+    bool exists() const                     { return entryFlags.testAnyFlag(ExistsAttribute); }
 
-    bool isLink() const                     { return  (entryFlags & LinkType); }
-    bool isFile() const                     { return (entryFlags & FileType); }
-    bool isDirectory() const                { return (entryFlags & DirectoryType); }
+    bool isLink() const                     { return entryFlags.testAnyFlag(LinkType); }
+    bool isFile() const                     { return entryFlags.testAnyFlag(FileType); }
+    bool isDirectory() const                { return entryFlags.testAnyFlag(DirectoryType); }
     bool isBundle() const;
     bool isAlias() const;
-    bool isLegacyLink() const               { return (entryFlags & LegacyLinkType); }
-    bool isSequential() const               { return (entryFlags & SequentialType); }
-    bool isHidden() const                   { return (entryFlags & HiddenAttribute); }
-    bool wasDeleted() const                 { return (entryFlags & WasDeletedAttribute); }
+    bool isLegacyLink() const               { return entryFlags.testAnyFlag(LegacyLinkType); }
+    bool isSequential() const               { return entryFlags.testAnyFlag(SequentialType); }
+    bool isHidden() const                   { return entryFlags.testAnyFlag(HiddenAttribute); }
+    bool wasDeleted() const                 { return entryFlags.testAnyFlag(WasDeletedAttribute); }
 #if defined(Q_OS_WIN)
-    bool isLnkFile() const                  { return (entryFlags & WinLnkType); }
-    bool isJunction() const                 { return (entryFlags & JunctionType); }
+    bool isLnkFile() const                  { return entryFlags.testAnyFlag(WinLnkType); }
+    bool isJunction() const                 { return entryFlags.testAnyFlag(JunctionType); }
 #else
     bool isLnkFile() const                  { return false; }
     bool isJunction() const                 { return false; }
@@ -214,7 +214,7 @@ public:
 
     qint64 size() const                     { return size_; }
 
-    QFile::Permissions permissions() const  { return QFile::Permissions(Permissions & entryFlags); }
+    QFile::Permissions permissions() const;
 
     QDateTime accessTime() const;
     QDateTime birthTime() const;
@@ -267,9 +267,11 @@ private:
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QFileSystemMetaData::MetaDataFlags)
 
+inline QFile::Permissions QFileSystemMetaData::permissions() const { return QFile::Permissions::fromInt((Permissions & entryFlags).toInt()); }
+
 #if defined(Q_OS_DARWIN)
-inline bool QFileSystemMetaData::isBundle() const                   { return (entryFlags & BundleType); }
-inline bool QFileSystemMetaData::isAlias() const                    { return (entryFlags & AliasType); }
+inline bool QFileSystemMetaData::isBundle() const                   { return entryFlags.testAnyFlag(BundleType); }
+inline bool QFileSystemMetaData::isAlias() const                    { return entryFlags.testAnyFlag(AliasType); }
 #else
 inline bool QFileSystemMetaData::isBundle() const                   { return false; }
 inline bool QFileSystemMetaData::isAlias() const                    { return false; }
@@ -298,13 +300,13 @@ inline QDateTime QFileSystemMetaData::fileTime(QAbstractFileEngine::FileTime tim
 
 #if defined(Q_OS_UNIX)
 inline QDateTime QFileSystemMetaData::birthTime() const
-{ return birthTime_ ? QDateTime::fromMSecsSinceEpoch(birthTime_) : QDateTime(); }
+{ return birthTime_ ? QDateTime::fromMSecsSinceEpoch(birthTime_, Qt::UTC) :  QDateTime(); }
 inline QDateTime QFileSystemMetaData::metadataChangeTime() const
-{ return metadataChangeTime_ ? QDateTime::fromMSecsSinceEpoch(metadataChangeTime_) : QDateTime(); }
+{ return metadataChangeTime_ ? QDateTime::fromMSecsSinceEpoch(metadataChangeTime_, Qt::UTC) :  QDateTime(); }
 inline QDateTime QFileSystemMetaData::modificationTime() const
-{ return modificationTime_ ? QDateTime::fromMSecsSinceEpoch(modificationTime_) : QDateTime(); }
+{ return modificationTime_ ? QDateTime::fromMSecsSinceEpoch(modificationTime_, Qt::UTC) :  QDateTime(); }
 inline QDateTime QFileSystemMetaData::accessTime() const
-{ return accessTime_ ? QDateTime::fromMSecsSinceEpoch(accessTime_) : QDateTime(); }
+{ return accessTime_ ? QDateTime::fromMSecsSinceEpoch(accessTime_, Qt::UTC) :  QDateTime(); }
 
 inline uint QFileSystemMetaData::userId() const                     { return userId_; }
 inline uint QFileSystemMetaData::groupId() const                    { return groupId_; }

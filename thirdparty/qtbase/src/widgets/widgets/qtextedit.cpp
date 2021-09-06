@@ -79,7 +79,11 @@ QT_BEGIN_NAMESPACE
 
 static inline bool shouldEnableInputMethod(QTextEdit *textedit)
 {
+#if defined (Q_OS_ANDROID)
+    return !textedit->isReadOnly() || (textedit->textInteractionFlags() & Qt::TextSelectableByMouse);
+#else
     return !textedit->isReadOnly();
+#endif
 }
 
 class QTextEditControl : public QWidgetTextControl
@@ -1452,8 +1456,10 @@ void QTextEdit::keyPressEvent(QKeyEvent *e)
 */
 void QTextEdit::keyReleaseEvent(QKeyEvent *e)
 {
-#ifdef QT_KEYPAD_NAVIGATION
     Q_D(QTextEdit);
+    if (!isReadOnly())
+        d->handleSoftwareInputPanel();
+#ifdef QT_KEYPAD_NAVIGATION
     if (QApplicationPrivate::keypadNavigationEnabled()) {
         if (!e->isAutoRepeat() && e->key() == Qt::Key_Back
             && d->deleteAllTimer.isActive()) {
@@ -1832,6 +1838,8 @@ QVariant QTextEdit::inputMethodQuery(Qt::InputMethodQuery query, QVariant argume
         case Qt::ImHints:
         case Qt::ImInputItemClipRectangle:
         return QWidget::inputMethodQuery(query);
+    case Qt::ImReadOnly:
+        return isReadOnly();
     default:
         break;
     }
@@ -2060,6 +2068,12 @@ void QTextEdit::setOverwriteMode(bool overwrite)
     \since 5.10
 
     By default, this property contains a value of 80 pixels.
+
+    Do not set a value less than the \l {QFontMetrics::}{horizontalAdvance()}
+    of the QChar::VisualTabCharacter character, otherwise the tab-character
+    will be drawn incompletely.
+
+    \sa QTextOption::ShowTabsAndSpaces, QTextDocument::defaultTextOption
 */
 
 qreal QTextEdit::tabStopDistance() const

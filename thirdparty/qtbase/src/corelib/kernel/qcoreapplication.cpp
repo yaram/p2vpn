@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2021 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2021 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -47,6 +47,7 @@
 #include "qeventloop.h"
 #endif
 #include "qmetaobject.h"
+#include <private/qproperty_p.h>
 #include "qcorecmdlineargs_p.h"
 #include <qdatastream.h>
 #include <qdebug.h>
@@ -60,6 +61,9 @@
 #ifndef QT_NO_QOBJECT
 #include <qthread.h>
 #include <qthreadstorage.h>
+#if QT_CONFIG(future)
+#include <QtCore/qpromise.h>
+#endif
 #include <private/qthread_p.h>
 #if QT_CONFIG(thread)
 #include <qthreadpool.h>
@@ -91,8 +95,7 @@
 #endif // QT_NO_QOBJECT
 
 #if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
-#include <QJniObject>
-#include <private/qjnihelpers_p.h>
+#include <QtCore/qjniobject.h>
 #endif
 
 #ifdef Q_OS_MAC
@@ -103,9 +106,17 @@
 
 #ifdef Q_OS_UNIX
 #  include <locale.h>
-#  include <langinfo.h>
+#  ifndef Q_OS_INTEGRITY
+#    include <langinfo.h>
+#  endif
 #  include <unistd.h>
 #  include <sys/types.h>
+
+#  include "qcore_unix_p.h"
+#endif
+
+#if __has_include(<sys/auxv.h>)     // Linux and FreeBSD
+#  include <sys/auxv.h>
 #endif
 
 #ifdef Q_OS_VXWORKS
@@ -170,7 +181,7 @@ QString QCoreApplicationPrivate::appVersion() const
 #  ifdef Q_OS_DARWIN
     applicationVersion = infoDictionaryStringProperty(QStringLiteral("CFBundleVersion"));
 #  elif defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
-    QJniObject context(QtAndroidPrivate::context());
+    QJniObject context(QNativeInterface::QAndroidApplication::context());
     if (context.isValid()) {
         QJniObject pm = context.callObjectMethod(
             "getPackageManager", "()Landroid/content/pm/PackageManager;");
@@ -583,6 +594,9 @@ void QCoreApplicationPrivate::initLocale()
         return;
     qt_locale_initialized = true;
 
+#ifdef Q_OS_INTEGRITY
+    setlocale(LC_CTYPE, "UTF-8");
+#else
     // Android's Bionic didn't get nl_langinfo until NDK 15 (Android 8.0),
     // which is too new for Qt, so we just assume it's always UTF-8.
     auto nl_langinfo = [](int) { return "UTF-8"; };
@@ -614,6 +628,7 @@ void QCoreApplicationPrivate::initLocale()
                  "reconfigure your locale. See the locale(1) manual for more information.",
                  codec, oldLocale.constData(), newLocale.constData());
     }
+#endif
 #endif
 }
 
@@ -847,6 +862,7 @@ void QCoreApplicationPrivate::init()
     qt_call_pre_routines();
     qt_startup_hook();
 #ifndef QT_BOOTSTRAPPED
+    QtPrivate::initBindingStatusThreadId();
     if (Q_UNLIKELY(qtHookData[QHooks::Startup]))
         reinterpret_cast<QHooks::StartupCallback>(qtHookData[QHooks::Startup])();
 #endif
@@ -988,7 +1004,6 @@ bool QCoreApplication::testAttribute(Qt::ApplicationAttribute attribute)
 {
     return QCoreApplicationPrivate::testAttribute(attribute);
 }
-
 
 #ifndef QT_NO_QOBJECT
 
@@ -2284,6 +2299,30 @@ QString QCoreApplication::applicationDirPath()
     return d->cachedApplicationDirPath;
 }
 
+#if !defined(Q_OS_WIN) && !defined(Q_OS_DARWIN)     // qcoreapplication_win.cpp or qcoreapplication_mac.cpp
+static QString qAppFileName()
+{
+#  if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
+    // the actual process on Android is the Java VM, so this doesn't help us
+    return QString();
+#  elif defined(Q_OS_LINUX)
+    // this includes the Embedded Android builds
+    return QFile::decodeName(qt_readlink("/proc/self/exe"));
+#  elif defined(AT_EXECPATH)
+    // seen on FreeBSD, but I suppose the other BSDs could adopt this API
+    char execfn[PATH_MAX];
+    if (elf_aux_info(AT_EXECPATH, execfn, sizeof(execfn)) != 0)
+        execfn[0] = '\0';
+
+    qsizetype len = qstrlen(execfn);
+    return QFile::decodeName(QByteArray::fromRawData(execfn, len));
+#  else
+    // other OS or something
+    return QString();
+#endif
+}
+#endif
+
 /*!
     Returns the file path of the application executable.
 
@@ -2320,32 +2359,9 @@ QString QCoreApplication::applicationFilePath()
     if (QCoreApplicationPrivate::cachedApplicationFilePath)
         return *QCoreApplicationPrivate::cachedApplicationFilePath;
 
-#if defined(Q_OS_WIN)
-    QCoreApplicationPrivate::setApplicationFilePath(QFileInfo(qAppFileName()).filePath());
-    return *QCoreApplicationPrivate::cachedApplicationFilePath;
-#elif defined(Q_OS_MAC)
-    QString qAppFileName_str = qAppFileName();
-    if (!qAppFileName_str.isEmpty()) {
-        QFileInfo fi(qAppFileName_str);
-        if (fi.exists()) {
-            QCoreApplicationPrivate::setApplicationFilePath(fi.canonicalFilePath());
-            return *QCoreApplicationPrivate::cachedApplicationFilePath;
-        }
-    }
-#endif
-#if defined( Q_OS_UNIX )
-#  if defined(Q_OS_LINUX) && (!defined(Q_OS_ANDROID) || defined(Q_OS_ANDROID_EMBEDDED))
-    // Try looking for a /proc/<pid>/exe symlink first which points to
-    // the absolute path of the executable
-    QFileInfo pfi(QString::fromLatin1("/proc/%1/exe").arg(getpid()));
-    if (pfi.exists() && pfi.isSymLink()) {
-        QCoreApplicationPrivate::setApplicationFilePath(pfi.canonicalFilePath());
-        return *QCoreApplicationPrivate::cachedApplicationFilePath;
-    }
-#  endif
-    if (!arguments().isEmpty()) {
+    QString absPath = qAppFileName();
+    if (absPath.isEmpty() && !arguments().isEmpty()) {
         QString argv0 = QFile::decodeName(arguments().at(0).toLocal8Bit());
-        QString absPath;
 
         if (!argv0.isEmpty() && argv0.at(0) == QLatin1Char('/')) {
             /*
@@ -2366,17 +2382,13 @@ QString QCoreApplication::applicationFilePath()
             */
             absPath = QStandardPaths::findExecutable(argv0);
         }
-
-        absPath = QDir::cleanPath(absPath);
-
-        QFileInfo fi(absPath);
-        if (fi.exists()) {
-            QCoreApplicationPrivate::setApplicationFilePath(fi.canonicalFilePath());
-            return *QCoreApplicationPrivate::cachedApplicationFilePath;
-        }
     }
 
-#endif
+    absPath = QFileInfo(absPath).canonicalFilePath();
+    if (!absPath.isEmpty()) {
+        QCoreApplicationPrivate::setApplicationFilePath(absPath);
+        return *QCoreApplicationPrivate::cachedApplicationFilePath;
+    }
     return QString();
 }
 
@@ -3073,6 +3085,12 @@ void QCoreApplication::setEventDispatcher(QAbstractEventDispatcher *eventDispatc
 
     \sa Q_OBJECT, QObject::tr()
 */
+
+void *QCoreApplication::resolveInterface(const char *name, int revision) const
+{
+    Q_UNUSED(name); Q_UNUSED(revision);
+    return nullptr;
+}
 
 QT_END_NAMESPACE
 

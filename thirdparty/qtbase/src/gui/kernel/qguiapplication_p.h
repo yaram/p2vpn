@@ -53,11 +53,13 @@
 
 #include <QtGui/private/qtguiglobal_p.h>
 #include <QtGui/qguiapplication.h>
+#include <QtGui/qicon.h>
 
 #include <QtCore/QPointF>
 #include <QtCore/QSharedPointer>
 #include <QtCore/private/qcoreapplication_p.h>
 
+#include <QtCore/qnativeinterface.h>
 #include <QtCore/private/qthread_p.h>
 
 #include <qpa/qwindowsysteminterface.h>
@@ -65,8 +67,6 @@
 #if QT_CONFIG(shortcut)
 #  include "private/qshortcutmap_p.h"
 #endif
-
-#include <qicon.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -187,11 +187,7 @@ public:
                                                Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers);
 #endif
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     static bool processNativeEvent(QWindow *window, const QByteArray &eventType, void *message, qintptr *result);
-#else
-    static bool processNativeEvent(QWindow *window, const QByteArray &eventType, void *message, long *result);
-#endif
 
     static bool sendQWindowEventToQPlatformWindow(QWindow *window, QEvent *event);
 
@@ -233,7 +229,6 @@ public:
     static QWindow *currentMousePressWindow;
     static Qt::ApplicationState applicationState;
     static Qt::HighDpiScaleFactorRoundingPolicy highDpiScaleFactorRoundingPolicy;
-    static bool highDpiScalingUpdated;
     static QPointer<QWindow> currentDragWindow;
 
     // TODO remove this: QPointingDevice can store what we need directly
@@ -358,7 +353,7 @@ class QWindowsMime;
 
 struct Q_GUI_EXPORT QWindowsApplication
 {
-    QT_DECLARE_NATIVE_INTERFACE(QWindowsApplication)
+    QT_DECLARE_NATIVE_INTERFACE(QWindowsApplication, 1, QGuiApplication)
 
     enum WindowActivationBehavior {
         DefaultActivateWindow,

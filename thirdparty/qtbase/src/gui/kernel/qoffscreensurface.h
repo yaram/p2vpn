@@ -42,6 +42,7 @@
 
 #include <QtGui/qtguiglobal.h>
 #include <QtCore/QObject>
+#include <QtCore/qnativeinterface.h>
 #include <QtGui/qsurface.h>
 Q_MOC_INCLUDE(<QScreen>)
 
@@ -79,7 +80,7 @@ public:
 
     QPlatformOffscreenSurface *handle() const;
 
-    QT_DECLARE_NATIVE_INTERFACE_ACCESSOR
+    QT_DECLARE_NATIVE_INTERFACE_ACCESSOR(QOffscreenSurface)
 
 Q_SIGNALS:
     void screenChanged(QScreen *screen);

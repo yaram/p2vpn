@@ -14,8 +14,7 @@ qt_config_compile_test(openssl_headers
     LIBRARIES
         WrapOpenSSLHeaders::WrapOpenSSLHeaders
     CODE
-"
-#include <openssl/ssl.h>
+"#include <openssl/ssl.h>
 #include <openssl/opensslv.h>
 #if !defined(OPENSSL_VERSION_NUMBER) || OPENSSL_VERSION_NUMBER-0 < 0x10101000L
 #  error OpenSSL >= 1.1.1 is required
@@ -23,11 +22,10 @@ qt_config_compile_test(openssl_headers
 #if !defined(OPENSSL_NO_EC) && !defined(SSL_CTRL_SET_CURVES)
 #  error OpenSSL was reported as >= 1.1.1 but is missing required features, possibly it is libressl which is unsupported
 #endif
-int main(int argc, char **argv)
-{
-    (void)argc; (void)argv;
-    /* BEGIN TEST: */
 
+int main(void)
+{
+    /* BEGIN TEST: */
     /* END TEST: */
     return 0;
 }
@@ -39,8 +37,7 @@ qt_config_compile_test(openssl
     LIBRARIES
         WrapOpenSSL::WrapOpenSSL
     CODE
-"
-#include <openssl/ssl.h>
+"#include <openssl/ssl.h>
 #include <openssl/opensslv.h>
 #if !defined(OPENSSL_VERSION_NUMBER) || OPENSSL_VERSION_NUMBER-0 < 0x10101000L
 #  error OpenSSL >= 1.1.1 is required
@@ -48,9 +45,9 @@ qt_config_compile_test(openssl
 #if !defined(OPENSSL_NO_EC) && !defined(SSL_CTRL_SET_CURVES)
 #  error OpenSSL was reported as >= 1.1.1 but is missing required features, possibly it is libressl which is unsupported
 #endif
-int main(int argc, char **argv)
+
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 SSL_free(SSL_new(0));
     /* END TEST: */
@@ -67,15 +64,13 @@ qt_find_package(GSSAPI PROVIDED_TARGETS GSSAPI::GSSAPI MODULE_NAME network QMAKE
 qt_config_compile_test(getifaddrs
     LABEL "getifaddrs()"
     CODE
-"
-#include <sys/types.h>
+"#include <sys/types.h>
 #include <sys/socket.h>
 #include <net/if.h>
 #include <ifaddrs.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 ifaddrs *list;
 getifaddrs(&list);
@@ -86,18 +81,32 @@ freeifaddrs(list);
 "# FIXME: use: unmapped library: network
 )
 
+# ifr_index
+qt_config_compile_test(ifr_index
+    LABEL "ifr_index"
+    CODE
+"#include <net/if.h>
+
+int main(void)
+{
+    /* BEGIN TEST: */
+struct ifreq req;
+req.ifr_index = 0;
+    /* END TEST: */
+    return 0;
+}
+")
+
 # ipv6ifname
 qt_config_compile_test(ipv6ifname
     LABEL "IPv6 ifname"
     CODE
-"
-#include <sys/types.h>
+"#include <sys/types.h>
 #include <sys/socket.h>
 #include <net/if.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 char buf[IFNAMSIZ];
 if_nametoindex(\"eth0\");
@@ -113,15 +122,13 @@ if_freenameindex(if_nameindex());
 qt_config_compile_test(linux_netlink
     LABEL "Linux AF_NETLINK sockets"
     CODE
-"
-#include <asm/types.h>
+"#include <asm/types.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <sys/socket.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 struct rtattr rta = { };
 struct ifinfomsg ifi = {};
@@ -141,15 +148,13 @@ ci.ifa_prefered = ci.ifa_valid = 0;
 qt_config_compile_test(sctp
     LABEL "SCTP support"
     CODE
-"
-#include <sys/types.h>
+"#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/sctp.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 sctp_initmsg sctpInitMsg;
 socklen_t sctpInitMsgSize = sizeof(sctpInitMsg);
@@ -167,16 +172,14 @@ qt_config_compile_test(dtls
     LIBRARIES
         WrapOpenSSLHeaders::WrapOpenSSLHeaders
     CODE
-"
-#include <openssl/ssl.h>
+"#include <openssl/ssl.h>
 #if defined(OPENSSL_NO_DTLS) || !defined(DTLS1_2_VERSION)
 #  error OpenSSL without DTLS support
 #endif
-int main(int argc, char **argv)
-{
-    (void)argc; (void)argv;
-    /* BEGIN TEST: */
 
+int main(void)
+{
+    /* BEGIN TEST: */
     /* END TEST: */
     return 0;
 }
@@ -188,17 +191,15 @@ qt_config_compile_test(ocsp
     LIBRARIES
         WrapOpenSSLHeaders::WrapOpenSSLHeaders
     CODE
-"
-#include <openssl/ssl.h>
+"#include <openssl/ssl.h>
 #include <openssl/ocsp.h>
 #if defined(OPENSSL_NO_OCSP) || defined(OPENSSL_NO_TLSEXT)
 #  error OpenSSL without OCSP stapling
 #endif
-int main(int argc, char **argv)
-{
-    (void)argc; (void)argv;
-    /* BEGIN TEST: */
 
+int main(void)
+{
+    /* BEGIN TEST: */
     /* END TEST: */
     return 0;
 }
@@ -208,13 +209,11 @@ int main(int argc, char **argv)
 qt_config_compile_test(networklistmanager
     LABEL "Network List Manager"
     CODE
-"
-#include <netlistmgr.h>
+"#include <netlistmgr.h>
 #include <wrl/client.h>
 
-int main(int argc, char **argv)
+int main(void)
 {
-    (void)argc; (void)argv;
     /* BEGIN TEST: */
 using namespace Microsoft::WRL;
 ComPtr<INetworkListManager> networkListManager;
@@ -237,6 +236,10 @@ qt_feature("getifaddrs" PUBLIC
     CONDITION TEST_getifaddrs
 )
 qt_feature_definition("getifaddrs" "QT_NO_GETIFADDRS" NEGATE VALUE "1")
+qt_feature("ifr_index" PRIVATE
+    LABEL "ifr_index"
+    CONDITION TEST_ifr_index
+)
 qt_feature("ipv6ifname" PUBLIC
     LABEL "IPv6 ifname"
     CONDITION TEST_ipv6ifname
@@ -260,27 +263,26 @@ qt_feature_definition("openssl" "QT_NO_OPENSSL" NEGATE)
 qt_feature_config("openssl" QMAKE_PUBLIC_QT_CONFIG)
 qt_feature("openssl-runtime"
     AUTODETECT NOT WASM
-    CONDITION NOT QT_FEATURE_securetransport AND NOT QT_FEATURE_schannel AND TEST_openssl_headers
+    CONDITION TEST_openssl_headers
     ENABLE INPUT_openssl STREQUAL 'yes' OR INPUT_openssl STREQUAL 'runtime'
     DISABLE INPUT_openssl STREQUAL 'no' OR INPUT_openssl STREQUAL 'linked' OR INPUT_ssl STREQUAL 'no'
 )
 qt_feature("openssl-linked" PRIVATE
     LABEL "  Qt directly linked to OpenSSL"
     AUTODETECT OFF
-    CONDITION NOT QT_FEATURE_securetransport AND NOT QT_FEATURE_schannel AND TEST_openssl
+    CONDITION TEST_openssl
     ENABLE INPUT_openssl STREQUAL 'linked'
 )
 qt_feature_definition("openssl-linked" "QT_LINKED_OPENSSL")
 qt_feature("securetransport" PUBLIC
     LABEL "SecureTransport"
-    CONDITION APPLE AND ( INPUT_openssl STREQUAL '' OR INPUT_openssl STREQUAL 'no' )
+    CONDITION APPLE
     DISABLE INPUT_ssl STREQUAL 'no'
 )
 qt_feature_definition("securetransport" "QT_SECURETRANSPORT")
 qt_feature("schannel" PUBLIC
     LABEL "Schannel"
-    AUTODETECT OFF
-    CONDITION WIN32 AND ( INPUT_openssl STREQUAL '' OR INPUT_openssl STREQUAL 'no' )
+    CONDITION WIN32
     DISABLE INPUT_ssl STREQUAL 'no'
 )
 qt_feature_definition("schannel" "QT_SCHANNEL")

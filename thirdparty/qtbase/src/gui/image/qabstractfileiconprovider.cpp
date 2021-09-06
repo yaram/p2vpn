@@ -40,8 +40,12 @@
 #include "qabstractfileiconprovider.h"
 
 #include <qguiapplication.h>
+#include <private/qguiapplication_p.h>
+#include <qpa/qplatformtheme.h>
 #include <qicon.h>
+#if QT_CONFIG(mimetype)
 #include <qmimedatabase.h>
+#endif
 
 
 #include <private/qabstractfileiconprovider_p.h>
@@ -54,6 +58,107 @@ QAbstractFileIconProviderPrivate::QAbstractFileIconProviderPrivate(QAbstractFile
 {}
 
 QAbstractFileIconProviderPrivate::~QAbstractFileIconProviderPrivate() = default;
+
+using IconTypeCache = QHash<QAbstractFileIconProvider::IconType, QIcon>;
+Q_GLOBAL_STATIC(IconTypeCache, iconTypeCache)
+
+void QAbstractFileIconProviderPrivate::clearIconTypeCache()
+{
+    iconTypeCache()->clear();
+}
+
+QIcon QAbstractFileIconProviderPrivate::getPlatformThemeIcon(QAbstractFileIconProvider::IconType type) const
+{
+    auto theme = QGuiApplicationPrivate::platformTheme();
+    if (theme == nullptr)
+        return {};
+
+    auto &cache = *iconTypeCache();
+    auto it = cache.find(type);
+    if (it == cache.end()) {
+        const auto sp = [&]() -> QPlatformTheme::StandardPixmap {
+            switch (type) {
+            case QAbstractFileIconProvider::Computer:
+                return QPlatformTheme::ComputerIcon;
+            case QAbstractFileIconProvider::Desktop:
+                return QPlatformTheme::DesktopIcon;
+            case QAbstractFileIconProvider::Trashcan:
+                return QPlatformTheme::TrashIcon;
+            case QAbstractFileIconProvider::Network:
+                return QPlatformTheme::DriveNetIcon;
+            case QAbstractFileIconProvider::Drive:
+                return QPlatformTheme::DriveHDIcon;
+            case QAbstractFileIconProvider::Folder:
+                return QPlatformTheme::DirIcon;
+            case QAbstractFileIconProvider::File:
+                break;
+            // no default on purpose; we want warnings when the type enum is extended
+            }
+            return QPlatformTheme::FileIcon;
+        }();
+
+        const auto sizesHint = theme->themeHint(QPlatformTheme::IconPixmapSizes);
+        auto sizes = sizesHint.value<QList<QSize>>();
+        if (sizes.isEmpty())
+            sizes.append({64, 64});
+
+        QIcon icon;
+        for (const auto &size : sizes)
+            icon.addPixmap(theme->standardPixmap(sp, size));
+        it = cache.insert(type, icon);
+    }
+    return it.value();
+}
+
+QIcon QAbstractFileIconProviderPrivate::getIconThemeIcon(QAbstractFileIconProvider::IconType type) const
+{
+    switch (type) {
+    case QAbstractFileIconProvider::Computer:
+        return QIcon::fromTheme(QLatin1String("computer"));
+    case QAbstractFileIconProvider::Desktop:
+        return QIcon::fromTheme(QLatin1String("user-desktop"));
+    case QAbstractFileIconProvider::Trashcan:
+        return QIcon::fromTheme(QLatin1String("user-trash"));
+    case QAbstractFileIconProvider::Network:
+        return QIcon::fromTheme(QLatin1String("network-workgroup"));
+    case QAbstractFileIconProvider::Drive:
+        return QIcon::fromTheme(QLatin1String("drive-harddisk"));
+    case QAbstractFileIconProvider::Folder:
+        return QIcon::fromTheme(QLatin1String("folder"));
+    case QAbstractFileIconProvider::File:
+        return QIcon::fromTheme(QLatin1String("text-x-generic"));
+        // no default on purpose; we want warnings when the type enum is extended
+    }
+    return QIcon::fromTheme(QLatin1String("text-x-generic"));
+}
+
+static inline QPlatformTheme::IconOptions toThemeIconOptions(QAbstractFileIconProvider::Options options)
+{
+    QPlatformTheme::IconOptions result;
+    if (options.testFlag(QAbstractFileIconProvider::DontUseCustomDirectoryIcons))
+        result |= QPlatformTheme::DontUseCustomDirectoryIcons;
+    return result;
+}
+
+QIcon QAbstractFileIconProviderPrivate::getPlatformThemeIcon(const QFileInfo &info) const
+{
+    if (auto theme = QGuiApplicationPrivate::platformTheme())
+        return theme->fileIcon(info, toThemeIconOptions(options));
+    return {};
+}
+
+QIcon QAbstractFileIconProviderPrivate::getIconThemeIcon(const QFileInfo &info) const
+{
+    if (info.isRoot())
+        return getIconThemeIcon(QAbstractFileIconProvider::Drive);
+    if (info.isDir())
+        return getIconThemeIcon(QAbstractFileIconProvider::Folder);
+#if QT_CONFIG(mimetype)
+    return QIcon::fromTheme(mimeDatabase.mimeTypeForFile(info).iconName());
+#else
+    return QIcon::fromTheme(QLatin1String("text-x-generic"));
+#endif
+}
 
 /*!
   \class QAbstractFileIconProvider
@@ -139,25 +244,9 @@ QAbstractFileIconProvider::Options QAbstractFileIconProvider::options() const
 
 QIcon QAbstractFileIconProvider::icon(IconType type) const
 {
-    Q_UNUSED(type);
-    switch (type) {
-        case Computer:
-            return QIcon::fromTheme(QLatin1String("computer"));
-        case Desktop:
-            return QIcon::fromTheme(QLatin1String("user-desktop"));
-        case Trashcan:
-            return QIcon::fromTheme(QLatin1String("user-trash"));
-        case Network:
-            return QIcon::fromTheme(QLatin1String("network-workgroup"));
-        case Drive:
-            return QIcon::fromTheme(QLatin1String("drive-harddisk"));
-        case Folder:
-            return QIcon::fromTheme(QLatin1String("folder"));
-        case File:
-            return QIcon::fromTheme(QLatin1String("text-x-generic"));
-        // no default on purpose; we want warnings when the type enum is extended
-    }
-    return QIcon::fromTheme(QLatin1String("text-x-generic"));
+    Q_D(const QAbstractFileIconProvider);
+    const QIcon result = d->getIconThemeIcon(type);
+    return result.isNull() ? d->getPlatformThemeIcon(type) : result;
 }
 
 /*!
@@ -170,11 +259,8 @@ QIcon QAbstractFileIconProvider::icon(IconType type) const
 QIcon QAbstractFileIconProvider::icon(const QFileInfo &info) const
 {
     Q_D(const QAbstractFileIconProvider);
-    if (info.isRoot())
-        return icon(Drive);
-    if (info.isDir())
-        return icon(Folder);
-    return QIcon::fromTheme(d->mimeDatabase.mimeTypeForFile(info).iconName());
+    const QIcon result = d->getIconThemeIcon(info);
+    return result.isNull() ? d->getPlatformThemeIcon(info) : result;
 }
 
 /*!
@@ -187,8 +273,13 @@ QString QAbstractFileIconProvider::type(const QFileInfo &info) const
     if (QFileSystemEntry::isRootPath(info.absoluteFilePath()))
         return QGuiApplication::translate("QAbstractFileIconProvider", "Drive");
     if (info.isFile()) {
+#if QT_CONFIG(mimetype)
         const QMimeType mimeType = d->mimeDatabase.mimeTypeForFile(info);
         return mimeType.comment().isEmpty() ? mimeType.name() : mimeType.comment();
+#else
+        Q_UNUSED(d);
+        return QGuiApplication::translate("QAbstractFileIconProvider", "File");
+#endif
     }
 
     if (info.isDir())

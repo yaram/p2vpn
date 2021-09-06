@@ -1774,11 +1774,8 @@ void QLineEdit::keyPressEvent(QKeyEvent *event)
     }
 #endif
     d->control->processKeyEvent(event);
-    if (event->isAccepted()) {
-        if (layoutDirection() != d->control->layoutDirection())
-            setLayoutDirection(d->control->layoutDirection());
+    if (event->isAccepted())
         d->control->updateCursorBlinking();
-    }
 }
 
 /*!
@@ -1787,6 +1784,8 @@ void QLineEdit::keyPressEvent(QKeyEvent *event)
 void QLineEdit::keyReleaseEvent(QKeyEvent *)
 {
     Q_D(QLineEdit);
+    if (!isReadOnly())
+        d->handleSoftwareInputPanel();
     d->control->updateCursorBlinking();
 }
 
@@ -1806,7 +1805,7 @@ QRect QLineEdit::cursorRect() const
 void QLineEdit::inputMethodEvent(QInputMethodEvent *e)
 {
     Q_D(QLineEdit);
-    if (d->control->isReadOnly()) {
+    if (!d->shouldEnableInputMethod()) {
         e->ignore();
         return;
     }
@@ -1874,6 +1873,20 @@ QVariant QLineEdit::inputMethodQuery(Qt::InputMethodQuery property, QVariant arg
             return QVariant(d->control->selectionEnd());
         else
             return QVariant(d->control->selectionStart());
+    case Qt::ImReadOnly:
+        return isReadOnly();
+    case Qt::ImTextBeforeCursor: {
+        const QPointF pt = argument.toPointF();
+        if (!pt.isNull())
+            return d->textBeforeCursor(d->xToPos(pt.x(), QTextLine::CursorBetweenCharacters));
+        else
+            return d->textBeforeCursor(d->control->cursor()); }
+    case Qt::ImTextAfterCursor: {
+        const QPointF pt = argument.toPointF();
+        if (!pt.isNull())
+            return d->textAfterCursor(d->xToPos(pt.x(), QTextLine::CursorBetweenCharacters));
+        else
+            return d->textAfterCursor(d->control->cursor()); }
     default:
         return QWidget::inputMethodQuery(property);
     }

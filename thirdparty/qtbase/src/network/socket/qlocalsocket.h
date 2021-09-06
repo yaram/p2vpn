@@ -58,6 +58,8 @@ class Q_NETWORK_EXPORT QLocalSocket : public QIODevice
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QLocalSocket)
+    Q_PROPERTY(SocketOptions socketOptions READ socketOptions WRITE setSocketOptions
+               BINDABLE bindableSocketOptions)
 
 public:
     enum LocalSocketError
@@ -82,6 +84,13 @@ public:
         ConnectedState = QAbstractSocket::ConnectedState,
         ClosingState = QAbstractSocket::ClosingState
     };
+
+    enum SocketOption {
+        NoOptions = 0x00,
+        AbstractNamespaceOption = 0x01
+    };
+    Q_DECLARE_FLAGS(SocketOptions, SocketOption)
+    Q_FLAG(SocketOptions)
 
     QLocalSocket(QObject *parent = nullptr);
     ~QLocalSocket();
@@ -112,6 +121,10 @@ public:
                              OpenMode openMode = ReadWrite);
     qintptr socketDescriptor() const;
 
+    void setSocketOptions(SocketOptions option);
+    SocketOptions socketOptions() const;
+    QBindable<SocketOptions> bindableSocketOptions();
+
     LocalSocketState state() const;
     bool waitForBytesWritten(int msecs = 30000) override;
     bool waitForConnected(int msecs = 30000);
@@ -135,7 +148,6 @@ private:
     Q_PRIVATE_SLOT(d_func(), void _q_stateChanged(QAbstractSocket::SocketState))
     Q_PRIVATE_SLOT(d_func(), void _q_errorOccurred(QAbstractSocket::SocketError))
 #elif defined(Q_OS_WIN)
-    Q_PRIVATE_SLOT(d_func(), void _q_canWrite())
     Q_PRIVATE_SLOT(d_func(), void _q_pipeClosed())
     Q_PRIVATE_SLOT(d_func(), void _q_winError(ulong, const QString &))
 #else
@@ -150,6 +162,8 @@ private:
 Q_NETWORK_EXPORT QDebug operator<<(QDebug, QLocalSocket::LocalSocketError);
 Q_NETWORK_EXPORT QDebug operator<<(QDebug, QLocalSocket::LocalSocketState);
 #endif
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QLocalSocket::SocketOptions)
 
 QT_END_NAMESPACE
 

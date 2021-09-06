@@ -54,6 +54,7 @@
 #include <cxxabi.h>
 #include <objc/runtime.h>
 #include <mach-o/dyld.h>
+#include <sys/sysctl.h>
 
 #include <qdebug.h>
 
@@ -64,6 +65,21 @@
 #include "private/qlocking_p.h"
 
 QT_BEGIN_NAMESPACE
+
+// --------------------------------------------------------------------------
+
+static void initializeStandardUserDefaults()
+{
+    // The standard user defaults are initialized from an ordered list of domains,
+    // as documented by NSUserDefaults.standardUserDefaults. This includes e.g.
+    // parsing command line arguments, such as -AppleFooBar "baz", as well as
+    // global defaults. To ensure that these defaults are available through
+    // the lower level Core Foundation preferences APIs, we need to initialize
+    // them as early as possible via the Foundation-API, as the lower level APIs
+    // do not do this initialization.
+    Q_UNUSED(NSUserDefaults.standardUserDefaults);
+}
+Q_CONSTRUCTOR_FUNCTION(initializeStandardUserDefaults);
 
 // --------------------------------------------------------------------------
 
@@ -351,6 +367,15 @@ bool qt_mac_applicationIsInDarkMode()
 #endif
     return false;
 }
+
+bool qt_mac_runningUnderRosetta()
+{
+    int translated = 0;
+    auto size = sizeof(translated);
+    if (sysctlbyname("sysctl.proc_translated", &translated, &size, nullptr, 0) == 0)
+        return translated;
+    return false;
+}
 #endif
 
 bool qt_apple_isApplicationExtension()
@@ -381,13 +406,13 @@ AppleApplication *qt_apple_sharedApplication()
 }
 #endif
 
-#if defined(Q_OS_MACOS) && !defined(QT_BOOTSTRAPPED)
 bool qt_apple_isSandboxed()
 {
+#if defined(Q_OS_MACOS)
     static bool isSandboxed = []() {
         QCFType<SecStaticCodeRef> staticCode = nullptr;
-        NSURL *bundleUrl = [[NSBundle mainBundle] bundleURL];
-        if (SecStaticCodeCreateWithPath((__bridge CFURLRef)bundleUrl,
+        NSURL *executableUrl = NSBundle.mainBundle.executableURL;
+        if (SecStaticCodeCreateWithPath((__bridge CFURLRef)executableUrl,
             kSecCSDefaultFlags, &staticCode) != errSecSuccess)
             return false;
 
@@ -403,8 +428,12 @@ bool qt_apple_isSandboxed()
         return true;
     }();
     return isSandboxed;
+#else
+    return true; // All other Apple platforms
+#endif
 }
 
+#if !defined(QT_BOOTSTRAPPED)
 QT_END_NAMESPACE
 @implementation NSObject (QtSandboxHelpers)
 - (id)qt_valueForPrivateKey:(NSString *)key

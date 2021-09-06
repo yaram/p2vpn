@@ -48,7 +48,6 @@
 #include <QtCore/qfuture_impl.h>
 
 #include <type_traits>
-#include <vector>
 
 QT_REQUIRE_CONFIG(future);
 
@@ -60,10 +59,9 @@ class QFutureWatcher;
 template <typename T>
 class QFuture
 {
-    static_assert (std::is_copy_constructible_v<T>
-                   || std::is_move_constructible_v<T>
+    static_assert (std::is_move_constructible_v<T>
                    || std::is_same_v<T, void>,
-                   "Type with copy or move constructors or type void is required");
+                   "A move-constructible type or type void is required");
 public:
     QFuture()
         : d(QFutureInterface<T>::canceledResult())
@@ -430,12 +428,6 @@ QFuture<T> QFuture<T>::onCanceled(QObject *context, Function &&handler)
 inline QFuture<void> QFutureInterface<void>::future()
 {
     return QFuture<void>(this);
-}
-
-template <typename T>
-QFuture<void> qToVoidFuture(const QFuture<T> &future)
-{
-    return QFuture<void>(future.d);
 }
 
 Q_DECLARE_SEQUENTIAL_ITERATOR(Future)

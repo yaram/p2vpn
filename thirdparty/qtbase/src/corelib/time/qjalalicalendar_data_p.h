@@ -59,7 +59,7 @@ QT_BEGIN_NAMESPACE
 // GENERATED PART STARTS HERE
 
 /*
-    This part of the file was generated on 2021-04-09 from the
+    This part of the file was generated on 2021-07-06 from the
     Common Locale Data Repository v39
 
     http://www.unicode.org/cldr/
@@ -71,7 +71,7 @@ QT_BEGIN_NAMESPACE
 
 static const QCalendarLocale locale_data[] = {
      // lang   script terr  sLong  long sShrt short sNarw narow Sizes...
-      {     1,     0,     0,    0,    0,   83,   83,  130,  153, 83, 83, 47, 47, 23, 26 },// C/AnyScript/AnyCountry
+      {     1,     0,     0,    0,    0,   83,   83,  130,  153, 83, 83, 47, 47, 23, 26 },// C/AnyScript/AnyTerritory
       {     3,    66,    77,    0,    0,    0,    0,  153,  153, 83, 83, 83, 83, 26, 26 },// Afar/Latin/Ethiopia
       {     4,    66,   216,    0,    0,    0,    0,  153,  153, 83, 83, 83, 83, 26, 26 },// Afrikaans/Latin/South Africa
       {     4,    66,   162,    0,    0,    0,    0,  153,  153, 83, 83, 83, 83, 26, 26 },// Afrikaans/Latin/Namibia
@@ -561,13 +561,13 @@ static const QCalendarLocale locale_data[] = {
       {   249,    66,   117,    0,    0,    0,    0,  153,  153, 83, 83, 83, 83, 26, 26 },// Sardinian/Latin/Italy
       {   251,    66,   160,    0,    0,    0,    0,  153,  153, 83, 83, 83, 83, 26, 26 },// Sena/Latin/Mozambique
       {   252,    27,   207,  447,  447,  447,  447,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Cyrillic/Serbia
-      {   252,    66,    29, 3513, 3513, 3513, 3513,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Latin/Bosnia And Herzegovina
-      {   252,    66,   207, 3513, 3513, 3513, 3513,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Latin/Serbia
       {   252,    27,    29,  447,  447,  447,  447,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Cyrillic/Bosnia And Herzegovina
       {   252,    27,   126,  447,  447,  447,  447,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Cyrillic/Kosovo
       {   252,    27,   157,  447,  447,  447,  447,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Cyrillic/Montenegro
+      {   252,    66,    29, 3513, 3513, 3513, 3513,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Latin/Bosnia And Herzegovina
       {   252,    66,   126, 3513, 3513, 3513, 3513,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Latin/Kosovo
       {   252,    66,   157, 3513, 3513, 3513, 3513,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Latin/Montenegro
+      {   252,    66,   207, 3513, 3513, 3513, 3513,  153,  153, 80, 80, 80, 80, 26, 26 },// Serbian/Latin/Serbia
       {   253,    66,   230,    0,    0,    0,    0,  153,  153, 83, 83, 83, 83, 26, 26 },// Shambala/Latin/Tanzania
       {   254,    66,   261,    0,    0,    0,    0,  153,  153, 83, 83, 83, 83, 26, 26 },// Shona/Latin/Zimbabwe
       {   255,   141,    50,    0,    0,    0,    0,  153,  153, 83, 83, 83, 83, 26, 26 },// Sichuan Yi/Yi/China

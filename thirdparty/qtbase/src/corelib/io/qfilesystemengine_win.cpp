@@ -536,6 +536,26 @@ QFileSystemEntry QFileSystemEngine::getLinkTarget(const QFileSystemEntry &link,
 }
 
 //static
+QFileSystemEntry QFileSystemEngine::junctionTarget(const QFileSystemEntry &link,
+                                                   QFileSystemMetaData &data)
+{
+    Q_CHECK_FILE_NAME(link, link);
+
+    if (data.missingFlags(QFileSystemMetaData::JunctionType))
+       QFileSystemEngine::fillMetaData(link, data, QFileSystemMetaData::LinkType);
+
+    QString target;
+    if (data.isJunction())
+        target = readSymLink(link);
+    QFileSystemEntry ret(target);
+    if (!target.isEmpty() && ret.isRelative()) {
+        target.prepend(absoluteName(link).path() + QLatin1Char('/'));
+        ret = QFileSystemEntry(QDir::cleanPath(target));
+    }
+    return ret;
+}
+
+//static
 QFileSystemEntry QFileSystemEngine::canonicalName(const QFileSystemEntry &entry, QFileSystemMetaData &data)
 {
     Q_CHECK_FILE_NAME(entry, entry);
@@ -634,7 +654,7 @@ static inline QByteArray fileId(HANDLE handle)
 // File ID for Windows starting from version 8.
 QByteArray fileIdWin8(HANDLE handle)
 {
-#if !defined(QT_BOOTSTRAPPED) && !defined(QT_BUILD_QMAKE)
+#if !defined(QT_BOOTSTRAPPED)
     QByteArray result;
     FILE_ID_INFO infoEx;
     if (GetFileInformationByHandleEx(handle,
@@ -648,7 +668,7 @@ QByteArray fileIdWin8(HANDLE handle)
         result = fileId(handle); // GetFileInformationByHandleEx() is observed to fail for FAT32, QTBUG-74759
     }
     return result;
-#else // !QT_BOOTSTRAPPED && !QT_BUILD_QMAKE
+#else // !QT_BOOTSTRAPPED
     return fileId(handle);
 #endif
 }
@@ -674,8 +694,7 @@ QByteArray QFileSystemEngine::id(const QFileSystemEntry &entry)
 //static
 QByteArray QFileSystemEngine::id(HANDLE fHandle)
 {
-    return QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows8 ?
-                fileIdWin8(HANDLE(fHandle)) : fileId(HANDLE(fHandle));
+    return fileIdWin8(HANDLE(fHandle));
 }
 
 //static
@@ -1303,12 +1322,40 @@ QFileSystemEntry QFileSystemEngine::currentPath()
 //static
 bool QFileSystemEngine::createLink(const QFileSystemEntry &source, const QFileSystemEntry &target, QSystemError &error)
 {
-    Q_ASSERT(false);
-    Q_UNUSED(source);
-    Q_UNUSED(target);
-    Q_UNUSED(error);
+    bool ret = false;
+    IShellLink *psl = nullptr;
+    HRESULT hres = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLink,
+                                    reinterpret_cast<void **>(&psl));
 
-    return false; // TODO implement; - code needs to be moved from qfsfileengine_win.cpp
+    bool neededCoInit = false;
+    if (hres == CO_E_NOTINITIALIZED) { // COM was not initialized
+        neededCoInit = true;
+        CoInitialize(nullptr);
+        hres = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLink,
+                                reinterpret_cast<void **>(&psl));
+    }
+
+    if (SUCCEEDED(hres)) {
+        const auto name = QDir::toNativeSeparators(source.filePath());
+        const auto pathName = QDir::toNativeSeparators(source.path());
+        if (SUCCEEDED(psl->SetPath(reinterpret_cast<const wchar_t *>(name.utf16())))
+            && SUCCEEDED(psl->SetWorkingDirectory(reinterpret_cast<const wchar_t *>(pathName.utf16())))) {
+            IPersistFile *ppf = nullptr;
+            if (SUCCEEDED(psl->QueryInterface(IID_IPersistFile, reinterpret_cast<void **>(&ppf)))) {
+                ret = SUCCEEDED(ppf->Save(reinterpret_cast<const wchar_t *>(target.filePath().utf16()), TRUE));
+                ppf->Release();
+            }
+        }
+        psl->Release();
+    }
+
+    if (!ret)
+        error = QSystemError(::GetLastError(), QSystemError::NativeError);
+
+    if (neededCoInit)
+        CoUninitialize();
+
+    return ret;
 }
 
 //static
@@ -1372,79 +1419,44 @@ bool QFileSystemEngine::moveFileToTrash(const QFileSystemEntry &source,
     // we need the "display name" of the file, so can't use nativeAbsoluteFilePath
     const QString sourcePath = QDir::toNativeSeparators(absoluteName(source).filePath());
 
-    /*
-        Windows 7 insists on showing confirmation dialogs and ignores the respective
-        flags set on IFileOperation. Fall back to SHFileOperation, even if it doesn't
-        give us the new location of the file.
-    */
-    if (QOperatingSystemVersion::current() > QOperatingSystemVersion::Windows7) {
 #  if defined(__IFileOperation_INTERFACE_DEFINED__)
-        CoInitialize(NULL);
-        IFileOperation *pfo = nullptr;
-        IShellItem *deleteItem = nullptr;
-        FileOperationProgressSink *sink = nullptr;
-        HRESULT hres = E_FAIL;
+    CoInitialize(NULL);
+    IFileOperation *pfo = nullptr;
+    IShellItem *deleteItem = nullptr;
+    FileOperationProgressSink *sink = nullptr;
+    HRESULT hres = E_FAIL;
 
-        auto coUninitialize = qScopeGuard([&](){
-            if (sink)
-                sink->Release();
-            if (deleteItem)
-                deleteItem->Release();
-            if (pfo)
-                pfo->Release();
-            CoUninitialize();
-            if (!SUCCEEDED(hres))
-                error = QSystemError(hres, QSystemError::NativeError);
-        });
+    auto coUninitialize = qScopeGuard([&](){
+        if (sink)
+            sink->Release();
+        if (deleteItem)
+            deleteItem->Release();
+        if (pfo)
+            pfo->Release();
+        CoUninitialize();
+        if (!SUCCEEDED(hres))
+            error = QSystemError(hres, QSystemError::NativeError);
+    });
 
-        hres = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pfo));
-        if (!pfo)
-            return false;
-        pfo->SetOperationFlags(FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE | FOF_NOCONFIRMATION
-                            | FOF_SILENT | FOF_NOERRORUI);
-        hres = SHCreateItemFromParsingName(reinterpret_cast<const wchar_t*>(sourcePath.utf16()),
-                                        nullptr, IID_PPV_ARGS(&deleteItem));
-        if (!deleteItem)
-            return false;
-        sink = new FileOperationProgressSink;
-        hres = pfo->DeleteItem(deleteItem, static_cast<IFileOperationProgressSink*>(sink));
-        if (!SUCCEEDED(hres))
-            return false;
-        hres = pfo->PerformOperations();
-        if (!SUCCEEDED(hres))
-            return false;
-        newLocation = QFileSystemEntry(sink->targetPath);
+    hres = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pfo));
+    if (!pfo)
+        return false;
+    pfo->SetOperationFlags(FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE | FOF_NOCONFIRMATION
+                        | FOF_SILENT | FOF_NOERRORUI);
+    hres = SHCreateItemFromParsingName(reinterpret_cast<const wchar_t*>(sourcePath.utf16()),
+                                    nullptr, IID_PPV_ARGS(&deleteItem));
+    if (!deleteItem)
+        return false;
+    sink = new FileOperationProgressSink;
+    hres = pfo->DeleteItem(deleteItem, static_cast<IFileOperationProgressSink*>(sink));
+    if (!SUCCEEDED(hres))
+        return false;
+    hres = pfo->PerformOperations();
+    if (!SUCCEEDED(hres))
+        return false;
+    newLocation = QFileSystemEntry(sink->targetPath);
 
 #  endif // no IFileOperation in SDK (mingw, likely) - fall back to SHFileOperation
-    } else {
-        // double null termination needed, so can't use QString::utf16
-        QVarLengthArray<wchar_t, MAX_PATH + 1> winFile(sourcePath.length() + 2);
-        sourcePath.toWCharArray(winFile.data());
-        winFile[sourcePath.length()] = wchar_t{};
-        winFile[sourcePath.length() + 1] = wchar_t{};
-
-        SHFILEOPSTRUCTW operation;
-        operation.hwnd = nullptr;
-        operation.wFunc = FO_DELETE;
-        operation.pFrom = winFile.constData();
-        operation.pTo = nullptr;
-        operation.fFlags = FOF_ALLOWUNDO | FOF_NO_UI;
-        operation.fAnyOperationsAborted = FALSE;
-        operation.hNameMappings = nullptr;
-        operation.lpszProgressTitle = nullptr;
-
-        int result = SHFileOperation(&operation);
-        if (result != 0) {
-            error = QSystemError(result, QSystemError::NativeError);
-            return false;
-        }
-        /*
-            This implementation doesn't let us know where the file ended up, even if
-            we would specify FOF_WANTMAPPINGHANDLE | FOF_RENAMEONCOLLISION, as
-            FOF_RENAMEONCOLLISION has no effect unless files are moved, copied, or renamed.
-        */
-        Q_UNUSED(newLocation);
-    }
     return true;
 
 }

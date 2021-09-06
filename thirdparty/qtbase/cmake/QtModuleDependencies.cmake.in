@@ -88,21 +88,8 @@ endif()
 
 # note: target_deps example: "Qt6Core\;5.12.0;Qt6Gui\;5.12.0"
 set(__qt_@target@_target_deps "@target_deps@")
-foreach(__qt_@target@_target_dep ${__qt_@target@_target_deps})
-    list(GET __qt_@target@_target_dep 0 __qt_@target@_pkg)
-    list(GET __qt_@target@_target_dep 1 __qt_@target@_version)
-
-    if (NOT ${__qt_@target@_pkg}_FOUND)
-        find_dependency(${__qt_@target@_pkg} ${__qt_@target@_version}
-            PATHS
-                "${CMAKE_CURRENT_LIST_DIR}/.."
-                ${_qt_additional_packages_prefix_path}
-                ${_qt_additional_packages_prefix_path_env}
-                ${QT_EXAMPLES_CMAKE_PREFIX_PATH}
-            ${__qt_use_no_default_path_for_qt_packages}
-        )
-    endif()
-endforeach()
+set(__qt_@target@_find_dependency_paths "${CMAKE_CURRENT_LIST_DIR}/..")
+_qt_internal_find_dependencies(__qt_@target@_target_deps __qt_@target@_find_dependency_paths)
 
 set(_@QT_CMAKE_EXPORT_NAMESPACE@@target@_MODULE_DEPENDENCIES "@qt_module_dependencies@")
 set(@INSTALL_CMAKE_NAMESPACE@@target@_FOUND TRUE)

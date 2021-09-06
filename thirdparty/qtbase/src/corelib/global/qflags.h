@@ -52,21 +52,21 @@ class QFlag
 {
     int i;
 public:
-    constexpr inline QFlag(int value) noexcept : i(value) {}
-    constexpr inline operator int() const noexcept { return i; }
+    constexpr inline Q_IMPLICIT QFlag(int value) noexcept : i(value) {}
+    constexpr inline Q_IMPLICIT operator int() const noexcept { return i; }
 
 #if !defined(Q_CC_MSVC)
     // Microsoft Visual Studio has buggy behavior when it comes to
     // unsigned enums: even if the enum is unsigned, the enum tags are
     // always signed
 #  if !defined(__LP64__) && !defined(Q_CLANG_QDOC)
-    constexpr inline QFlag(long value) noexcept : i(int(value)) {}
-    constexpr inline QFlag(ulong value) noexcept : i(int(long(value))) {}
+    constexpr inline Q_IMPLICIT QFlag(long value) noexcept : i(int(value)) {}
+    constexpr inline Q_IMPLICIT QFlag(ulong value) noexcept : i(int(long(value))) {}
 #  endif
-    constexpr inline QFlag(uint value) noexcept : i(int(value)) {}
-    constexpr inline QFlag(short value) noexcept : i(int(value)) {}
-    constexpr inline QFlag(ushort value) noexcept : i(int(uint(value))) {}
-    constexpr inline operator uint() const noexcept { return uint(i); }
+    constexpr inline Q_IMPLICIT QFlag(uint value) noexcept : i(int(value)) {}
+    constexpr inline Q_IMPLICIT QFlag(short value) noexcept : i(int(value)) {}
+    constexpr inline Q_IMPLICIT QFlag(ushort value) noexcept : i(int(uint(value))) {}
+    constexpr inline Q_IMPLICIT operator uint() const noexcept { return uint(i); }
 #endif
 };
 Q_DECLARE_TYPEINFO(QFlag, Q_PRIMITIVE_TYPE);
@@ -76,14 +76,12 @@ class QIncompatibleFlag
     int i;
 public:
     constexpr inline explicit QIncompatibleFlag(int i) noexcept;
-    constexpr inline operator int() const noexcept { return i; }
+    constexpr inline Q_IMPLICIT operator int() const noexcept { return i; }
 };
 Q_DECLARE_TYPEINFO(QIncompatibleFlag, Q_PRIMITIVE_TYPE);
 
 constexpr inline QIncompatibleFlag::QIncompatibleFlag(int value) noexcept : i(value) {}
 
-
-#ifndef Q_NO_TYPESAFE_FLAGS
 
 template<typename Enum>
 class QFlags
@@ -107,19 +105,19 @@ public:
 #endif
     typedef Enum enum_type;
     // compiler-generated copy/move ctor/assignment operators are fine!
-#ifdef Q_CLANG_QDOC
-    constexpr inline QFlags(const QFlags &other);
-    constexpr inline QFlags &operator=(const QFlags &other);
-#endif
     constexpr inline QFlags() noexcept : i(0) {}
-    constexpr inline QFlags(Enum flags) noexcept : i(Int(flags)) {}
-    constexpr inline QFlags(QFlag flag) noexcept : i(flag) {}
+    constexpr inline Q_IMPLICIT QFlags(Enum flags) noexcept : i(Int(flags)) {}
+    constexpr inline Q_IMPLICIT QFlags(QFlag flag) noexcept : i(flag) {}
 
     constexpr inline QFlags(std::initializer_list<Enum> flags) noexcept
         : i(initializer_list_helper(flags.begin(), flags.end())) {}
 
+    constexpr static inline QFlags fromInt(Int i) noexcept { return QFlags(QFlag(i)); }
+    constexpr inline Int toInt() const noexcept { return i; }
+
     constexpr inline QFlags &operator&=(int mask) noexcept { i &= mask; return *this; }
     constexpr inline QFlags &operator&=(uint mask) noexcept { i &= mask; return *this; }
+    constexpr inline QFlags &operator&=(QFlags mask) noexcept { i &= mask.i; return *this; }
     constexpr inline QFlags &operator&=(Enum mask) noexcept { i &= Int(mask); return *this; }
     constexpr inline QFlags &operator|=(QFlags other) noexcept { i |= other.i; return *this; }
     constexpr inline QFlags &operator|=(Enum other) noexcept { i |= Int(other); return *this; }
@@ -134,6 +132,7 @@ public:
     constexpr inline QFlags operator^(Enum other) const noexcept { return QFlags(QFlag(i ^ Int(other))); }
     constexpr inline QFlags operator&(int mask) const noexcept { return QFlags(QFlag(i & mask)); }
     constexpr inline QFlags operator&(uint mask) const noexcept { return QFlags(QFlag(i & mask)); }
+    constexpr inline QFlags operator&(QFlags other) const noexcept { return QFlags(QFlag(i & other.i)); }
     constexpr inline QFlags operator&(Enum other) const noexcept { return QFlags(QFlag(i & Int(other))); }
     constexpr inline QFlags operator~() const noexcept { return QFlags(QFlag(~i)); }
 
@@ -146,11 +145,27 @@ public:
 
     constexpr inline bool operator!() const noexcept { return !i; }
 
-    constexpr inline bool testFlag(Enum flag) const noexcept { return (i & Int(flag)) == Int(flag) && (Int(flag) != 0 || i == Int(flag) ); }
+    constexpr inline bool testFlag(Enum flag) const noexcept { return testFlags(flag); }
+    constexpr inline bool testFlags(QFlags flags) const noexcept { return flags.i ? ((i & flags.i) == flags.i) : i == Int(0); }
+    constexpr inline bool testAnyFlag(Enum flag) const noexcept { return testAnyFlags(flag); }
+    constexpr inline bool testAnyFlags(QFlags flags) const noexcept { return (i & flags.i) != Int(0); }
     constexpr inline QFlags &setFlag(Enum flag, bool on = true) noexcept
     {
-        return on ? (*this |= flag) : (*this &= ~Int(flag));
+        return on ? (*this |= flag) : (*this &= ~QFlags(flag));
     }
+
+    friend constexpr inline bool operator==(QFlags lhs, QFlags rhs) noexcept
+    { return lhs.i == rhs.i; }
+    friend constexpr inline bool operator!=(QFlags lhs, QFlags rhs) noexcept
+    { return lhs.i != rhs.i; }
+    friend constexpr inline bool operator==(QFlags lhs, Enum rhs) noexcept
+    { return lhs == QFlags(rhs); }
+    friend constexpr inline bool operator!=(QFlags lhs, Enum rhs) noexcept
+    { return lhs != QFlags(rhs); }
+    friend constexpr inline bool operator==(Enum lhs, QFlags rhs) noexcept
+    { return QFlags(lhs) == rhs; }
+    friend constexpr inline bool operator!=(Enum lhs, QFlags rhs) noexcept
+    { return QFlags(lhs) != rhs; }
 
 private:
     constexpr static inline Int initializer_list_helper(typename std::initializer_list<Enum>::const_iterator it,
@@ -168,38 +183,27 @@ private:
 typedef QFlags<Enum> Flags;
 #endif
 
-#define Q_DECLARE_INCOMPATIBLE_FLAGS(Flags) \
-constexpr inline QIncompatibleFlag operator|(Flags::enum_type f1, int f2) noexcept \
-{ return QIncompatibleFlag(int(f1) | f2); } \
-constexpr inline void operator+(int f1, Flags::enum_type f2) noexcept = delete; \
-constexpr inline void operator+(Flags::enum_type f1, int f2) noexcept = delete; \
-constexpr inline void operator-(int f1, Flags::enum_type f2) noexcept = delete; \
-constexpr inline void operator-(Flags::enum_type f1, int f2) noexcept = delete;
-
 #define Q_DECLARE_OPERATORS_FOR_FLAGS(Flags) \
 constexpr inline QFlags<Flags::enum_type> operator|(Flags::enum_type f1, Flags::enum_type f2) noexcept \
 { return QFlags<Flags::enum_type>(f1) | f2; } \
 constexpr inline QFlags<Flags::enum_type> operator|(Flags::enum_type f1, QFlags<Flags::enum_type> f2) noexcept \
 { return f2 | f1; } \
+constexpr inline QFlags<Flags::enum_type> operator&(Flags::enum_type f1, Flags::enum_type f2) noexcept \
+{ return QFlags<Flags::enum_type>(f1) & f2; } \
+constexpr inline QFlags<Flags::enum_type> operator&(Flags::enum_type f1, QFlags<Flags::enum_type> f2) noexcept \
+{ return f2 & f1; } \
 constexpr inline void operator+(Flags::enum_type f1, Flags::enum_type f2) noexcept = delete; \
 constexpr inline void operator+(Flags::enum_type f1, QFlags<Flags::enum_type> f2) noexcept = delete; \
 constexpr inline void operator+(int f1, QFlags<Flags::enum_type> f2) noexcept = delete; \
 constexpr inline void operator-(Flags::enum_type f1, Flags::enum_type f2) noexcept = delete; \
 constexpr inline void operator-(Flags::enum_type f1, QFlags<Flags::enum_type> f2) noexcept = delete; \
 constexpr inline void operator-(int f1, QFlags<Flags::enum_type> f2) noexcept = delete; \
-Q_DECLARE_INCOMPATIBLE_FLAGS(Flags)
-
-
-#else /* Q_NO_TYPESAFE_FLAGS */
-
-#ifndef Q_MOC_RUN
-#define Q_DECLARE_FLAGS(Flags, Enum)\
-typedef uint Flags;
-#endif
-
-#define Q_DECLARE_OPERATORS_FOR_FLAGS(Flags)
-
-#endif /* Q_NO_TYPESAFE_FLAGS */
+constexpr inline QIncompatibleFlag operator|(Flags::enum_type f1, int f2) noexcept \
+{ return QIncompatibleFlag(int(f1) | f2); } \
+constexpr inline void operator+(int f1, Flags::enum_type f2) noexcept = delete; \
+constexpr inline void operator+(Flags::enum_type f1, int f2) noexcept = delete; \
+constexpr inline void operator-(int f1, Flags::enum_type f2) noexcept = delete; \
+constexpr inline void operator-(Flags::enum_type f1, int f2) noexcept = delete;
 
 QT_END_NAMESPACE
 

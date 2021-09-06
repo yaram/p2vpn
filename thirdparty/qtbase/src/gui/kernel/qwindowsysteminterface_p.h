@@ -283,16 +283,18 @@ public:
 
     class KeyEvent : public InputEvent {
     public:
-        KeyEvent(QWindow *w, ulong time, QEvent::Type t, int k, Qt::KeyboardModifiers mods, const QString & text = QString(),
-                 bool autorep = false, ushort count = 1, const QInputDevice *device = QInputDevice::primaryKeyboard())
-            : InputEvent(w, time, Key, mods, device), key(k), unicode(text), repeat(autorep),
-             repeatCount(count), keyType(t),
+        KeyEvent(QWindow *w, ulong time, QEvent::Type t, int k, Qt::KeyboardModifiers mods,
+                 const QString & text = QString(), bool autorep = false, ushort count = 1,
+                 const QInputDevice *device = QInputDevice::primaryKeyboard())
+            : InputEvent(w, time, Key, mods, device), source(nullptr), key(k), unicode(text),
+             repeat(autorep), repeatCount(count), keyType(t),
              nativeScanCode(0), nativeVirtualKey(0), nativeModifiers(0) { }
         KeyEvent(QWindow *w, ulong time, QEvent::Type t, int k, Qt::KeyboardModifiers mods,
                  quint32 nativeSC, quint32 nativeVK, quint32 nativeMods,
-                 const QString & text = QString(), bool autorep = false, ushort count = 1, const QInputDevice *device = QInputDevice::primaryKeyboard())
-            : InputEvent(w, time, Key, mods, device), key(k), unicode(text), repeat(autorep),
-             repeatCount(count), keyType(t),
+                 const QString & text = QString(), bool autorep = false, ushort count = 1,
+                 const QInputDevice *device = QInputDevice::primaryKeyboard())
+            : InputEvent(w, time, Key, mods, device), source(nullptr), key(k), unicode(text),
+             repeat(autorep), repeatCount(count), keyType(t),
              nativeScanCode(nativeSC), nativeVirtualKey(nativeVK), nativeModifiers(nativeMods) { }
         const QInputDevice *source;
         int key;
@@ -449,12 +451,15 @@ public:
 #ifndef QT_NO_GESTURES
     class GestureEvent : public PointerEvent {
     public:
-        GestureEvent(QWindow *window, ulong time, Qt::NativeGestureType type, const QPointingDevice *dev, QPointF pos, QPointF globalPos)
+        GestureEvent(QWindow *window, ulong time, Qt::NativeGestureType type, const QPointingDevice *dev,
+                     int fingerCount, QPointF pos, QPointF globalPos)
             : PointerEvent(window, time, Gesture, Qt::NoModifier, dev), type(type), pos(pos), globalPos(globalPos),
-              realValue(0), sequenceId(0), intValue(0) { }
+              fingerCount(fingerCount), realValue(0), sequenceId(0), intValue(0) { }
         Qt::NativeGestureType type;
         QPointF pos;
         QPointF globalPos;
+        QPointF delta;
+        int fingerCount;
         // Mac
         qreal realValue;
         // Windows

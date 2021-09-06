@@ -248,7 +248,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn template <typename T, typename Cleanup> T *QScopedPointer<T, Cleanup>::take()
 
-    \obsolete Use std::unique_ptr and release() instead.
+    \deprecated [6.1] Use \c std::unique_ptr and \c release() instead.
 
     Returns the value of the pointer referenced by this object. The pointer of this
     QScopedPointer object will be reset to \nullptr.
@@ -264,6 +264,10 @@ QT_BEGIN_NAMESPACE
 */
 
 /*! \fn template <typename T, typename Cleanup> void QScopedPointer<T, Cleanup>::swap(QScopedPointer<T, Cleanup> &lhs, QScopedPointer<T, Cleanup> &rhs)
+
+    \deprecated [6.1] Use \c std::unique_ptr instead; this function may let a pointer
+    escape its scope.
+
     Swaps \a lhs with \a rhs.
  */
 
@@ -330,7 +334,11 @@ QT_BEGIN_NAMESPACE
 */
 
 /*! \fn template <typename T, typename Cleanup> void QScopedArrayPointer<T, Cleanup>::swap(QScopedArrayPointer<T, Cleanup> &other)
-  Swap this pointer with \a other.
+
+    \deprecated [6.1] Use \c std::unique_ptr instead; this function may let a pointer
+    escape its scope.
+
+    Swap this pointer with \a other.
  */
 
 QT_END_NAMESPACE

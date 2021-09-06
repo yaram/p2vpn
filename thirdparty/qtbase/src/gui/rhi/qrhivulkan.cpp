@@ -104,18 +104,7 @@ QT_BEGIN_NAMESPACE
         ...
 
         QVulkanInstance inst;
-    #ifndef Q_OS_ANDROID
-        inst.setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
-    #else
-        inst.setLayers(QByteArrayList()
-                       << "VK_LAYER_GOOGLE_threading"
-                       << "VK_LAYER_LUNARG_parameter_validation"
-                       << "VK_LAYER_LUNARG_object_tracker"
-                       << "VK_LAYER_LUNARG_core_validation"
-                       << "VK_LAYER_LUNARG_image"
-                       << "VK_LAYER_LUNARG_swapchain"
-                       << "VK_LAYER_GOOGLE_unique_objects");
-    #endif
+        inst.setLayers({ "VK_LAYER_KHRONOS_validation" }); // for debugging only, not for release builds
         inst.setExtensions(QRhiVulkanInitParams::preferredInstanceExtensions());
         if (!inst.create())
             qFatal("Vulkan not available");
@@ -160,11 +149,21 @@ QT_BEGIN_NAMESPACE
     in deviceExtensions. This can be relevant when integrating with native Vulkan
     rendering code.
 
-    It is expected that the desired list of instance extensions will be queried
-    by calling the static function preferredInstanceExtensions() before
-    initializing a QVulkanInstance. The returned list can be passed to
-    QVulkanInstance::setExtensions() as-is, because unsupported extensions are
-    filtered out automatically.
+    It is expected that the backend's desired list of instance extensions will
+    be queried by calling the static function preferredInstanceExtensions()
+    before initializing a QVulkanInstance. The returned list can be safely
+    passed to QVulkanInstance::setExtensions() as-is, because unsupported
+    extensions are filtered out automatically. If this is not done, certain
+    features, such as QRhi::CustomInstanceStepRate may be reported as
+    unsupported even when the Vulkan implementation on the system has support
+    for the relevant functionality.
+
+    For full functionality the QVulkanInstance needs to have API 1.1 enabled,
+    when available. This means calling QVulkanInstance::setApiVersion() with
+    1.1 or higher whenever QVulkanInstance::supportedApiVersion() reports that
+    at least Vulkan 1.1 is supported. If this is not done, certain features,
+    such as QRhi::RenderTo3DTextureSlice may be reported as unsupported even
+    when the Vulkan implementation on the system supports Vulkan 1.1 or newer.
 
     \section2 Working with existing Vulkan devices
 
@@ -549,8 +548,8 @@ bool QRhiVulkan::create(QRhi::Flags flags)
         queueInfo[0].pQueuePriorities = prio;
 
         QList<const char *> devLayers;
-        if (inst->layers().contains("VK_LAYER_LUNARG_standard_validation"))
-            devLayers.append("VK_LAYER_LUNARG_standard_validation");
+        if (inst->layers().contains("VK_LAYER_KHRONOS_validation"))
+            devLayers.append("VK_LAYER_KHRONOS_validation");
 
         QVulkanInfoVector<QVulkanExtension> devExts;
         uint32_t devExtCount = 0;
@@ -566,17 +565,17 @@ bool QRhiVulkan::create(QRhi::Flags flags)
         QList<const char *> requestedDevExts;
         requestedDevExts.append("VK_KHR_swapchain");
 
-        debugMarkersAvailable = false;
+        caps.debugMarkers = false;
         if (devExts.contains(VK_EXT_DEBUG_MARKER_EXTENSION_NAME)) {
             requestedDevExts.append(VK_EXT_DEBUG_MARKER_EXTENSION_NAME);
-            debugMarkersAvailable = true;
+            caps.debugMarkers = true;
         }
 
-        vertexAttribDivisorAvailable = false;
+        caps.vertexAttribDivisor = false;
         if (devExts.contains(VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME)) {
             if (inst->extensions().contains(QByteArrayLiteral("VK_KHR_get_physical_device_properties2"))) {
                 requestedDevExts.append(VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME);
-                vertexAttribDivisorAvailable = true;
+                caps.vertexAttribDivisor = true;
             }
         }
 
@@ -663,7 +662,7 @@ bool QRhiVulkan::create(QRhi::Flags flags)
     if (queueFamilyProps.isEmpty())
         queryQueueFamilyProps();
 
-    hasCompute = (queueFamilyProps[gfxQueueFamilyIdx].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+    caps.compute = (queueFamilyProps[gfxQueueFamilyIdx].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
     timestampValidBits = queueFamilyProps[gfxQueueFamilyIdx].timestampValidBits;
 
     ubufAlign = physDevProperties.limits.minUniformBufferOffsetAlignment;
@@ -671,7 +670,9 @@ bool QRhiVulkan::create(QRhi::Flags flags)
     // elsewhere states that the minimum bufferOffset is 4...
     texbufAlign = qMax<VkDeviceSize>(4, physDevProperties.limits.optimalBufferCopyOffsetAlignment);
 
-    hasWideLines = physDevFeatures.wideLines;
+    caps.wideLines = physDevFeatures.wideLines;
+
+    caps.texture3DSliceAs2D = inst->apiVersion() >= QVersionNumber(1, 1);
 
     if (!importedAllocator) {
         VmaVulkanFunctions afuncs;
@@ -731,7 +732,7 @@ bool QRhiVulkan::create(QRhi::Flags flags)
     timestampQueryPoolMap.resize(QVK_MAX_ACTIVE_TIMESTAMP_PAIRS); // 1 bit per pair
     timestampQueryPoolMap.fill(false);
 
-    if (debugMarkersAvailable) {
+    if (caps.debugMarkers) {
         vkCmdDebugMarkerBegin = reinterpret_cast<PFN_vkCmdDebugMarkerBeginEXT>(f->vkGetDeviceProcAddr(dev, "vkCmdDebugMarkerBeginEXT"));
         vkCmdDebugMarkerEnd = reinterpret_cast<PFN_vkCmdDebugMarkerEndEXT>(f->vkGetDeviceProcAddr(dev, "vkCmdDebugMarkerEndEXT"));
         vkCmdDebugMarkerInsert = reinterpret_cast<PFN_vkCmdDebugMarkerInsertEXT>(f->vkGetDeviceProcAddr(dev, "vkCmdDebugMarkerInsertEXT"));
@@ -886,6 +887,8 @@ static inline VkFormat toVkTextureFormat(QRhiTexture::Format format, QRhiTexture
         return srgb ? VK_FORMAT_R8G8_SRGB : VK_FORMAT_R8G8_UNORM;
     case QRhiTexture::R16:
         return VK_FORMAT_R16_UNORM;
+    case QRhiTexture::RG16:
+        return VK_FORMAT_R16G16_UNORM;
     case QRhiTexture::RED_OR_ALPHA8:
         return VK_FORMAT_R8_UNORM;
 
@@ -993,6 +996,8 @@ static inline QRhiTexture::Format colorTextureFormatFromVkFormat(VkFormat format
         return QRhiTexture::RG8;
     case VK_FORMAT_R16_UNORM:
         return QRhiTexture::R16;
+    case VK_FORMAT_R16G16_UNORM:
+        return QRhiTexture::RG16;
     default: // this cannot assert, must warn and return unknown
         qWarning("VkFormat %d is not a recognized uncompressed color format", format);
         break;
@@ -2940,15 +2945,18 @@ void QRhiVulkan::prepareUploadSubres(QVkTexture *texD, int layer, int level,
     qsizetype copySizeBytes = 0;
     qsizetype imageSizeBytes = 0;
     const void *src = nullptr;
+    const bool is3D = texD->m_flags.testFlag(QRhiTexture::ThreeDimensional);
 
     VkBufferImageCopy copyInfo;
     memset(&copyInfo, 0, sizeof(copyInfo));
     copyInfo.bufferOffset = *curOfs;
     copyInfo.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     copyInfo.imageSubresource.mipLevel = uint32_t(level);
-    copyInfo.imageSubresource.baseArrayLayer = uint32_t(layer);
+    copyInfo.imageSubresource.baseArrayLayer = is3D ? 0 : uint32_t(layer);
     copyInfo.imageSubresource.layerCount = 1;
     copyInfo.imageExtent.depth = 1;
+    if (is3D)
+        copyInfo.imageOffset.z = uint32_t(layer);
 
     const QByteArray rawData = subresDesc.data();
     const QPoint dp = subresDesc.destinationTopLeft();
@@ -3012,6 +3020,12 @@ void QRhiVulkan::prepareUploadSubres(QVkTexture *texD, int layer, int level,
         copySizeBytes = imageSizeBytes = rawData.size();
         src = rawData.constData();
         QSize size = q->sizeForMipLevel(level, texD->m_pixelSize);
+        if (subresDesc.dataStride()) {
+            quint32 bytesPerPixel = 0;
+            textureFormatInfo(texD->m_format, size, nullptr, nullptr, &bytesPerPixel);
+            if (bytesPerPixel)
+                copyInfo.bufferRowLength = subresDesc.dataStride() / bytesPerPixel;
+        }
         if (!subresDesc.sourceSize().isEmpty())
             size = subresDesc.sourceSize();
         copyInfo.imageOffset.x = dp.x();
@@ -3192,8 +3206,8 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
             QVkTexture *utexD = QRHI_RES(QVkTexture, u.dst);
             // batch into a single staging buffer and a single CopyBufferToImage with multiple copyInfos
             VkDeviceSize stagingSize = 0;
-            for (int layer = 0; layer < QRhi::MAX_LAYERS; ++layer) {
-                for (int level = 0; level < QRhi::MAX_LEVELS; ++level) {
+            for (int layer = 0, maxLayer = u.subresDesc.count(); layer < maxLayer; ++layer) {
+                for (int level = 0; level < QRhi::MAX_MIP_LEVELS; ++level) {
                     for (const QRhiTextureSubresourceUploadDescription &subresDesc : qAsConst(u.subresDesc[layer][level]))
                         stagingSize += subresUploadByteSize(subresDesc);
                 }
@@ -3230,8 +3244,8 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
                 continue;
             }
 
-            for (int layer = 0; layer < QRhi::MAX_LAYERS; ++layer) {
-                for (int level = 0; level < QRhi::MAX_LEVELS; ++level) {
+            for (int layer = 0, maxLayer = u.subresDesc.count(); layer < maxLayer; ++layer) {
+                for (int level = 0; level < QRhi::MAX_MIP_LEVELS; ++level) {
                     const QList<QRhiTextureSubresourceUploadDescription> &srd(u.subresDesc[layer][level]);
                     if (srd.isEmpty())
                         continue;
@@ -3279,25 +3293,31 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
             }
             QVkTexture *srcD = QRHI_RES(QVkTexture, u.src);
             QVkTexture *dstD = QRHI_RES(QVkTexture, u.dst);
+            const bool srcIs3D = srcD->m_flags.testFlag(QRhiTexture::ThreeDimensional);
+            const bool dstIs3D = dstD->m_flags.testFlag(QRhiTexture::ThreeDimensional);
 
             VkImageCopy region;
             memset(&region, 0, sizeof(region));
 
             region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             region.srcSubresource.mipLevel = uint32_t(u.desc.sourceLevel());
-            region.srcSubresource.baseArrayLayer = uint32_t(u.desc.sourceLayer());
+            region.srcSubresource.baseArrayLayer = srcIs3D ? 0 : uint32_t(u.desc.sourceLayer());
             region.srcSubresource.layerCount = 1;
 
             region.srcOffset.x = u.desc.sourceTopLeft().x();
             region.srcOffset.y = u.desc.sourceTopLeft().y();
+            if (srcIs3D)
+                region.srcOffset.z = uint32_t(u.desc.sourceLayer());
 
             region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             region.dstSubresource.mipLevel = uint32_t(u.desc.destinationLevel());
-            region.dstSubresource.baseArrayLayer = uint32_t(u.desc.destinationLayer());
+            region.dstSubresource.baseArrayLayer = dstIs3D ? 0 : uint32_t(u.desc.destinationLayer());
             region.dstSubresource.layerCount = 1;
 
             region.dstOffset.x = u.desc.destinationTopLeft().x();
             region.dstOffset.y = u.desc.destinationTopLeft().y();
+            if (dstIs3D)
+                region.dstOffset.z = uint32_t(u.desc.destinationLayer());
 
             const QSize mipSize = q->sizeForMipLevel(u.desc.sourceLevel(), srcD->m_pixelSize);
             const QSize copySize = u.desc.pixelSize().isEmpty() ? mipSize : u.desc.pixelSize();
@@ -3327,11 +3347,13 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
 
             QVkTexture *texD = QRHI_RES(QVkTexture, u.rb.texture());
             QVkSwapChain *swapChainD = nullptr;
+            bool is3D = false;
             if (texD) {
                 if (texD->samples > VK_SAMPLE_COUNT_1_BIT) {
                     qWarning("Multisample texture cannot be read back");
                     continue;
                 }
+                is3D = texD->m_flags.testFlag(QRhiTexture::ThreeDimensional);
                 readback.pixelSize = q->sizeForMipLevel(u.rb.level(), texD->m_pixelSize);
                 readback.format = texD->m_format;
                 texD->lastActiveFrameSlot = currentFrameSlot;
@@ -3350,7 +3372,7 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
                 // Multisample swapchains need nothing special since resolving
                 // happens when ending a renderpass.
             }
-            textureFormatInfo(readback.format, readback.pixelSize, nullptr, &readback.byteSize);
+            textureFormatInfo(readback.format, readback.pixelSize, nullptr, &readback.byteSize, nullptr);
 
             // Create a host visible readback buffer.
             VkBufferCreateInfo bufferInfo;
@@ -3381,8 +3403,10 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
             copyDesc.bufferOffset = 0;
             copyDesc.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             copyDesc.imageSubresource.mipLevel = uint32_t(u.rb.level());
-            copyDesc.imageSubresource.baseArrayLayer = uint32_t(u.rb.layer());
+            copyDesc.imageSubresource.baseArrayLayer = is3D ? 0 : uint32_t(u.rb.layer());
             copyDesc.imageSubresource.layerCount = 1;
+            if (is3D)
+                copyDesc.imageOffset.z = u.rb.layer();
             copyDesc.imageExtent.width = uint32_t(readback.pixelSize.width());
             copyDesc.imageExtent.height = uint32_t(readback.pixelSize.height());
             copyDesc.imageExtent.depth = 1;
@@ -3427,6 +3451,7 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
             QVkTexture *utexD = QRHI_RES(QVkTexture, u.dst);
             Q_ASSERT(utexD->m_flags.testFlag(QRhiTexture::UsedWithGenerateMips));
             const bool isCube = utexD->m_flags.testFlag(QRhiTexture::CubeMap);
+            const bool is3D = utexD->m_flags.testFlag(QRhiTexture::ThreeDimensional);
 
             VkImageLayout origLayout = utexD->usageState.layout;
             VkAccessFlags origAccess = utexD->usageState.access;
@@ -3437,6 +3462,7 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
             for (int layer = 0; layer < (isCube ? 6 : 1); ++layer) {
                 int w = utexD->m_pixelSize.width();
                 int h = utexD->m_pixelSize.height();
+                int depth = is3D ? utexD->m_depth : 1;
                 for (int level = 1; level < int(utexD->mipLevelCount); ++level) {
                     if (level == 1) {
                         subresourceBarrier(cbD, utexD->image,
@@ -3471,7 +3497,7 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
 
                     region.srcOffsets[1].x = qMax(1, w);
                     region.srcOffsets[1].y = qMax(1, h);
-                    region.srcOffsets[1].z = 1;
+                    region.srcOffsets[1].z = qMax(1, depth);
 
                     region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                     region.dstSubresource.mipLevel = uint32_t(level);
@@ -3480,7 +3506,7 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
 
                     region.dstOffsets[1].x = qMax(1, w >> 1);
                     region.dstOffsets[1].y = qMax(1, h >> 1);
-                    region.dstOffsets[1].z = 1;
+                    region.dstOffsets[1].z = qMax(1, depth >> 1);
 
                     QVkCommandBuffer::Command &cmd(cbD->commands.get());
                     cmd.cmd = QVkCommandBuffer::Command::BlitImage;
@@ -3493,6 +3519,7 @@ void QRhiVulkan::enqueueResourceUpdates(QVkCommandBuffer *cbD, QRhiResourceUpdat
 
                     w >>= 1;
                     h >>= 1;
+                    depth >>= 1;
                 }
 
                 if (utexD->mipLevelCount > 1) {
@@ -3570,7 +3597,7 @@ static void qrhivk_releaseTexture(const QRhiVulkan::DeferredReleaseEntry &e, VkD
     vmaDestroyImage(toVmaAllocator(allocator), e.texture.image, toVmaAllocation(e.texture.allocation));
     for (int i = 0; i < QVK_FRAMES_IN_FLIGHT; ++i)
         vmaDestroyBuffer(toVmaAllocator(allocator), e.texture.stagingBuffers[i], toVmaAllocation(e.texture.stagingAllocations[i]));
-    for (int i = 0; i < QRhi::MAX_LEVELS; ++i) {
+    for (int i = 0; i < QRhi::MAX_MIP_LEVELS; ++i) {
         if (e.texture.extraImageViews[i])
             df->vkDestroyImageView(dev, e.texture.extraImageViews[i], nullptr);
     }
@@ -4184,13 +4211,13 @@ bool QRhiVulkan::isFeatureSupported(QRhi::Feature feature) const
     case QRhi::MultisampleRenderBuffer:
         return true;
     case QRhi::DebugMarkers:
-        return debugMarkersAvailable;
+        return caps.debugMarkers;
     case QRhi::Timestamps:
         return timestampValidBits != 0;
     case QRhi::Instancing:
         return true;
     case QRhi::CustomInstanceStepRate:
-        return vertexAttribDivisorAvailable;
+        return caps.vertexAttribDivisor;
     case QRhi::PrimitiveRestart:
         return true;
     case QRhi::NonDynamicUniformBuffers:
@@ -4204,9 +4231,9 @@ bool QRhiVulkan::isFeatureSupported(QRhi::Feature feature) const
     case QRhi::ElementIndexUint:
         return true;
     case QRhi::Compute:
-        return hasCompute;
+        return caps.compute;
     case QRhi::WideLines:
-        return hasWideLines;
+        return caps.wideLines;
     case QRhi::VertexShaderPointSize:
         return true;
     case QRhi::BaseVertex:
@@ -4231,6 +4258,14 @@ bool QRhiVulkan::isFeatureSupported(QRhi::Feature feature) const
         return true;
     case QRhi::PipelineCacheDataLoadSave:
         return true;
+    case QRhi::ImageDataStride:
+        return true;
+    case QRhi::RenderBufferImport:
+        return false;
+    case QRhi::ThreeDimensionalTextures:
+        return true;
+    case QRhi::RenderTo3DTextureSlice:
+        return caps.texture3DSliceAs2D;
     default:
         Q_UNREACHABLE();
         return false;
@@ -4436,10 +4471,11 @@ QRhiRenderBuffer *QRhiVulkan::createRenderBuffer(QRhiRenderBuffer::Type type, co
     return new QVkRenderBuffer(this, type, pixelSize, sampleCount, flags, backingFormatHint);
 }
 
-QRhiTexture *QRhiVulkan::createTexture(QRhiTexture::Format format, const QSize &pixelSize,
+QRhiTexture *QRhiVulkan::createTexture(QRhiTexture::Format format,
+                                       const QSize &pixelSize, int depth,
                                        int sampleCount, QRhiTexture::Flags flags)
 {
-    return new QVkTexture(this, format, pixelSize, sampleCount, flags);
+    return new QVkTexture(this, format, pixelSize, depth, sampleCount, flags);
 }
 
 QRhiSampler *QRhiVulkan::createSampler(QRhiSampler::Filter magFilter, QRhiSampler::Filter minFilter,
@@ -4936,7 +4972,7 @@ void QRhiVulkan::drawIndexed(QRhiCommandBuffer *cb, quint32 indexCount,
 
 void QRhiVulkan::debugMarkBegin(QRhiCommandBuffer *cb, const QByteArray &name)
 {
-    if (!debugMarkers || !debugMarkersAvailable)
+    if (!debugMarkers || !caps.debugMarkers)
         return;
 
     VkDebugMarkerMarkerInfoEXT marker;
@@ -4958,7 +4994,7 @@ void QRhiVulkan::debugMarkBegin(QRhiCommandBuffer *cb, const QByteArray &name)
 
 void QRhiVulkan::debugMarkEnd(QRhiCommandBuffer *cb)
 {
-    if (!debugMarkers || !debugMarkersAvailable)
+    if (!debugMarkers || !caps.debugMarkers)
         return;
 
     QVkCommandBuffer *cbD = QRHI_RES(QVkCommandBuffer, cb);
@@ -4972,7 +5008,7 @@ void QRhiVulkan::debugMarkEnd(QRhiCommandBuffer *cb)
 
 void QRhiVulkan::debugMarkMsg(QRhiCommandBuffer *cb, const QByteArray &msg)
 {
-    if (!debugMarkers || !debugMarkersAvailable)
+    if (!debugMarkers || !caps.debugMarkers)
         return;
 
     VkDebugMarkerMarkerInfoEXT marker;
@@ -5072,7 +5108,7 @@ void QRhiVulkan::endExternal(QRhiCommandBuffer *cb)
 
 void QRhiVulkan::setObjectName(uint64_t object, VkDebugReportObjectTypeEXT type, const QByteArray &name, int slot)
 {
-    if (!debugMarkers || !debugMarkersAvailable || name.isEmpty())
+    if (!debugMarkers || !caps.debugMarkers || name.isEmpty())
         return;
 
     VkDebugMarkerObjectNameInfoEXT nameInfo;
@@ -5487,12 +5523,15 @@ void QVkBuffer::destroy()
     }
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-
-    QRHI_PROF;
-    QRHI_PROF_F(releaseBuffer(this));
-
-    rhiD->unregisterResource(this);
+    // destroy() implementations, unlike other functions, are expected to test
+    // for m_rhi being null, to allow surviving in case one attempts to destroy
+    // a (leaked) resource after the QRhi.
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        QRHI_PROF;
+        QRHI_PROF_F(releaseBuffer(this));
+        rhiD->unregisterResource(this);
+    }
 }
 
 bool QVkBuffer::create()
@@ -5644,12 +5683,12 @@ void QVkRenderBuffer::destroy()
     }
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-
-    QRHI_PROF;
-    QRHI_PROF_F(releaseRenderBuffer(this));
-
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        QRHI_PROF;
+        QRHI_PROF_F(releaseRenderBuffer(this));
+        rhiD->unregisterResource(this);
+    }
 }
 
 bool QVkRenderBuffer::create()
@@ -5670,6 +5709,7 @@ bool QVkRenderBuffer::create()
         if (!backingTexture) {
             backingTexture = QRHI_RES(QVkTexture, rhiD->createTexture(backingFormat(),
                                                                       m_pixelSize,
+                                                                      1,
                                                                       m_sampleCount,
                                                                       QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
         } else {
@@ -5718,15 +5758,15 @@ QRhiTexture::Format QVkRenderBuffer::backingFormat() const
         return m_type == Color ? QRhiTexture::RGBA8 : QRhiTexture::UnknownFormat;
 }
 
-QVkTexture::QVkTexture(QRhiImplementation *rhi, Format format, const QSize &pixelSize,
+QVkTexture::QVkTexture(QRhiImplementation *rhi, Format format, const QSize &pixelSize, int depth,
                        int sampleCount, Flags flags)
-    : QRhiTexture(rhi, format, pixelSize, sampleCount, flags)
+    : QRhiTexture(rhi, format, pixelSize, depth, sampleCount, flags)
 {
     for (int i = 0; i < QVK_FRAMES_IN_FLIGHT; ++i) {
         stagingBuffers[i] = VK_NULL_HANDLE;
         stagingAllocations[i] = nullptr;
     }
-    for (int i = 0; i < QRhi::MAX_LEVELS; ++i)
+    for (int i = 0; i < QRhi::MAX_MIP_LEVELS; ++i)
         perLevelImageViews[i] = VK_NULL_HANDLE;
 }
 
@@ -5756,7 +5796,7 @@ void QVkTexture::destroy()
         stagingAllocations[i] = nullptr;
     }
 
-    for (int i = 0; i < QRhi::MAX_LEVELS; ++i) {
+    for (int i = 0; i < QRhi::MAX_MIP_LEVELS; ++i) {
         e.texture.extraImageViews[i] = perLevelImageViews[i];
         perLevelImageViews[i] = VK_NULL_HANDLE;
     }
@@ -5766,12 +5806,12 @@ void QVkTexture::destroy()
     imageAlloc = nullptr;
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-
-    QRHI_PROF;
-    QRHI_PROF_F(releaseTexture(this));
-
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        QRHI_PROF;
+        QRHI_PROF_F(releaseTexture(this));
+        rhiD->unregisterResource(this);
+    }
 }
 
 bool QVkTexture::prepareCreate(QSize *adjustedSize)
@@ -5791,10 +5831,11 @@ bool QVkTexture::prepareCreate(QSize *adjustedSize)
 
     const QSize size = m_pixelSize.isEmpty() ? QSize(1, 1) : m_pixelSize;
     const bool isCube = m_flags.testFlag(CubeMap);
+    const bool is3D = m_flags.testFlag(ThreeDimensional);
     const bool hasMipMaps = m_flags.testFlag(MipMapped);
 
     mipLevelCount = uint(hasMipMaps ? rhiD->q->mipLevelsForSize(size) : 1);
-    const int maxLevels = QRhi::MAX_LEVELS;
+    const int maxLevels = QRhi::MAX_MIP_LEVELS;
     if (mipLevelCount > maxLevels) {
         qWarning("Too many mip levels (%d, max is %d), truncating mip chain", mipLevelCount, maxLevels);
         mipLevelCount = maxLevels;
@@ -5805,10 +5846,23 @@ bool QVkTexture::prepareCreate(QSize *adjustedSize)
             qWarning("Cubemap texture cannot be multisample");
             return false;
         }
+        if (is3D) {
+            qWarning("3D texture cannot be multisample");
+            return false;
+        }
         if (hasMipMaps) {
             qWarning("Multisample texture cannot have mipmaps");
             return false;
         }
+    }
+    if (isCube && is3D) {
+        qWarning("Texture cannot be both cube and 3D");
+        return false;
+    }
+    m_depth = qMax(1, m_depth);
+    if (m_depth > 1 && !is3D) {
+        qWarning("Texture cannot have a depth of %d when it is not 3D", m_depth);
+        return false;
     }
 
     usageState.layout = VK_IMAGE_LAYOUT_PREINITIALIZED;
@@ -5827,12 +5881,13 @@ bool QVkTexture::finishCreate()
 
     const auto aspectMask = aspectMaskForTextureFormat(m_format);
     const bool isCube = m_flags.testFlag(CubeMap);
+    const bool is3D = m_flags.testFlag(ThreeDimensional);
 
     VkImageViewCreateInfo viewInfo;
     memset(&viewInfo, 0, sizeof(viewInfo));
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
-    viewInfo.viewType = isCube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.viewType = isCube ? VK_IMAGE_VIEW_TYPE_CUBE : (is3D ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D);
     viewInfo.format = vkformat;
     viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
     viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
@@ -5860,19 +5915,39 @@ bool QVkTexture::create()
     if (!prepareCreate(&size))
         return false;
 
+    QRHI_RES_RHI(QRhiVulkan);
     const bool isRenderTarget = m_flags.testFlag(QRhiTexture::RenderTarget);
     const bool isDepth = isDepthTextureFormat(m_format);
     const bool isCube = m_flags.testFlag(CubeMap);
+    const bool is3D = m_flags.testFlag(ThreeDimensional);
 
     VkImageCreateInfo imageInfo;
     memset(&imageInfo, 0, sizeof(imageInfo));
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.flags = isCube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.flags = 0;
+    if (isCube)
+        imageInfo.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+
+    if (is3D && isRenderTarget) {
+        // This relies on a Vulkan 1.1 constant. For guaranteed proper behavior
+        // this also requires that at run time the VkInstance has at least API 1.1
+        // enabled. (though it works as expected with some Vulkan (1.2)
+        // implementations regardless of the requested API version, but f.ex. the
+        // validation layer complains when using this without enabling >=1.1)
+        if (!rhiD->caps.texture3DSliceAs2D)
+            qWarning("QRhiVulkan: Rendering to 3D texture slice may not be functional without API 1.1 on the VkInstance");
+#ifdef VK_VERSION_1_1
+        imageInfo.flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
+#else
+        imageInfo.flags |= 0x00000020;
+#endif
+    }
+
+    imageInfo.imageType = is3D ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
     imageInfo.format = vkformat;
     imageInfo.extent.width = uint32_t(size.width());
     imageInfo.extent.height = uint32_t(size.height());
-    imageInfo.extent.depth = 1;
+    imageInfo.extent.depth = is3D ? m_depth : 1;
     imageInfo.mipLevels = mipLevelCount;
     imageInfo.arrayLayers = isCube ? 6 : 1;
     imageInfo.samples = samples;
@@ -5897,7 +5972,6 @@ bool QVkTexture::create()
     memset(&allocInfo, 0, sizeof(allocInfo));
     allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    QRHI_RES_RHI(QRhiVulkan);
     VmaAllocation allocation;
     VkResult err = vmaCreateImage(toVmaAllocator(rhiD->allocator), &imageInfo, &allocInfo, &image, &allocation, nullptr);
     if (err != VK_SUCCESS) {
@@ -5962,12 +6036,13 @@ VkImageView QVkTexture::imageViewForLevel(int level)
 
     const VkImageAspectFlags aspectMask = aspectMaskForTextureFormat(m_format);
     const bool isCube = m_flags.testFlag(CubeMap);
+    const bool is3D = m_flags.testFlag(ThreeDimensional);
 
     VkImageViewCreateInfo viewInfo;
     memset(&viewInfo, 0, sizeof(viewInfo));
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
-    viewInfo.viewType = isCube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.viewType = isCube ? VK_IMAGE_VIEW_TYPE_CUBE : (is3D ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D);
     viewInfo.format = vkformat;
     viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
     viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
@@ -6015,8 +6090,10 @@ void QVkSampler::destroy()
     sampler = VK_NULL_HANDLE;
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        rhiD->unregisterResource(this);
+    }
 }
 
 bool QVkSampler::create()
@@ -6080,9 +6157,10 @@ void QVkRenderPassDescriptor::destroy()
     rp = VK_NULL_HANDLE;
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        rhiD->unregisterResource(this);
+    }
 }
 
 static inline bool attachmentDescriptionEquals(const VkAttachmentDescription &a, const VkAttachmentDescription &b)
@@ -6245,9 +6323,10 @@ void QVkTextureRenderTarget::destroy()
     }
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        rhiD->unregisterResource(this);
+    }
 }
 
 QRhiRenderPassDescriptor *QVkTextureRenderTarget::newCompatibleRenderPassDescriptor()
@@ -6456,9 +6535,10 @@ void QVkShaderResourceBindings::destroy()
         descSets[i] = VK_NULL_HANDLE;
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        rhiD->unregisterResource(this);
+    }
 }
 
 bool QVkShaderResourceBindings::create()
@@ -6571,9 +6651,10 @@ void QVkGraphicsPipeline::destroy()
     layout = VK_NULL_HANDLE;
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        rhiD->unregisterResource(this);
+    }
 }
 
 bool QVkGraphicsPipeline::create()
@@ -6642,7 +6723,7 @@ bool QVkGraphicsPipeline::create()
                 ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE
         };
         if (it->classification() == QRhiVertexInputBinding::PerInstance && it->instanceStepRate() != 1) {
-            if (rhiD->vertexAttribDivisorAvailable) {
+            if (rhiD->caps.vertexAttribDivisor) {
                 nonOneStepRates.append({ uint32_t(bindingIndex), uint32_t(it->instanceStepRate()) });
             } else {
                 qWarning("QRhiVulkan: Instance step rates other than 1 not supported without "
@@ -6719,7 +6800,7 @@ bool QVkGraphicsPipeline::create()
         rastInfo.depthBiasConstantFactor = float(m_depthBias);
         rastInfo.depthBiasSlopeFactor = m_slopeScaledDepthBias;
     }
-    rastInfo.lineWidth = rhiD->hasWideLines ? m_lineWidth : 1.0f;
+    rastInfo.lineWidth = rhiD->caps.wideLines ? m_lineWidth : 1.0f;
     pipelineInfo.pRasterizationState = &rastInfo;
 
     VkPipelineMultisampleStateCreateInfo msInfo;
@@ -6820,9 +6901,10 @@ void QVkComputePipeline::destroy()
     layout = VK_NULL_HANDLE;
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->releaseQueue.append(e);
-
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        rhiD->releaseQueue.append(e);
+        rhiD->unregisterResource(this);
+    }
 }
 
 bool QVkComputePipeline::create()
@@ -6942,8 +7024,10 @@ void QVkSwapChain::destroy()
         return;
 
     QRHI_RES_RHI(QRhiVulkan);
-    rhiD->swapchains.remove(this);
-    rhiD->releaseSwapChainResources(this);
+    if (rhiD) {
+        rhiD->swapchains.remove(this);
+        rhiD->releaseSwapChainResources(this);
+    }
 
     for (int i = 0; i < QVK_FRAMES_IN_FLIGHT; ++i) {
         QVkSwapChain::FrameResources &frame(frameRes[i]);
@@ -6953,10 +7037,11 @@ void QVkSwapChain::destroy()
 
     surface = lastConnectedSurface = VK_NULL_HANDLE;
 
-    QRHI_PROF;
-    QRHI_PROF_F(releaseSwapChain(this));
-
-    rhiD->unregisterResource(this);
+    if (rhiD) {
+        QRHI_PROF;
+        QRHI_PROF_F(releaseSwapChain(this));
+        rhiD->unregisterResource(this);
+    }
 }
 
 QRhiCommandBuffer *QVkSwapChain::currentFrameCommandBuffer()

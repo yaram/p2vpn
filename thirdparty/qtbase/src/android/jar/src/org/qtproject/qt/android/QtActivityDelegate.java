@@ -119,7 +119,6 @@ public class QtActivityDelegate
     private static final String ENVIRONMENT_VARIABLES_KEY = "environment.variables";
     private static final String APPLICATION_PARAMETERS_KEY = "application.parameters";
     private static final String STATIC_INIT_CLASSES_KEY = "static.init.classes";
-    private static final String NECESSITAS_API_LEVEL_KEY = "necessitas.api.level";
     private static final String EXTRACT_STYLE_KEY = "extract.android.style";
     private static final String EXTRACT_STYLE_MINIMAL_KEY = "extract.android.style.option";
 
@@ -210,6 +209,11 @@ public class QtActivityDelegate
         }
     }
 
+    public boolean isKeyboardVisible()
+    {
+        return m_keyboardIsVisible;
+    }
+
     // input method hints - must be kept in sync with QTDIR/src/corelib/global/qnamespace.h
     private final int ImhHiddenText = 0x1;
     private final int ImhSensitiveData = 0x2;
@@ -261,7 +265,7 @@ public class QtActivityDelegate
         if (m_keyboardIsVisible == visibility)
             return false;
         m_keyboardIsVisible = visibility;
-        QtNative.keyboardVisibilityChanged(m_keyboardIsVisible);
+        QtNative.keyboardVisibilityUpdated(m_keyboardIsVisible);
 
         if (visibility == false)
             updateFullScreen(); // Hiding the keyboard clears the immersive mode, so we need to set it again.
@@ -281,7 +285,7 @@ public class QtActivityDelegate
         }, 5);
     }
 
-    public void showSoftwareKeyboard(final int x, final int y, final int width, final int height, final int inputHints, final int enterKeyType)
+    public void showSoftwareKeyboard(final int x, final int y, final int width, final int height, final int editorHeight, final int inputHints, final int enterKeyType)
     {
         if (m_imm == null)
             return;
@@ -303,7 +307,7 @@ public class QtActivityDelegate
             if (softInputIsHidden)
                 return;
         } else {
-            if (height > visibleHeight)
+            if (editorHeight > visibleHeight)
                 m_activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             else
                 m_activity.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
@@ -370,8 +374,12 @@ public class QtActivityDelegate
                 inputType |= android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;
             }
 
-            if ((inputHints & ImhMultiLine) != 0)
+            if ((inputHints & ImhMultiLine) != 0) {
                 inputType |= android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+                // Clear imeOptions for Multi-Line Type
+                // User should be able to insert new line in such case
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE;
+            }
             if ((inputHints & (ImhNoPredictiveText | ImhSensitiveData | ImhHiddenText)) != 0)
                 inputType |= android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
 
@@ -420,12 +428,12 @@ public class QtActivityDelegate
                                                     if (metrics.widthPixels > metrics.heightPixels) { // landscape
                                                         if (m_landscapeKeyboardHeight != r.bottom) {
                                                             m_landscapeKeyboardHeight = r.bottom;
-                                                            showSoftwareKeyboard(x, y, width, height, inputHints, enterKeyType);
+                                                            showSoftwareKeyboard(x, y, width, height, editorHeight, inputHints, enterKeyType);
                                                         }
                                                     } else {
                                                         if (m_portraitKeyboardHeight != r.bottom) {
                                                             m_portraitKeyboardHeight = r.bottom;
-                                                            showSoftwareKeyboard(x, y, width, height, inputHints, enterKeyType);
+                                                            showSoftwareKeyboard(x, y, width, height, editorHeight, inputHints, enterKeyType);
                                                         }
                                                     }
                                                 } else {
@@ -504,6 +512,17 @@ public class QtActivityDelegate
     private static final int CursorHandleShowSelection  = 2;
     private static final int CursorHandleShowEdit       = 0x100;
 
+    public int getSelectHandleWidth()
+    {
+        int width = 0;
+        if (m_leftSelectionHandle != null && m_rightSelectionHandle != null) {
+            width = Math.max(m_leftSelectionHandle.width(), m_rightSelectionHandle.width());
+        } else if (m_cursorHandle != null) {
+            width = m_cursorHandle.width();
+        }
+        return width;
+    }
+
     /* called from the C++ code when the position of the cursor or selection handles needs to
        be adjusted.
        mode is one of QAndroidInputContext::CursorHandleShowMode
@@ -562,9 +581,7 @@ public class QtActivityDelegate
                 break;
         }
 
-        if (QtNative.hasClipboardText())
-            editButtons |= EditContextView.PASTE_BUTTON;
-        else
+        if (!QtNative.hasClipboardText())
             editButtons &= ~EditContextView.PASTE_BUTTON;
 
         if ((mode & CursorHandleShowEdit) == CursorHandleShowEdit && editButtons != 0) {
@@ -574,6 +591,13 @@ public class QtActivityDelegate
             if (m_editPopupMenu != null)
                 m_editPopupMenu.hide();
         }
+    }
+
+    public void updateInputItemRectangle(final int x, final int y, final int w, final int h)
+    {
+        if (m_layout == null || m_editText == null || !m_keyboardIsVisible)
+            return;
+        m_layout.setLayoutParams(m_editText, new QtLayout.LayoutParams(w, h, x, y), true);
     }
 
     public boolean loadApplication(Activity activity, ClassLoader classLoader, Bundle loaderParams)
@@ -649,14 +673,9 @@ public class QtActivityDelegate
             return false;
         }
 
-        int necessitasApiLevel = 1;
-        if (loaderParams.containsKey(NECESSITAS_API_LEVEL_KEY))
-            necessitasApiLevel = loaderParams.getInt(NECESSITAS_API_LEVEL_KEY);
-
         m_environmentVariables = loaderParams.getString(ENVIRONMENT_VARIABLES_KEY);
         String additionalEnvironmentVariables = "QT_ANDROID_FONTS_MONOSPACE=Droid Sans Mono;Droid Sans;Droid Sans Fallback"
                                               + "\tQT_ANDROID_FONTS_SERIF=Droid Serif"
-                                              + "\tNECESSITAS_API_LEVEL=" + necessitasApiLevel
                                               + "\tHOME=" + m_activity.getFilesDir().getAbsolutePath()
                                               + "\tTMPDIR=" + m_activity.getFilesDir().getAbsolutePath();
 

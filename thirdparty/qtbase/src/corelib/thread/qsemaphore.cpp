@@ -132,8 +132,8 @@ static constexpr bool futexHasWaiterCount = true;
 static constexpr bool futexHasWaiterCount = false;
 #endif
 
-static const quintptr futexNeedsWakeAllBit =
-        Q_UINT64_C(1) << (sizeof(quintptr) * CHAR_BIT - 1);
+static constexpr quintptr futexNeedsWakeAllBit = futexHasWaiterCount ?
+        (Q_UINT64_C(1) << (sizeof(quintptr) * CHAR_BIT - 1)) : 0x80000000U;
 
 static int futexAvailCounter(quintptr v)
 {
@@ -169,6 +169,7 @@ static QBasicAtomicInteger<quint32> *futexLow32(QBasicAtomicInteger<quintptr> *p
 
 static QBasicAtomicInteger<quint32> *futexHigh32(QBasicAtomicInteger<quintptr> *ptr)
 {
+    Q_ASSERT(futexHasWaiterCount);
     auto result = reinterpret_cast<QBasicAtomicInteger<quint32> *>(ptr);
 #if Q_BYTE_ORDER == Q_LITTLE_ENDIAN && QT_POINTER_SIZE > 4
     ++result;
@@ -184,31 +185,16 @@ futexSemaphoreTryAcquire_loop(QBasicAtomicInteger<quintptr> &u, quintptr curValu
     int n = int(unsigned(nn));
 
     // we're called after one testAndSet, so start by waiting first
-    goto start_wait;
-
-    forever {
-        if (futexAvailCounter(curValue) >= n) {
-            // try to acquire
-            quintptr newValue = curValue - nn;
-            if (u.testAndSetOrdered(curValue, newValue, curValue))
-                return true;        // succeeded!
-            continue;
-        }
-
-        // not enough tokens available, put us to wait
-        if (remainingTime == 0)
-            return false;
-
+    for (;;) {
         // indicate we're waiting
-start_wait:
         auto ptr = futexLow32(&u);
         if (n > 1 || !futexHasWaiterCount) {
             u.fetchAndOrRelaxed(futexNeedsWakeAllBit);
             curValue |= futexNeedsWakeAllBit;
-            if (n > 1 && futexHasWaiterCount) {
+            if constexpr (futexHasWaiterCount) {
+                Q_ASSERT(n > 1);
                 ptr = futexHigh32(&u);
-                //curValue >>= 32;  // but this is UB in 32-bit, so roundabout:
-                curValue = quint64(curValue) >> 32;
+                curValue >>= 32;
             }
         }
 
@@ -223,6 +209,17 @@ start_wait:
         curValue = u.loadAcquire();
         if (IsTimed)
             remainingTime = timer.remainingTimeNSecs();
+
+        // try to acquire
+        while (futexAvailCounter(curValue) >= n) {
+            quintptr newValue = curValue - nn;
+            if (u.testAndSetOrdered(curValue, newValue, curValue))
+                return true;        // succeeded!
+        }
+
+        // not enough tokens available, put us to wait
+        if (remainingTime == 0)
+            return false;
     }
 }
 
@@ -245,15 +242,17 @@ template <bool IsTimed> bool futexSemaphoreTryAcquire(QBasicAtomicInteger<quintp
         return false;
 
     // we need to wait
-    quintptr oneWaiter = quintptr(Q_UINT64_C(1) << 32); // zero on 32-bit
-    if (futexHasWaiterCount) {
-        // increase the waiter count
-        u.fetchAndAddRelaxed(oneWaiter);
-
+    constexpr quintptr oneWaiter = quintptr(Q_UINT64_C(1) << 32); // zero on 32-bit
+    if constexpr (futexHasWaiterCount) {
         // We don't use the fetched value from above so futexWait() fails if
         // it changed after the testAndSetOrdered above.
-        if ((quint64(curValue) >> 32) == 0x7fffffff)
-            return false;       // overflow!
+        if (((curValue >> 32) & 0x7fffffffU) == 0x7fffffffU) {
+            qCritical() << "Waiter count overflow in QSemaphore";
+            return false;
+        }
+
+        // increase the waiter count
+        u.fetchAndAddRelaxed(oneWaiter);
         curValue += oneWaiter;
 
         // Also adjust nn to subtract oneWaiter when we succeed in acquiring.
@@ -262,6 +261,8 @@ template <bool IsTimed> bool futexSemaphoreTryAcquire(QBasicAtomicInteger<quintp
 
     if (futexSemaphoreTryAcquire_loop<IsTimed>(u, curValue, nn, timeout))
         return true;
+
+    Q_ASSERT(IsTimed);
 
     if (futexHasWaiterCount) {
         // decrement the number of threads waiting
@@ -482,8 +483,6 @@ bool QSemaphore::tryAcquire(int n, int timeout)
         return false;
     d->avail -= n;
     return true;
-
-
 }
 
 /*!

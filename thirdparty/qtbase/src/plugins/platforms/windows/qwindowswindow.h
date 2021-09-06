@@ -235,11 +235,10 @@ public:
         MaximizeToFullScreen = 0x80000,
         Compositing = 0x100000,
         HasBorderInFullScreen = 0x200000,
-        WithinDpiChanged = 0x400000,
-        VulkanSurface = 0x800000,
-        ResizeMoveActive = 0x1000000,
-        DisableNonClientScaling = 0x2000000,
-        Direct3DSurface = 0x4000000
+        VulkanSurface = 0x400000,
+        ResizeMoveActive = 0x800000,
+        DisableNonClientScaling = 0x1000000,
+        Direct3DSurface = 0x2000000
     };
 
     QWindowsWindow(QWindow *window, const QWindowsWindowData &data);
@@ -372,6 +371,9 @@ public:
     static const char *embeddedNativeParentHandleProperty;
     static const char *hasBorderInFullScreenProperty;
 
+    void setSavedDpi(int dpi) { m_savedDpi = dpi; }
+    int savedDpi() const { return m_savedDpi; }
+
 private:
     inline void show_sys() const;
     inline QWindowsWindowData setWindowFlags_sys(Qt::WindowFlags wt, unsigned flags = 0) const;
@@ -405,6 +407,7 @@ private:
     HICON m_iconSmall = nullptr;
     HICON m_iconBig = nullptr;
     void *m_surface = nullptr;
+    int m_savedDpi = 96;
 
     static bool m_screenForGLInitialized;
 

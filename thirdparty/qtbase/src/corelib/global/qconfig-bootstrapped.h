@@ -66,10 +66,6 @@
 #define QT_NO_USING_NAMESPACE
 #define QT_NO_DEPRECATED
 
-#ifndef QT_BUILD_QMAKE
-#define QT_NO_REGEXP
-#endif
-
 // Keep feature-test macros in alphabetic order by feature name:
 #define QT_FEATURE_alloca 1
 #define QT_FEATURE_alloca_h -1
@@ -88,7 +84,11 @@
 #define QT_FEATURE_datetimeparser -1
 #define QT_FEATURE_easingcurve -1
 #define QT_FEATURE_etw -1
+#if defined(__linux__) || defined(__GLIBC__)
 #define QT_FEATURE_getauxval (__has_include(<sys/auxv.h>) ? 1 : -1)
+#else
+#define QT_FEATURE_getauxval -1
+#endif
 #define QT_FEATURE_getentropy -1
 #define QT_NO_GEOM_VARIANT
 #define QT_FEATURE_hijricalendar -1
@@ -98,6 +98,7 @@
 #define QT_FEATURE_journald -1
 #define QT_FEATURE_futimens -1
 #define QT_FEATURE_futimes -1
+#define QT_FEATURE_future -1
 #define QT_FEATURE_itemmodel -1
 #define QT_FEATURE_library -1
 #ifdef __linux__
@@ -139,15 +140,7 @@
 #define QT_FEATURE_zstd -1
 #endif
 
-#ifdef QT_BUILD_QMAKE
-#define QT_FEATURE_commandlineparser -1
-#define QT_NO_COMPRESS
-#define QT_JSON_READONLY
-#define QT_FEATURE_settings 1
-#define QT_NO_STANDARDPATHS
-#else
 #define QT_FEATURE_commandlineparser 1
 #define QT_FEATURE_settings -1
-#endif
 
 #endif // QT_BOOTSTRAPPED

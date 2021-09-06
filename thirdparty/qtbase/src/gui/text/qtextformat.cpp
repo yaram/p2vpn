@@ -642,7 +642,7 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
     \omitvalue FirstFontProperty
     \omitvalue LastFontProperty
 
-    \value TextUnderlineColor
+    \value TextUnderlineColor      Specifies the color to draw underlines, overlines and strikeouts.
     \value TextVerticalAlignment
     \value TextOutline
     \value TextUnderlineStyle
@@ -1457,7 +1457,7 @@ QTextCharFormat::QTextCharFormat(const QTextFormat &fmt)
 
 /*!
     \fn void QTextCharFormat::setFontFamily(const QString &family)
-    \deprecated Use setFontFamilies() instead.
+    \deprecated [6.1] Use setFontFamilies() instead.
 
     Sets the text format's font \a family.
 
@@ -1467,7 +1467,7 @@ QTextCharFormat::QTextCharFormat(const QTextFormat &fmt)
 
 /*!
     \fn QString QTextCharFormat::fontFamily() const
-    \deprecated Use fontFamilies() instead.
+    \deprecated [6.1] Use fontFamilies() instead.
 
     Returns the text format's font family.
 
@@ -1984,8 +1984,8 @@ QStringList QTextCharFormat::anchorNames() const
 /*!
     \fn void QTextCharFormat::setUnderlineColor(const QColor &color)
 
-    Sets the underline color used for the characters with this format to
-    the \a color specified.
+    Sets the color used to draw underlines, overlines and strikeouts on the
+    characters with this format to the \a color specified.
 
     \sa underlineColor()
 */
@@ -1993,7 +1993,8 @@ QStringList QTextCharFormat::anchorNames() const
 /*!
     \fn QColor QTextCharFormat::underlineColor() const
 
-    Returns the color used to underline the characters with this format.
+    Returns the color used to draw underlines, overlines and strikeouts
+    on the characters with this format.
 
     \sa setUnderlineColor()
 */

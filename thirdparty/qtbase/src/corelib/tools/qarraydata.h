@@ -68,7 +68,7 @@ struct QArrayData
     Q_DECLARE_FLAGS(ArrayOptions, ArrayOption)
 
     QBasicAtomicInt ref_;
-    uint flags;
+    ArrayOptions flags;
     qsizetype alloc;
 
     qsizetype allocatedCapacity() noexcept
@@ -139,7 +139,7 @@ struct QTypedArrayData
         static_assert(sizeof(QTypedArrayData) == sizeof(QArrayData));
         QArrayData *d;
         void *result = QArrayData::allocate(&d, sizeof(T), alignof(AlignmentDummy), capacity, option);
-#if (defined(Q_CC_GNU) && Q_CC_GNU >= 407) || QT_HAS_BUILTIN(__builtin_assume_aligned)
+#if __has_builtin(__builtin_assume_aligned)
         result = __builtin_assume_aligned(result, Q_ALIGNOF(AlignmentDummy));
 #endif
         return qMakePair(static_cast<QTypedArrayData *>(d), static_cast<T *>(result));

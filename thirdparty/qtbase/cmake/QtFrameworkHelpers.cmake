@@ -23,7 +23,7 @@ macro(qt_find_apple_system_frameworks)
         qt_internal_find_apple_system_framework(FWSystemConfiguration SystemConfiguration)
         qt_internal_find_apple_system_framework(FWUIKit UIKit)
         qt_internal_find_apple_system_framework(FWCoreLocation CoreLocation)
-
+        qt_internal_find_apple_system_framework(FWCoreMotion CoreMotion)
         qt_internal_find_apple_system_framework(FWWatchKit WatchKit)
         qt_internal_find_apple_system_framework(FWGameController GameController)
     endif()
@@ -64,27 +64,27 @@ function(qt_copy_framework_headers target)
     set(multiValueArgs)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-    get_target_property(fw_version ${target} FRAMEWORK_VERSION)
-    get_target_property(fw_bundle_version ${target} MACOSX_FRAMEWORK_BUNDLE_VERSION)
-    get_target_property(fw_dir ${target} LIBRARY_OUTPUT_DIRECTORY)
-    get_target_property(fw_name ${target} OUTPUT_NAME)
-    set(fw_headers_dir ${fw_dir}/${fw_name}.framework/Versions/${fw_version}/Headers/)
+    qt_internal_get_framework_info(fw ${target})
+    set(fw_output_header_dir "${fw_versioned_header_dir}")
     if(ARG_PRIVATE)
-        string(APPEND fw_headers_dir "${fw_bundle_version}/Qt${target}/private/")
+        set(fw_output_header_dir "${fw_private_module_header_dir}/private")
     elseif(ARG_QPA)
-        string(APPEND fw_headers_dir "${fw_bundle_version}/Qt${target}/qpa/")
+        set(fw_output_header_dir "${fw_private_module_header_dir}/qpa")
     endif()
+
+    get_target_property(output_dir ${target} LIBRARY_OUTPUT_DIRECTORY)
+    set(fw_output_header_dir "${output_dir}/${fw_output_header_dir}")
 
     set(out_files)
     foreach(hdr IN LISTS ARG_UNPARSED_ARGUMENTS)
         get_filename_component(in_file_path ${hdr} ABSOLUTE)
         get_filename_component(in_file_name ${hdr} NAME)
-        set(out_file_path ${fw_headers_dir}${in_file_name})
+        set(out_file_path "${fw_output_header_dir}/${in_file_name}")
         add_custom_command(
             OUTPUT ${out_file_path}
             DEPENDS ${in_file_path}
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${fw_headers_dir}"
-            COMMAND ${CMAKE_COMMAND} -E copy "${in_file_path}" "${fw_headers_dir}")
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${fw_output_header_dir}"
+            COMMAND ${CMAKE_COMMAND} -E copy "${in_file_path}" "${fw_output_header_dir}")
         list(APPEND out_files ${out_file_path})
     endforeach()
 
@@ -111,7 +111,7 @@ function(qt_finalize_framework_headers_copy target)
         # Create a fake header file and copy it into the framework by marking it as PUBLIC_HEADER.
         # CMake now takes care of creating the symlink.
         set(fake_header ${target}_fake_header.h)
-        qt_get_main_cmake_configuration(main_config)
+        qt_internal_get_main_cmake_configuration(main_config)
         file(GENERATE OUTPUT ${fake_header} CONTENT "// ignore this file\n"
              CONDITION "$<CONFIG:${main_config}>")
         string(PREPEND fake_header "${CMAKE_CURRENT_BINARY_DIR}/")
@@ -123,4 +123,48 @@ function(qt_finalize_framework_headers_copy target)
         add_custom_target(${target}_framework_headers DEPENDS ${headers})
         add_dependencies(${target} ${target}_framework_headers)
     endif()
+endfunction()
+
+# Collects the framework related information and paths from the target properties.
+# Output variables:
+#    <out_var>_name framework base name, e.g. 'QtCore'.
+#    <out_var>_dir framework base directory, e.g. 'QtCore.framework'.
+#    <out_var>_version framework version, e.g. 'A', 'B' etc.
+#    <out_var>_bundle_version framework bundle version, same as the PROJECT_VERSION, e.g. '6.0.0'.
+#    <out_var>_header_dir top-level header directory, e.g. 'QtCore.framework/Headers'.
+#    <out_var>_versioned_header_dir header directory for specific framework version,
+#        e.g. 'QtCore.framework/Versions/A/Headers'
+#    <out_var>_private_header_dir header directory for the specific framework version and
+#       framework bundle version e.g. 'QtCore.framework/Versions/A/Headers/6.0.0'
+#    <out_var>_private_module_header_dir private header directory for the specific framework
+#       version, framework bundle version and tailing module name, e.g.
+#       'QtCore.framework/Versions/A/Headers/6.0.0/Core'
+function(qt_internal_get_framework_info out_var target)
+    get_target_property(${out_var}_version ${target} FRAMEWORK_VERSION)
+    get_target_property(${out_var}_bundle_version ${target} MACOSX_FRAMEWORK_BUNDLE_VERSION)
+
+    # The module name might be different of the actual target name
+    # and we want to use the Qt'fied module name as a framework identifier.
+    get_target_property(module_interface_name ${target} _qt_module_interface_name)
+    if(module_interface_name)
+        qt_internal_qtfy_target(module ${module_interface_name})
+    else()
+        qt_internal_qtfy_target(module ${target})
+    endif()
+
+    set(${out_var}_name "${module}")
+    set(${out_var}_dir "${${out_var}_name}.framework")
+    set(${out_var}_header_dir "${${out_var}_dir}/Headers")
+    set(${out_var}_versioned_header_dir "${${out_var}_dir}/Versions/${${out_var}_version}/Headers")
+    set(${out_var}_private_header_dir "${${out_var}_header_dir}/${${out_var}_bundle_version}")
+    set(${out_var}_private_module_header_dir "${${out_var}_private_header_dir}/${module}")
+
+    set(${out_var}_name "${${out_var}_name}" PARENT_SCOPE)
+    set(${out_var}_dir "${${out_var}_dir}" PARENT_SCOPE)
+    set(${out_var}_header_dir "${${out_var}_header_dir}" PARENT_SCOPE)
+    set(${out_var}_version "${${out_var}_version}" PARENT_SCOPE)
+    set(${out_var}_bundle_version "${${out_var}_bundle_version}" PARENT_SCOPE)
+    set(${out_var}_versioned_header_dir "${${out_var}_versioned_header_dir}" PARENT_SCOPE)
+    set(${out_var}_private_header_dir "${${out_var}_private_header_dir}" PARENT_SCOPE)
+    set(${out_var}_private_module_header_dir "${${out_var}_private_module_header_dir}" PARENT_SCOPE)
 endfunction()

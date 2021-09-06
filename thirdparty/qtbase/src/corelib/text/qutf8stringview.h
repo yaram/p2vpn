@@ -306,12 +306,8 @@ public:
     //
     [[nodiscard]] constexpr bool isNull() const noexcept { return !m_data; }
     [[nodiscard]] constexpr bool isEmpty() const noexcept { return empty(); }
-#if QT_DEPRECATED_SINCE(6, 0)
-    [[nodiscard]]
-    Q_DECL_DEPRECATED_X("Use size() and port callers to qsizetype.")
-    constexpr int length() const /* not nothrow! */
-    { return Q_ASSERT(int(size()) == size()), int(size()); }
-#endif
+    [[nodiscard]] constexpr qsizetype length() const noexcept
+    { return size(); }
 
 private:
     [[nodiscard]] static inline int compare(QBasicUtf8StringView lhs, QBasicUtf8StringView rhs) noexcept
@@ -322,8 +318,9 @@ private:
 
     [[nodiscard]] friend inline bool operator==(QBasicUtf8StringView lhs, QBasicUtf8StringView rhs) noexcept
     {
-        return QtPrivate::equalStrings(QBasicUtf8StringView<false>(lhs.data(), lhs.size()),
-                                       QBasicUtf8StringView<false>(rhs.data(), rhs.size()));
+        return lhs.size() == rhs.size()
+               && QtPrivate::equalStrings(QBasicUtf8StringView<false>(lhs.data(), lhs.size()),
+                                          QBasicUtf8StringView<false>(rhs.data(), rhs.size()));
     }
     [[nodiscard]] friend inline bool operator!=(QBasicUtf8StringView lhs, QBasicUtf8StringView rhs) noexcept
     { return !operator==(lhs, rhs); }

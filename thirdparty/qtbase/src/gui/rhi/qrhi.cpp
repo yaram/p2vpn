@@ -636,6 +636,30 @@ Q_LOGGING_CATEGORY(QRHI_LOG_INFO, "qt.rhi.general")
     functions will not perform any action, the retrieved blob is always empty,
     and thus no benefits can be expected from retrieving and, during a
     subsequent run of the application, reloading the pipeline cache content.
+
+    \value ImageDataStride Indicates that specifying a custom stride (row
+    length) for raw image data in texture uploads is supported. When not
+    supported (which can happen when the underlying API is OpenGL ES 2.0 without
+    support for GL_UNPACK_ROW_LENGTH),
+    QRhiTextureSubresourceUploadDescription::setDataStride() must not be used.
+
+    \value RenderBufferImport Indicates that QRhiRenderBuffer::createFrom() is
+    supported. For most graphics APIs this is not sensible because
+    QRhiRenderBuffer encapsulates texture objects internally, just like
+    QRhiTexture. With OpenGL however, renderbuffer object exist as a separate
+    object type in the API, and in certain environments (for example, where one
+    may want to associated a renderbuffer object with an EGLImage object) it is
+    important to allow wrapping an existing OpenGL renderbuffer object with a
+    QRhiRenderBuffer.
+
+    \value ThreeDimensionalTextures Indicates that 3D textures are supported.
+    In practice this feature will be unsupported with OpenGL and OpenGL ES
+    versions lower than 3.0.
+
+    \value RenderTo3DTextureSlice Indicates that rendering to a slice in a 3D
+    texture is supported. This can be unsupported with Vulkan 1.0 due to
+    relying on VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT which is a Vulkan 1.1
+    feature.
  */
 
 /*!
@@ -1462,9 +1486,10 @@ QDebug operator<<(QDebug dbg, const QRhiShaderStage &s)
     support for multisample textures, but does support multisample
     renderbuffers).
 
-    When targeting a non-multisample texture, the layer() and level()
-    indicate the targeted layer (face index \c{0-5} for cubemaps) and mip
-    level.
+    When targeting a non-multisample texture, the layer() and level() indicate
+    the targeted layer (face index \c{0-5} for cubemaps) and mip level. For 3D
+    textures layer() specifies the slice (one 2D image within the 3D texture)
+    to render to.
 
     When texture() or renderBuffer() is multisample, resolveTexture() can be
     set optionally. When set, samples are resolved automatically into that
@@ -1585,16 +1610,28 @@ QRhiTextureRenderTargetDescription::QRhiTextureRenderTargetDescription(const QRh
     \note Setting sourceSize() or sourceTopLeft() may trigger a QImage copy
     internally, depending on the format and the backend.
 
-    When providing raw data, the stride (row pitch, row length in bytes) of the
+    When providing raw data, and the stride is not specified via
+    setDataStride(), the stride (row pitch, row length in bytes) of the
     provided data must be equal to \c{width * pixelSize} where \c pixelSize is
     the number of bytes used for one pixel, and there must be no additional
     padding between rows. There is no row start alignment requirement.
+
+    When there is unused data at the end of each row in the input raw data,
+    call setDataStride() with the total number of bytes per row. The stride
+    must always be a multiple of the number of bytes for one pixel. The row
+    stride is only applicable to image data for textures with an uncompressed
+    format.
 
     \note The format of the source data must be compatible with the texture
     format. With many graphics APIs the data is copied as-is into a staging
     buffer, there is no intermediate format conversion provided by QRhi. This
     applies to floating point formats as well, with, for example, RGBA16F
     requiring half floats in the source data.
+
+    \note Setting the stride via setDataStride() is only functional when
+    QRhi::ImageDataStride is reported as
+    \l{QRhi::isFeatureSupported()}{supported}. In practice this can be expected
+    to be supported everywhere except for OpenGL ES 2.0.
  */
 
 /*!
@@ -1637,11 +1674,10 @@ QRhiTextureSubresourceUploadDescription::QRhiTextureSubresourceUploadDescription
 }
 
 /*!
-    Constructs a mip level description with the image data specified by \a data. This is suitable
-   for floating point and compressed formats as well.
+    Constructs a mip level description with the image data specified by \a
+    data. This is suitable for floating point and compressed formats as well.
  */
-QRhiTextureSubresourceUploadDescription::QRhiTextureSubresourceUploadDescription(
-        const QByteArray &data)
+QRhiTextureSubresourceUploadDescription::QRhiTextureSubresourceUploadDescription(const QByteArray &data)
     : m_data(data)
 {
 }
@@ -1789,6 +1825,13 @@ QRhiTextureUploadDescription::QRhiTextureUploadDescription(std::initializer_list
     \note The source and destination rectangles defined by pixelSize(),
     sourceTopLeft(), and destinationTopLeft() must fit the source and
     destination textures, respectively. The behavior is undefined otherwise.
+
+    With cubemap and 3D textures one face or slice can be copied at a time. The
+    face or slice is specified by the source and destination layer indices.
+    With mipmapped textures one mip level can be copied at a time. The source
+    and destination layer and mip level indices can differ, but the size and
+    position must be carefully controlled to avoid out of bounds copies, in
+    which case the behavior is undefined.
  */
 
 /*!
@@ -2289,6 +2332,44 @@ QRhiResource::Type QRhiRenderBuffer::resourceType() const
  */
 
 /*!
+    Similar to create() except that no new native renderbuffer objects are
+    created. Instead, the native renderbuffer object specified by \a src is
+    used.
+
+    This allows importing an existing renderbuffer object (which must belong to
+    the same device or sharing context, depending on the graphics API) from an
+    external graphics engine.
+
+    \note This is currently applicable to OpenGL only. This function exists
+    solely to allow importing a renderbuffer object that is bound to some
+    special, external object, such as an EGLImageKHR. Once the application
+    performed the glEGLImageTargetRenderbufferStorageOES call, the renderbuffer
+    object can be passed to this function to create a wrapping
+    QRhiRenderBuffer, which in turn can be passed in as a color attachment to
+    a QRhiTextureRenderTarget to enable rendering to the EGLImage.
+
+    \note pixelSize(), sampleCount(), and flags() must still be set correctly.
+    Passing incorrect sizes and other values to QRhi::newRenderBuffer() and
+    then following it with a createFrom() expecting that the native
+    renderbuffer object alone is sufficient to deduce such values is \b wrong
+    and will lead to problems.
+
+    \note QRhiRenderBuffer does not take ownership of the native object, and
+    destroy() will not release that object.
+
+    \note This function is only implemented when the QRhi::RenderBufferImport
+    feature is reported as \l{QRhi::isFeatureSupported()}{supported}. Otherwise,
+    the function does nothing and the return value is \c false.
+
+    \return \c true when successful, \c false when not supported.
+ */
+bool QRhiRenderBuffer::createFrom(NativeRenderBuffer src)
+{
+    Q_UNUSED(src);
+    return false;
+}
+
+/*!
     \fn QRhiTexture::Format QRhiRenderBuffer::backingFormat() const
 
     \internal
@@ -2341,6 +2422,14 @@ QRhiResource::Type QRhiRenderBuffer::resourceType() const
 
      \value ExternalOES The texture should use the GL_TEXTURE_EXTERNAL_OES
      target with OpenGL. This flag is ignored with other graphics APIs.
+
+     \value ThreeDimensional The texture is a 3D texture. Such textures should
+     be created with the QRhi::newTexture() overload taking a depth in addition
+     to width and height. A 3D texture can have mipmaps but cannot be
+     multisample. When rendering into a 3D texture, the layer specified in the
+     render target's color attachment refers to a slice in range [0..depth-1].
+     The underlying graphics API may not support 3D textures at run time.
+     Support is indicated by the QRhi::ThreeDimensionalTextures feature.
  */
 
 /*!
@@ -2360,6 +2449,8 @@ QRhiResource::Type QRhiRenderBuffer::resourceType() const
     \value RG8 Two components, unsigned normalized 8 bit.
 
     \value R16 One component, unsigned normalized 16 bit.
+
+    \value RG16 Two component, unsigned normalized 16 bit.
 
     \value RED_OR_ALPHA8 Either same as R8, or is a similar format with the component swizzled to alpha,
     depending on \l{QRhi::RedOrAlpha8IsRed}{RedOrAlpha8IsRed}.
@@ -2429,10 +2520,10 @@ QRhiResource::Type QRhiRenderBuffer::resourceType() const
 /*!
     \internal
  */
-QRhiTexture::QRhiTexture(QRhiImplementation *rhi, Format format_, const QSize &pixelSize_,
+QRhiTexture::QRhiTexture(QRhiImplementation *rhi, Format format_, const QSize &pixelSize_, int depth_,
                          int sampleCount_, Flags flags_)
     : QRhiResource(rhi),
-      m_format(format_), m_pixelSize(pixelSize_), m_sampleCount(sampleCount_), m_flags(flags_)
+      m_format(format_), m_pixelSize(pixelSize_), m_depth(depth_), m_sampleCount(sampleCount_), m_flags(flags_)
 {
 }
 
@@ -4354,11 +4445,19 @@ QRhiImplementation::~QRhiImplementation()
     // release builds: opt-in
     static bool leakCheck = qEnvironmentVariableIntValue("QT_RHI_LEAK_CHECK");
 #endif
-    if (leakCheck && !resources.isEmpty()) {
-        qWarning("QRhi %p going down with %d unreleased resources that own native graphics objects. This is not nice.",
-                 q, int(resources.count()));
+    if (!resources.isEmpty()) {
+        if (leakCheck) {
+            qWarning("QRhi %p going down with %d unreleased resources that own native graphics objects. This is not nice.",
+                     q, int(resources.count()));
+        }
         for (QRhiResource *res : qAsConst(resources)) {
-            qWarning("  %s resource %p (%s)", resourceTypeStr(res), res, res->m_objectName.constData());
+            if (leakCheck)
+                qWarning("  %s resource %p (%s)", resourceTypeStr(res), res, res->m_objectName.constData());
+
+            // Null out the resource's rhi pointer. This is why it makes sense to do null
+            // checks in the destroy() implementations of the various resource types. It
+            // allows to survive in bad applications that somehow manage to destroy a
+            // resource of a QRhi after the QRhi itself.
             res->m_rhi = nullptr;
         }
     }
@@ -4492,7 +4591,7 @@ void QRhiImplementation::compressedFormatInfo(QRhiTexture::Format format, const 
 }
 
 void QRhiImplementation::textureFormatInfo(QRhiTexture::Format format, const QSize &size,
-                                           quint32 *bpl, quint32 *byteSize) const
+                                           quint32 *bpl, quint32 *byteSize, quint32 *bytesPerPixel) const
 {
     if (isCompressedFormat(format)) {
         compressedFormatInfo(format, size, bpl, byteSize, nullptr);
@@ -4515,6 +4614,9 @@ void QRhiImplementation::textureFormatInfo(QRhiTexture::Format format, const QSi
         break;
     case QRhiTexture::R16:
         bpc = 2;
+        break;
+    case QRhiTexture::RG16:
+        bpc = 4;
         break;
     case QRhiTexture::RED_OR_ALPHA8:
         bpc = 1;
@@ -4551,10 +4653,12 @@ void QRhiImplementation::textureFormatInfo(QRhiTexture::Format format, const QSi
         *bpl = uint(size.width()) * bpc;
     if (byteSize)
         *byteSize = uint(size.width() * size.height()) * bpc;
+    if (bytesPerPixel)
+        *bytesPerPixel = bpc;
 }
 
 // Approximate because it excludes subresource alignment or multisampling.
-quint32 QRhiImplementation::approxByteSizeForTexture(QRhiTexture::Format format, const QSize &baseSize,
+quint32 QRhiImplementation::approxByteSizeForTexture(QRhiTexture::Format format, const QSize &baseSize, int depth,
                                                      int mipCount, int layerCount)
 {
     quint32 approxSize = 0;
@@ -4562,10 +4666,11 @@ quint32 QRhiImplementation::approxByteSizeForTexture(QRhiTexture::Format format,
         quint32 byteSize = 0;
         const QSize size(qFloor(qreal(qMax(1, baseSize.width() >> level))),
                          qFloor(qreal(qMax(1, baseSize.height() >> level))));
-        textureFormatInfo(format, size, nullptr, &byteSize);
+        textureFormatInfo(format, size, nullptr, &byteSize, nullptr);
         approxSize += byteSize;
     }
-    approxSize *= uint(layerCount);
+    approxSize *= depth; // 3D texture depth or 1 otherwise
+    approxSize *= uint(layerCount); // 6 for cubemaps or 1 otherwise
     return approxSize;
 }
 
@@ -5241,6 +5346,10 @@ void QRhiResourceUpdateBatch::copyTexture(QRhiTexture *dst, QRhiTexture *src, co
    \l{QRhi::beginFrame()}{recording of a new frame} has been started, where \c
    N is the \l{QRhi::resourceLimit()}{resource limit value} returned for
    QRhi::MaxAsyncReadbackFrames.
+
+   A single readback operation copies one mip level of one layer (cubemap face
+   or 3D slice) at a time. The level and layer are specified by the respective
+   fields in \a rb.
 
    \sa readBackBuffer(), QRhi::resourceLimit()
  */
@@ -6306,7 +6415,30 @@ QRhiTexture *QRhi::newTexture(QRhiTexture::Format format,
                               int sampleCount,
                               QRhiTexture::Flags flags)
 {
-    return d->createTexture(format, pixelSize, sampleCount, flags);
+    return d->createTexture(format, pixelSize, 1, sampleCount, flags);
+}
+
+/*!
+    \return a new texture with the specified \a format, \a width, \a height, \a
+    depth, \a sampleCount, and \a flags.
+
+    This overload is suitable for 3D textures because it allows specifying \a
+    depth. A 3D texture must have QRhiTexture::ThreeDimensional set in \a
+    flags, but using this overload that can be omitted because the flag is set
+    implicitly whenever \a depth is greater than 0. For 2D and cube textures \a
+    depth should be set to 0.
+
+    \overload
+ */
+QRhiTexture *QRhi::newTexture(QRhiTexture::Format format,
+                              int width, int height, int depth,
+                              int sampleCount,
+                              QRhiTexture::Flags flags)
+{
+    if (depth > 0)
+        flags |= QRhiTexture::ThreeDimensional;
+
+    return d->createTexture(format, QSize(width, height), depth, sampleCount, flags);
 }
 
 /*!

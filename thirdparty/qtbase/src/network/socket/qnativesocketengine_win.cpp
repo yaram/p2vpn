@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Copyright (C) 2016 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -57,8 +57,7 @@
 
 //#define QNATIVESOCKETENGINE_DEBUG
 #if defined(QNATIVESOCKETENGINE_DEBUG)
-#   include <qstring.h>
-#   include <qbytearray.h>
+#include <private/qdebug_p.h>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -126,36 +125,6 @@ void verboseWSErrorDebug(int r)
     }
     qErrnoWarning(r, "more details");
 }
-
-/*
-    Returns a human readable representation of the first \a len
-    characters in \a data.
-*/
-static QByteArray qt_prettyDebug(const char *data, int len, int maxLength)
-{
-    if (!data) return "(null)";
-    QByteArray out;
-    for (int i = 0; i < len; ++i) {
-        char c = data[i];
-        if (isprint(int(uchar(c)))) {
-            out += c;
-        } else switch (c) {
-        case '\n': out += "\\n"; break;
-        case '\r': out += "\\r"; break;
-        case '\t': out += "\\t"; break;
-        default:
-            QString tmp;
-            tmp.sprintf("\\%o", c);
-            out += tmp.toLatin1().constData();
-        }
-    }
-
-    if (len < maxLength)
-        out += "...";
-
-    return out;
-}
-
 
 #define WS_ERROR_DEBUG(x) verboseWSErrorDebug(x)
 
@@ -426,10 +395,8 @@ bool QNativeSocketEnginePrivate::createNewSocket(QAbstractSocket::SocketType soc
         sendmsg = 0;
 
     socketDescriptor = socket;
-    if (socket != INVALID_SOCKET) {
-        this->socketProtocol = socketProtocol;
-        this->socketType = socketType;
-    }
+    this->socketProtocol = socketProtocol;
+    this->socketType = socketType;
 
     // Make the socket nonblocking.
     if (!setOption(QAbstractSocketEngine::NonBlockingSocketOption, 1)) {
@@ -510,7 +477,6 @@ bool QNativeSocketEnginePrivate::setOption(QNativeSocketEngine::SocketOption opt
             return false;
         }
         return true;
-        break;
         }
     case QNativeSocketEngine::TypeOfServiceOption:
     case QNativeSocketEngine::MaxStreamsSocketOption:
@@ -1282,7 +1248,7 @@ qint64 QNativeSocketEnginePrivate::nativeReceiveDatagram(char *data, qint64 maxL
 #if defined (QNATIVESOCKETENGINE_DEBUG)
     bool printSender = (ret != -1 && (options & QNativeSocketEngine::WantDatagramSender) != 0);
     qDebug("QNativeSocketEnginePrivate::nativeReceiveDatagram(%p \"%s\", %lli, %s, %i) == %lli",
-           data, qt_prettyDebug(data, qMin<qint64>(ret, 16), ret).data(), maxLength,
+           data, QtDebugUtils::toPrintable(data, ret, 16).constData(), maxLength,
            printSender ? header->senderAddress.toString().toLatin1().constData() : "(unknown)",
            printSender ? header->senderPort : 0, ret);
 #endif
@@ -1415,8 +1381,8 @@ qint64 QNativeSocketEnginePrivate::nativeSendDatagram(const char *data, qint64 l
     }
 
 #if defined (QNATIVESOCKETENGINE_DEBUG)
-    qDebug("QNativeSocketEnginePrivate::nativeSendDatagram(%p \"%s\", %lli, \"%s\", %i) == %lli", data,
-           qt_prettyDebug(data, qMin<qint64>(len, 16), len).data(), len,
+    qDebug("QNativeSocketEnginePrivate::nativeSendDatagram(%p \"%s\", %lli, \"%s\", %i) == %lli",
+           data, QtDebugUtils::toPrintable(data, len, 16).constData(), len,
            header.destinationAddress.toString().toLatin1().constData(),
            header.destinationPort, ret);
 #endif
@@ -1475,7 +1441,7 @@ qint64 QNativeSocketEnginePrivate::nativeWrite(const char *data, qint64 len)
 
 #if defined (QNATIVESOCKETENGINE_DEBUG)
     qDebug("QNativeSocketEnginePrivate::nativeWrite(%p \"%s\", %lli) == %lli",
-           data, qt_prettyDebug(data, qMin(int(ret), 16), int(ret)).data(), len, ret);
+           data, QtDebugUtils::toPrintable(data, ret, 16).constData(), len, ret);
 #endif
 
     return ret;
@@ -1517,8 +1483,8 @@ qint64 QNativeSocketEnginePrivate::nativeRead(char *data, qint64 maxLength)
 
 #if defined (QNATIVESOCKETENGINE_DEBUG)
     if (ret != -2) {
-        qDebug("QNativeSocketEnginePrivate::nativeRead(%p \"%s\", %lli) == %lli",
-               data, qt_prettyDebug(data, qMin(int(bytesRead), 16), int(bytesRead)).data(), maxLength, ret);
+        qDebug("QNativeSocketEnginePrivate::nativeRead(%p \"%s\", %lli) == %lli", data,
+               QtDebugUtils::toPrintable(data, bytesRead, 16).constData(), maxLength, ret);
     } else {
         qDebug("QNativeSocketEnginePrivate::nativeRead(%p, %lli) == -2 (WOULD BLOCK)",
                data, maxLength);

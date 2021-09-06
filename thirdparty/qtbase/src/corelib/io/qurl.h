@@ -74,12 +74,18 @@ public:
 
     inline QUrlTwoFlags &operator&=(int mask) { i &= mask; return *this; }
     inline QUrlTwoFlags &operator&=(uint mask) { i &= mask; return *this; }
+    inline QUrlTwoFlags &operator&=(QFlags<E1> mask) { i &= mask.toInt(); return *this; }
+    inline QUrlTwoFlags &operator&=(QFlags<E2> mask) { i &= mask.toInt(); return *this; }
     inline QUrlTwoFlags &operator|=(QUrlTwoFlags f) { i |= f.i; return *this; }
     inline QUrlTwoFlags &operator|=(E1 f) { i |= f; return *this; }
     inline QUrlTwoFlags &operator|=(E2 f) { i |= f; return *this; }
+    inline QUrlTwoFlags &operator|=(QFlags<E1> mask) { i |= mask.toInt(); return *this; }
+    inline QUrlTwoFlags &operator|=(QFlags<E2> mask) { i |= mask.toInt(); return *this; }
     inline QUrlTwoFlags &operator^=(QUrlTwoFlags f) { i ^= f.i; return *this; }
     inline QUrlTwoFlags &operator^=(E1 f) { i ^= f; return *this; }
     inline QUrlTwoFlags &operator^=(E2 f) { i ^= f; return *this; }
+    inline QUrlTwoFlags &operator^=(QFlags<E1> mask) { i ^= mask.toInt(); return *this; }
+    inline QUrlTwoFlags &operator^=(QFlags<E2> mask) { i ^= mask.toInt(); return *this; }
 
     constexpr inline operator QFlags<E1>() const { return QFlag(i); }
     constexpr inline operator QFlags<E2>() const { return QFlag(i); }
@@ -303,25 +309,25 @@ constexpr inline QUrl::FormattingOptions operator|(QUrl::UrlFormattingOption f1,
 constexpr inline QUrl::FormattingOptions operator|(QUrl::UrlFormattingOption f1, QUrl::FormattingOptions f2)
 { return f2 | f1; }
 constexpr inline QIncompatibleFlag operator|(QUrl::UrlFormattingOption f1, int f2)
-{ return QIncompatibleFlag(int(f1) | f2); }
+{ return QIncompatibleFlag(uint(f1) | f2); }
 
 // add operators for OR'ing the two types of flags
 inline QUrl::FormattingOptions &operator|=(QUrl::FormattingOptions &i, QUrl::ComponentFormattingOptions f)
-{ i |= QUrl::UrlFormattingOption(int(f)); return i; }
+{ i |= QUrl::UrlFormattingOption(f.toInt()); return i; }
 constexpr inline QUrl::FormattingOptions operator|(QUrl::UrlFormattingOption i, QUrl::ComponentFormattingOption f)
-{ return i | QUrl::UrlFormattingOption(int(f)); }
+{ return i | QUrl::UrlFormattingOption(qToUnderlying(f)); }
 constexpr inline QUrl::FormattingOptions operator|(QUrl::UrlFormattingOption i, QUrl::ComponentFormattingOptions f)
-{ return i | QUrl::UrlFormattingOption(int(f)); }
+{ return i | QUrl::UrlFormattingOption(f.toInt()); }
 constexpr inline QUrl::FormattingOptions operator|(QUrl::ComponentFormattingOption f, QUrl::UrlFormattingOption i)
-{ return i | QUrl::UrlFormattingOption(int(f)); }
+{ return i | QUrl::UrlFormattingOption(qToUnderlying(f)); }
 constexpr inline QUrl::FormattingOptions operator|(QUrl::ComponentFormattingOptions f, QUrl::UrlFormattingOption i)
-{ return i | QUrl::UrlFormattingOption(int(f)); }
+{ return i | QUrl::UrlFormattingOption(f.toInt()); }
 constexpr inline QUrl::FormattingOptions operator|(QUrl::FormattingOptions i, QUrl::ComponentFormattingOptions f)
-{ return i | QUrl::UrlFormattingOption(int(f)); }
+{ return i | QUrl::UrlFormattingOption(f.toInt()); }
 constexpr inline QUrl::FormattingOptions operator|(QUrl::ComponentFormattingOption f, QUrl::FormattingOptions i)
-{ return i | QUrl::UrlFormattingOption(int(f)); }
+{ return i | QUrl::UrlFormattingOption(qToUnderlying(f)); }
 constexpr inline QUrl::FormattingOptions operator|(QUrl::ComponentFormattingOptions f, QUrl::FormattingOptions i)
-{ return i | QUrl::UrlFormattingOption(int(f)); }
+{ return i | QUrl::UrlFormattingOption(f.toInt()); }
 
 //inline QUrl::UrlFormattingOption &operator=(const QUrl::UrlFormattingOption &i, QUrl::ComponentFormattingOptions f)
 //{ i = int(f); f; }

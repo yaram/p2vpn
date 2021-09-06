@@ -159,11 +159,8 @@ while [ "$#" -gt 0 ]; do
     -examplesdir| \
     -testsdir| \
     -hostdatadir| \
-    -hostbindir| \
-    -hostlibdir| \
     -extprefix| \
     -sysroot| \
-    -external-hostbindir| \
     -make| \
     -nomake| \
     -skip| \
@@ -175,7 +172,6 @@ while [ "$#" -gt 0 ]; do
     -android-sdk| \
     -android-ndk| \
     -android-ndk-platform| \
-    -android-ndk-host| \
     -android-arch)
         VAR=`echo $1 | sed 's,^-\(.*\),\1,'`
         shift
@@ -191,17 +187,6 @@ while [ "$#" -gt 0 ]; do
         VAR=`echo $1 | sed 's,^-[^-]*-\(.*\),\1,'`
         VAL=`echo $1 | sed 's,^-\([^-]*\)-.*,\1,'`
         ;;
-    #Options that cannot be generalized
-    -hostprefix)
-        VAR=`echo $1 | sed 's,^-\(.*\),\1,'`
-        # this option may or may not be followed by an argument
-        if [ -z "$2" ] || echo "$2" | grep '^-' >/dev/null 2>&1; then
-            VAL=$outpath
-        else
-            shift;
-            VAL=$1
-        fi
-	;;
     #General options, including Qt style yes options
     -*)
         VAR=`echo $1 | sed 's,^-\(.*\),\1,'`
@@ -218,28 +203,11 @@ while [ "$#" -gt 0 ]; do
 
     UNKNOWN_OPT=no
     case "$VAR" in
-    external-hostbindir)
-        CFG_HOST_QT_TOOLS_PATH="$VAL"
-        ;;
     h|help)
         if [ "$VAL" = "yes" ]; then
             OPT_HELP="$VAL"
         else
             UNKNOWN_OPT=yes
-        fi
-        ;;
-    cmake)
-        # Ignore. Kept to keep build scripts working. Consider removal in Qt 6.2.
-        ;;
-    qmake)
-        echo >&2 "ERROR: You cannot configure Qt 6 with qmake anymore."
-        ERROR=yes
-        ;;
-    redo)
-        if [ -f ${outpathPrefix}config.opt ]; then
-            if grep -e ^-cmake <${outpathPrefix}config.opt >/dev/null 2>&1; then
-                BUILD_WITH_CMAKE=yes
-            fi
         fi
         ;;
     *)

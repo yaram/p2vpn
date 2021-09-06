@@ -170,7 +170,7 @@ endfunction()
 #
 # All tests are wrapped with cmake script that supports TESTARGS and TESTRUNNER environment
 # variables handling. Endpoint wrapper may be used standalone as cmake script to run tests e.g.:
-# TESTARGS="-o result.xml,xunitxml" TESTRUNNER="testrunner --arg" ./tst_simpleTestWrapper.cmake
+# TESTARGS="-o result.xml,junitxml" TESTRUNNER="testrunner --arg" ./tst_simpleTestWrapper.cmake
 # On non-UNIX machine you may need to use 'cmake -P' explicitly to execute wrapper.
 # You may avoid test wrapping by either passing NO_WRAPPER option or switching QT_NO_TEST_WRAPPERS
 # to ON. This is helpful if you want to use internal CMake tools within tests, like memory or
@@ -221,8 +221,6 @@ function(qt_internal_add_test name)
             INCLUDE_DIRECTORIES
                 ${private_includes}
             DEFINES
-                QT_TESTCASE_BUILDDIR="${CMAKE_CURRENT_BINARY_DIR}"
-                QT_TESTCASE_SOURCEDIR="${CMAKE_CURRENT_SOURCE_DIR}"
                 ${arg_DEFINES}
             PUBLIC_LIBRARIES ${QT_CMAKE_EXPORT_NAMESPACE}::Core ${QT_CMAKE_EXPORT_NAMESPACE}::Test ${arg_PUBLIC_LIBRARIES}
             LIBRARIES ${arg_LIBRARIES}
@@ -268,7 +266,13 @@ function(qt_internal_add_test name)
 
     # Generate a label in the form tests/auto/foo/bar/tst_baz
     # and use it also for XML output
-    file(RELATIVE_PATH label "${PROJECT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/${name}")
+    set(label_base_directory "${PROJECT_SOURCE_DIR}")
+    if (QT_SUPERBUILD)
+        # Prepend repository name for qt5 builds, so that tests can be run for
+        # individual repositories.
+        set(label_base_directory "${label_base_directory}/..")
+    endif()
+    file(RELATIVE_PATH label "${label_base_directory}" "${CMAKE_CURRENT_SOURCE_DIR}/${name}")
 
     if (arg_LOWDPI)
         target_compile_definitions("${name}" PUBLIC TESTCASE_LOWDPI)
@@ -294,11 +298,6 @@ function(qt_internal_add_test name)
                 set(test_working_dir "${CMAKE_CURRENT_BINARY_DIR}")
             endif()
             set(test_executable "${name}")
-        endif()
-
-        if (NOT arg_CATCH)
-            #TODO: Should we replace this by TESTARGS environment variable?
-            list(APPEND extra_test_args "-o" "${name}.xml,xml" "-o" "-,txt")
         endif()
     endif()
 

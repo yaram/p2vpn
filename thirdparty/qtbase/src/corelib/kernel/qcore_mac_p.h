@@ -188,6 +188,7 @@ private:
 
 #ifdef Q_OS_MACOS
 Q_CORE_EXPORT bool qt_mac_applicationIsInDarkMode();
+Q_CORE_EXPORT bool qt_mac_runningUnderRosetta();
 #endif
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -196,16 +197,14 @@ Q_CORE_EXPORT QDebug operator<<(QDebug debug, const QCFString &string);
 #endif
 
 Q_CORE_EXPORT bool qt_apple_isApplicationExtension();
-
-#if defined(Q_OS_MACOS) && !defined(QT_BOOTSTRAPPED)
 Q_CORE_EXPORT bool qt_apple_isSandboxed();
-# ifdef __OBJC__
+
+#if !defined(QT_BOOTSTRAPPED) && defined(__OBJC__)
 QT_END_NAMESPACE
 @interface NSObject (QtSandboxHelpers)
 - (id)qt_valueForPrivateKey:(NSString *)key;
 @end
 QT_BEGIN_NAMESPACE
-# endif
 #endif
 
 #if !defined(QT_BOOTSTRAPPED) && !defined(Q_OS_WATCHOS)
@@ -305,13 +304,13 @@ private:
         return QAppleLogActivity(os_activity_create(description, parent, OS_ACTIVITY_FLAG_DEFAULT)); \
     }()
 
-#define QT_APPLE_LOG_ACTIVITY_WITH_PARENT3(condition, description, parent) QT_APPLE_LOG_ACTIVITY_CREATE(condition, description, parent)
-#define QT_APPLE_LOG_ACTIVITY_WITH_PARENT2(description, parent) QT_APPLE_LOG_ACTIVITY_WITH_PARENT3(true, description, parent)
+#define QT_APPLE_LOG_ACTIVITY_WITH_PARENT_3(condition, description, parent) QT_APPLE_LOG_ACTIVITY_CREATE(condition, description, parent)
+#define QT_APPLE_LOG_ACTIVITY_WITH_PARENT_2(description, parent) QT_APPLE_LOG_ACTIVITY_WITH_PARENT_3(true, description, parent)
 #define QT_APPLE_LOG_ACTIVITY_WITH_PARENT(...) QT_OVERLOADED_MACRO(QT_APPLE_LOG_ACTIVITY_WITH_PARENT, __VA_ARGS__)
 
 QT_MAC_WEAK_IMPORT(_os_activity_current);
-#define QT_APPLE_LOG_ACTIVITY2(condition, description) QT_APPLE_LOG_ACTIVITY_CREATE(condition, description, OS_ACTIVITY_CURRENT)
-#define QT_APPLE_LOG_ACTIVITY1(description) QT_APPLE_LOG_ACTIVITY2(true, description)
+#define QT_APPLE_LOG_ACTIVITY_2(condition, description) QT_APPLE_LOG_ACTIVITY_CREATE(condition, description, OS_ACTIVITY_CURRENT)
+#define QT_APPLE_LOG_ACTIVITY_1(description) QT_APPLE_LOG_ACTIVITY_2(true, description)
 #define QT_APPLE_LOG_ACTIVITY(...) QT_OVERLOADED_MACRO(QT_APPLE_LOG_ACTIVITY, __VA_ARGS__)
 
 #define QT_APPLE_SCOPED_LOG_ACTIVITY(...) QAppleLogActivity scopedLogActivity = QT_APPLE_LOG_ACTIVITY(__VA_ARGS__).enter();

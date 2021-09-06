@@ -70,6 +70,9 @@ QString QFileInfoPrivate::getFileName(QAbstractFileEngine::FileName name) const
             case QAbstractFileEngine::LinkName:
                 ret = QFileSystemEngine::getLinkTarget(fileEntry, metaData).filePath();
                 break;
+            case QAbstractFileEngine::JunctionName:
+                ret = QFileSystemEngine::getJunctionTarget(fileEntry, metaData).filePath();
+                break;
             case QAbstractFileEngine::BundleName:
                 ret = QFileSystemEngine::bundleName(fileEntry);
                 break;
@@ -180,7 +183,7 @@ uint QFileInfoPrivate::getFileFlags(QAbstractFileEngine::FileFlags request) cons
         setCachedFlag(cachedFlags);
     }
 
-    return fileFlags & request;
+    return fileFlags & request.toInt();
 }
 
 QDateTime &QFileInfoPrivate::getFileTime(QAbstractFileEngine::FileTime request) const
@@ -1225,6 +1228,28 @@ QString QFileInfo::symLinkTarget() const
 }
 
 /*!
+    \since 6.2
+
+    Resolves an NTFS junction to the path it references.
+
+    Returns the absolute path to the directory an NTFS junction points to, or
+    an empty string if the object is not an NTFS junction.
+
+    There is no guarantee that the directory named by the NTFS junction actually
+    exists.
+
+    \sa isJunction(), isFile(), isDir(), isSymLink(), isSymbolicLink(),
+        isShortcut()
+*/
+QString QFileInfo::junctionTarget() const
+{
+    Q_D(const QFileInfo);
+    if (d->isDefaultConstructed)
+        return QLatin1String("");
+    return d->getFileName(QAbstractFileEngine::JunctionName);
+}
+
+/*!
     Returns the owner of the file. On systems where files
     do not have owners, or if an error occurs, an empty string is
     returned.
@@ -1330,8 +1355,8 @@ bool QFileInfo::permission(QFile::Permissions permissions) const
 {
     Q_D(const QFileInfo);
     // the QFileSystemMetaData::MetaDataFlag and QFile::Permissions overlap, so just cast.
-    auto fseFlags = QFileSystemMetaData::MetaDataFlag(int(permissions));
-    auto feFlags = QAbstractFileEngine::FileFlags(int(permissions));
+    auto fseFlags = QFileSystemMetaData::MetaDataFlags::fromInt(permissions.toInt());
+    auto feFlags = QAbstractFileEngine::FileFlags::fromInt(permissions.toInt());
     return d->checkAttribute<bool>(
                 fseFlags,
                 [=]() { return (d->metaData.permissions() & permissions) == permissions; },
@@ -1629,6 +1654,13 @@ QDebug operator<<(QDebug dbg, const QFileInfo &fi)
 
     Returns symLinkTarget() as a \c{std::filesystem::path}.
     \sa symLinkTarget()
+*/
+/*!
+    \fn std::filesystem::path QFileInfo::filesystemJunctionTarget() const
+    \since 6.2
+
+    Returns junctionTarget() as a \c{std::filesystem::path}.
+    \sa junctionTarget()
 */
 /*!
     \macro QT_IMPLICIT_QFILEINFO_CONSTRUCTION

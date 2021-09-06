@@ -35,11 +35,7 @@
 #include <QtCore/qpoint.h>
 #include <emscripten/html5.h>
 #include "qwasmwindow.h"
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 #include <QtGui/qinputdevice.h>
-#else
-#include <QtGui/qpointingdevice.h>
-#endif
 #include <QHash>
 #include <QCursor>
 
@@ -78,7 +74,7 @@ private:
     QFlags<Qt::KeyboardModifier> translateMouseEventModifier(const EmscriptenMouseEvent *mouseEvent);
     Qt::MouseButton translateMouseButton(unsigned short button);
 
-    void processMouse(int eventType, const EmscriptenMouseEvent *mouseEvent);
+    bool processMouse(int eventType, const EmscriptenMouseEvent *mouseEvent);
     bool processKeyboard(int eventType, const EmscriptenKeyboardEvent *keyEvent);
 
     Qt::Key translateDeadKey(Qt::Key deadKey, Qt::Key accentBaseKey);

@@ -352,21 +352,7 @@ QTextLayout::QTextLayout(const QString& text)
     calculations will be done in screen metrics.
 */
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-/*!
-\if !defined(qt6)
-    \fn QTextLayout::QTextLayout(const QString &text, const QFont &font, QPaintDevice *paintdevice)
-    \obsolete
-    Identical to QTextLayout::QTextLayout(const QString &text, const QFont &font, const QPaintDevice *paintdevice)
-\else
-    \nothing
-\endif
-*/
-
-QTextLayout::QTextLayout(const QString &text, const QFont &font, QPaintDevice *paintdevice)
-#else
 QTextLayout::QTextLayout(const QString &text, const QFont &font, const QPaintDevice *paintdevice)
-#endif
 {
     const QFont f(paintdevice ? QFont(font, paintdevice) : font);
     d = new QTextEngine((text.isNull() ? (const QString&)QString::fromLatin1("") : text), f);
@@ -1686,6 +1672,7 @@ namespace {
 
         inline void calculateRightBearing(QFontEngine *engine, glyph_t glyph)
         {
+            Q_ASSERT(engine);
             qreal rb;
             engine->getGlyphBearings(glyph, nullptr, &rb);
 
@@ -2625,7 +2612,7 @@ void QTextLine::draw_internal(QPainter *p, const QPointF &pos,
                     gf.width = iterator.itemWidth;
                     QPainterPrivate::get(p)->drawTextItem(QPointF(iterator.x.toReal(), y.toReal()), gf, eng);
                     if (eng->option.flags() & QTextOption::ShowTabsAndSpaces) {
-                        const QChar visualTab = u'\x2192';
+                        const QChar visualTab = QChar(QChar::VisualTabCharacter);
                         int w = QFontMetrics(f).horizontalAdvance(visualTab);
                         qreal x = iterator.itemWidth.toReal() - w; // Right-aligned
                         if (x < 0)

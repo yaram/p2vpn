@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2021 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -62,6 +62,10 @@
 #ifndef QT_NO_QOBJECT
 #include "private/qobject_p.h"
 #include "private/qlocking_p.h"
+#if QT_CONFIG(future)
+#include <QtCore/qapplicationpermission.h>
+#include <QtCore/qfuture.h>
+#endif
 #endif
 
 #ifdef Q_OS_MACOS
@@ -198,7 +202,7 @@ public:
 
     void processCommandLineArguments();
     QString qmljs_debug_arguments; // a string containing arguments for js/qml debugging.
-    inline QString qmljsDebugArgumentsString() { return qmljs_debug_arguments; }
+    inline QString qmljsDebugArgumentsString() const { return qmljs_debug_arguments; }
 
 #ifdef QT_NO_QOBJECT
     QCoreApplication *q_ptr;

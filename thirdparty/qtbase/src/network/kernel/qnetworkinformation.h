@@ -55,6 +55,8 @@ class Q_NETWORK_EXPORT QNetworkInformation : public QObject
     Q_OBJECT
     Q_DECLARE_PRIVATE(QNetworkInformation)
     Q_PROPERTY(Reachability reachability READ reachability NOTIFY reachabilityChanged)
+    Q_PROPERTY(bool isBehindCaptivePortal READ isBehindCaptivePortal
+               NOTIFY isBehindCaptivePortalChanged)
 public:
     enum class Reachability {
         Unknown,
@@ -67,11 +69,14 @@ public:
 
     enum class Feature {
         Reachability = 0x1,
+        CaptivePortal = 0x2,
     };
     Q_DECLARE_FLAGS(Features, Feature)
     Q_FLAG(Features)
 
     Reachability reachability() const;
+
+    bool isBehindCaptivePortal() const;
 
     QString backendName() const;
 
@@ -84,6 +89,7 @@ public:
 
 Q_SIGNALS:
     void reachabilityChanged(Reachability newReachability);
+    void isBehindCaptivePortalChanged(bool state);
 
 private:
     friend struct QNetworkInformationDeleter;

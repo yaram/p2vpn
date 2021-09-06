@@ -227,45 +227,54 @@ function(_qt_internal_dump_expression_values expression_dump expression)
     set(${expression_dump} "${${expression_dump}}" PARENT_SCOPE)
 endfunction()
 
-function(qt_feature_set_cache_value resultVar feature condition calculated label)
+# Stores the user provided value to FEATURE_${feature} if provided.
+# If not provided, stores ${computed} instead.
+# ${computed} is also stored when reconfiguring and the condition does not align with the user
+# provided value.
+#
+function(qt_feature_check_and_save_user_provided_value resultVar feature condition computed label)
     if (DEFINED "FEATURE_${feature}")
-        # Revisit value:
-        set(cache "${FEATURE_${feature}}")
+        # Revisit new user provided value
+        set(user_value "${FEATURE_${feature}}")
+        set(result "${user_value}")
 
-        # If the build is marked as dirty and the cache value doesn't meet the new condition,
-        # reset it to the calculated one.
+        # If the build is marked as dirty and the user_value doesn't meet the new condition,
+        # reset it to the computed one.
         get_property(dirty_build GLOBAL PROPERTY _qt_dirty_build)
-        if(NOT condition AND cache AND dirty_build)
-            set(cache "${calculated}")
-            message(WARNING "Reset FEATURE_${feature} value to ${calculated}, because it doesn't \
+        if(NOT condition AND result AND dirty_build)
+            set(result "${computed}")
+            message(WARNING "Reset FEATURE_${feature} value to ${result}, because it doesn't \
 meet its condition after reconfiguration.")
         endif()
 
         set(bool_values OFF NO FALSE N ON YES TRUE Y)
-        if ((cache IN_LIST bool_values) OR (cache GREATER_EQUAL 0))
-            set(result "${cache}")
+        if ((result IN_LIST bool_values) OR (result GREATER_EQUAL 0))
+            # All good!
         else()
-            message(FATAL_ERROR "Sanity check failed: FEATURE_${feature} has invalid value \"${cache}\"!")
+            message(FATAL_ERROR
+                "Sanity check failed: FEATURE_${feature} has invalid value \"${result}\"!")
         endif()
 
         # Fix-up user-provided values
-        set("FEATURE_${feature}" "${cache}" CACHE BOOL "${label}" FORCE)
+        set("FEATURE_${feature}" "${result}" CACHE BOOL "${label}" FORCE)
     else()
         # Initial setup:
-        set("FEATURE_${feature}" "${calculated}" CACHE BOOL "${label}")
-        set(result "${calculated}")
+        set(result "${computed}")
+        set("FEATURE_${feature}" "${result}" CACHE BOOL "${label}")
     endif()
 
     set("${resultVar}" "${result}" PARENT_SCOPE)
 endfunction()
 
-macro(qt_feature_set_value feature cache condition label conditionExpression)
-    set(result "${cache}")
+# Saves the final user value to QT_FEATURE_${feature}, after checking that the condition is met.
+macro(qt_feature_check_and_save_internal_value
+        feature saved_user_value condition label conditionExpression)
+    set(result "${saved_user_value}")
 
-    if (NOT (condition) AND (cache))
+    if ((NOT condition) AND result)
         _qt_internal_dump_expression_values(conditionDump "${conditionExpression}")
         string(JOIN " " conditionString ${conditionExpression})
-        qt_configure_add_report_error("Feature \"${feature}\": Forcing to \"${cache}\" breaks its \
+        qt_configure_add_report_error("Feature \"${feature}\": Forcing to \"${result}\" breaks its \
 condition:\n    ${conditionString}\nCondition values dump:\n    ${conditionDump}\n" RECORD_ON_FEATURE_EVALUATION)
     endif()
 
@@ -279,6 +288,30 @@ condition:\n    ${conditionString}\nCondition values dump:\n    ${conditionDump}
     set(QT_KNOWN_FEATURES "${QT_KNOWN_FEATURES}" CACHE INTERNAL "" FORCE)
 endmacro()
 
+
+# The build system stores 2 CMake cache variables for each feature, to allow detecting value changes
+# during subsequent reconfigurations.
+#
+#
+# `FEATURE_foo` stores the user provided feature value for the current configuration run.
+# It can be set directly by the user, or derived from INPUT_foo (also set by the user).
+#
+# If a value is not provided on initial configuration, the value will be auto-computed based on the
+# various conditions of the feature.
+# TODO: Document the various conditions and how they relate to each other.
+#
+#
+# `QT_FEATURE_foo` stores the value of the feature from the previous configuration run.
+# Its value is updated once with the newest user provided value after some checks are performed.
+#
+# This variable also serves as the main source of truth throughout the build system code to check
+# if the feature is enabled, e.g. if(QT_FEATURE_foo)
+#
+# It is not meant to be set by the user. It is only modified by the build system.
+#
+# Comparing the values of QT_FEATURE_foo and FEATURE_foo, the build system can detect whether
+# the user changed the value for a feature and thus recompute any dependent features.
+#
 function(qt_evaluate_feature feature)
     # If the feature was already evaluated as dependency nothing to do here.
     if(DEFINED "QT_FEATURE_${feature}")
@@ -316,12 +349,12 @@ function(qt_evaluate_feature feature)
     qt_evaluate_config_expression(enable_result ${arg_ENABLE})
     qt_evaluate_config_expression(auto_detect ${arg_AUTODETECT})
     if(${disable_result})
-        set(result OFF)
+        set(computed OFF)
     elseif((${enable_result}) OR (${auto_detect}))
-        set(result ${condition})
+        set(computed ${condition})
     else()
         # feature not auto-detected and not explicitly enabled
-        set(result OFF)
+        set(computed OFF)
     endif()
 
     if("${arg_EMIT_IF}" STREQUAL "")
@@ -341,19 +374,30 @@ function(qt_evaluate_feature feature)
         endif()
     endif()
 
+    # Warn about a feature which is not emitted, but the user explicitly provided a value for it.
     if(NOT emit_if AND DEFINED FEATURE_${feature})
         set(msg "")
         string(APPEND msg
             "Feature ${feature} is insignificant in this configuration, "
             "ignoring related command line option(s).")
         qt_configure_add_report_entry(TYPE WARNING MESSAGE "${msg}")
-        set(result OFF)
-        set(FEATURE_${feature} OFF)
+
+        # Remove the cache entry so that the warning is not persisted and shown on every
+        # reconfiguration.
+        unset(FEATURE_${feature} CACHE)
     endif()
 
-    qt_feature_set_cache_value(cache "${feature}" "${condition}" "${result}" "${arg_LABEL}")
-    qt_feature_set_value("${feature}" "${cache}" "${condition}" "${arg_LABEL}"
-                         "${arg_CONDITION}")
+    # Only save the user provided value if the feature was emitted.
+    if(emit_if)
+        qt_feature_check_and_save_user_provided_value(
+            saved_user_value "${feature}" "${condition}" "${computed}" "${arg_LABEL}")
+    else()
+        # Make sure the feature internal value is OFF if not emitted.
+        set(saved_user_value OFF)
+    endif()
+
+    qt_feature_check_and_save_internal_value(
+        "${feature}" "${saved_user_value}" "${condition}" "${arg_LABEL}" "${arg_CONDITION}")
 
     # Store each feature's label for summary info.
     set(QT_FEATURE_LABEL_${feature} "${arg_LABEL}" CACHE INTERNAL "")
@@ -522,6 +566,17 @@ function(qt_feature_evaluate_features list_of_paths)
     qt_feature_module_end(ONLY_EVALUATE_FEATURES)
 endfunction()
 
+function(qt_feature_record_summary_entries list_of_paths)
+    # Clean up any stale state just in case.
+    qt_feature_unset_state_vars()
+
+    set(__QtFeature_only_record_summary_entries TRUE)
+    foreach(path ${list_of_paths})
+        include("${path}")
+    endforeach()
+    qt_feature_unset_state_vars()
+endfunction()
+
 function(qt_feature_module_end)
     set(flags ONLY_EVALUATE_FEATURES)
     set(options OUT_VAR_PREFIX)
@@ -544,10 +599,10 @@ function(qt_feature_module_end)
 
     # Evaluate custom cache assignments.
     foreach(cache_var_name ${__QtFeature_custom_enabled_cache_variables})
-        set(${cache_var_name} ON CACHE BOOL "Force enabled by platform." FORCE)
+        set(${cache_var_name} ON CACHE BOOL "Force enabled by platform requirements." FORCE)
     endforeach()
     foreach(cache_var_name ${__QtFeature_custom_disabled_cache_variables})
-        set(${cache_var_name} OFF CACHE BOOL "Force disabled by platform." FORCE)
+        set(${cache_var_name} OFF CACHE BOOL "Force disabled by platform requirements." FORCE)
     endforeach()
 
     set(enabled_public_features "")
@@ -660,6 +715,10 @@ function(qt_feature_module_end)
         qt_feature_copy_global_config_features_to_core(${target})
     endif()
 
+    qt_feature_unset_state_vars()
+endfunction()
+
+macro(qt_feature_unset_state_vars)
     unset(__QtFeature_library PARENT_SCOPE)
     unset(__QtFeature_public_features PARENT_SCOPE)
     unset(__QtFeature_private_features PARENT_SCOPE)
@@ -675,7 +734,8 @@ function(qt_feature_module_end)
     unset(__QtFeature_custom_enabled_features PARENT_SCOPE)
     unset(__QtFeature_custom_disabled_features PARENT_SCOPE)
     unset(__QtFeature_only_evaluate_features PARENT_SCOPE)
-endfunction()
+    unset(__QtFeature_only_record_summary_entries PARENT_SCOPE)
+endmacro()
 
 function(qt_feature_copy_global_config_features_to_core target)
     # CMake doesn't support setting custom properties on exported INTERFACE libraries
@@ -720,7 +780,7 @@ function(qt_config_compile_test name)
     endif()
 
     cmake_parse_arguments(arg "" "LABEL;PROJECT_PATH;C_STANDARD;CXX_STANDARD"
-        "COMPILE_OPTIONS;LIBRARIES;CODE;PACKAGES" ${ARGN})
+        "COMPILE_OPTIONS;LIBRARIES;CODE;PACKAGES;CMAKE_FLAGS" ${ARGN})
 
     if(arg_PROJECT_PATH)
         message(STATUS "Performing Test ${arg_LABEL}")
@@ -799,8 +859,12 @@ function(qt_config_compile_test name)
             endif()
         endif()
 
+        if(NOT arg_CMAKE_FLAGS)
+            set(arg_CMAKE_FLAGS "")
+        endif()
+
         try_compile(HAVE_${name} "${CMAKE_BINARY_DIR}/config.tests/${name}" "${arg_PROJECT_PATH}"
-                    "${name}" CMAKE_FLAGS ${flags})
+                    "${name}" CMAKE_FLAGS ${flags} ${arg_CMAKE_FLAGS})
 
         if(${HAVE_${name}})
             set(status_label "Success")
@@ -1023,7 +1087,7 @@ function(qt_make_features_available target)
             endif()
             foreach(feature IN ITEMS ${features})
                 if (DEFINED "QT_FEATURE_${feature}" AND NOT "${QT_FEATURE_${feature}}" STREQUAL "${value}")
-                    message(FATAL_ERROR "Feature ${feature} is already defined and has a different value when importing features from ${target}.")
+                    message(FATAL_ERROR "Feature ${feature} is already defined to be \"${QT_FEATURE_${feature}}\" and should now be set to \"${value}\" when importing features from ${target}.")
                 endif()
                 set(QT_FEATURE_${feature} "${value}" CACHE INTERNAL "Qt feature: ${feature} (from target ${target})")
             endforeach()

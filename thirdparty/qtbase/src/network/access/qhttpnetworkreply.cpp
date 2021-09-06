@@ -411,31 +411,6 @@ bool QHttpNetworkReplyPrivate::findChallenge(bool forProxy, QByteArray &challeng
     return !challenge.isEmpty();
 }
 
-QAuthenticatorPrivate::Method QHttpNetworkReplyPrivate::authenticationMethod(bool isProxy) const
-{
-    // The logic is same as the one used in void QAuthenticatorPrivate::parseHttpResponse()
-    QAuthenticatorPrivate::Method method = QAuthenticatorPrivate::None;
-    QByteArray header = isProxy ? "proxy-authenticate" : "www-authenticate";
-    QList<QByteArray> challenges = headerFieldValues(header);
-    for (int i = 0; i<challenges.size(); i++) {
-        QByteArray line = challenges.at(i).trimmed().toLower();
-        if (method < QAuthenticatorPrivate::Basic
-            && line.startsWith("basic")) {
-            method = QAuthenticatorPrivate::Basic;
-        } else if (method < QAuthenticatorPrivate::Ntlm
-            && line.startsWith("ntlm")) {
-            method = QAuthenticatorPrivate::Ntlm;
-        } else if (method < QAuthenticatorPrivate::DigestMd5
-            && line.startsWith("digest")) {
-            method = QAuthenticatorPrivate::DigestMd5;
-        } else if (method < QAuthenticatorPrivate::Negotiate
-            && line.startsWith("negotiate")) {
-            method = QAuthenticatorPrivate::Negotiate;
-        }
-    }
-    return method;
-}
-
 qint64 QHttpNetworkReplyPrivate::readStatus(QAbstractSocket *socket)
 {
     if (fragment.isEmpty()) {
@@ -582,8 +557,7 @@ qint64 QHttpNetworkReplyPrivate::readHeader(QAbstractSocket *socket)
         if (autoDecompress && isCompressed()) {
             if (!decompressHelper.setEncoding(headerField("content-encoding")))
                 return -1; // Either the encoding was unsupported or the decoder could not be set up
-            if (request.ignoreDecompressionRatio())
-                decompressHelper.setArchiveBombDetectionEnabled(false);
+            decompressHelper.setDecompressedSafetyCheckThreshold(request.minimumArchiveBombSize());
         }
     }
     return bytes;

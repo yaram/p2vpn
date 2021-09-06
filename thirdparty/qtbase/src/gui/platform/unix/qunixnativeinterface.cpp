@@ -55,7 +55,7 @@ using namespace QNativeInterface::Private;
 
 #ifndef QT_NO_OPENGL
 
-#if defined(Q_OS_LINUX)
+#if QT_CONFIG(xcb_glx_plugin)
 
 /*!
     \class QNativeInterface::QGLXContext
@@ -96,7 +96,7 @@ using namespace QNativeInterface::Private;
     \return the underlying GLXContext.
 */
 
-QT_DEFINE_NATIVE_INTERFACE(QGLXContext, QOpenGLContext);
+QT_DEFINE_NATIVE_INTERFACE(QGLXContext);
 QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QGLXIntegration);
 
 QOpenGLContext *QNativeInterface::QGLXContext::fromNative(GLXContext configBasedContext, QOpenGLContext *shareContext)
@@ -110,7 +110,7 @@ QOpenGLContext *QNativeInterface::QGLXContext::fromNative(GLXContext visualBased
     return QGuiApplicationPrivate::platformIntegration()->call<
         &QGLXIntegration::createOpenGLContext>(visualBasedContext, visualInfo, shareContext);
 }
-#endif // defined(Q_OS_LINUX)
+#endif // QT_CONFIG(xcb_glx_plugin)
 
 #if QT_CONFIG(egl)
 
@@ -143,7 +143,7 @@ QOpenGLContext *QNativeInterface::QGLXContext::fromNative(GLXContext visualBased
     \return the underlying EGLContext.
 */
 
-QT_DEFINE_NATIVE_INTERFACE(QEGLContext, QOpenGLContext);
+QT_DEFINE_NATIVE_INTERFACE(QEGLContext);
 QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QEGLIntegration);
 
 QOpenGLContext *QNativeInterface::QEGLContext::fromNative(EGLContext context, EGLDisplay display, QOpenGLContext *shareContext)
@@ -179,10 +179,44 @@ QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QXcbScreen);
 
 QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QXcbWindow);
 
+/*!
+    \class QNativeInterface::QX11Application
+    \since 6.0
+    \brief Native interface to an X11 application.
+
+    Accessed through QGuiApplication::nativeInterface().
+
+    \inmodule QtGui
+    \ingroup native-interfaces
+    \ingroup native-interfaces-qguiapplication
+*/
+
+/*!
+    \fn Display *QNativeInterface::QX11Application::display() const
+
+    \return the X display of the application, for use with Xlib.
+
+    \sa connection()
+*/
+
+/*!
+    \fn xcb_connection_t *QNativeInterface::QX11Application::connection() const
+
+    \return the X connection of the application, for use with XCB.
+
+    \sa display()
+*/
+
+QT_DEFINE_NATIVE_INTERFACE(QX11Application);
+
 #endif // QT_CONFIG(xcb)
 
 #if QT_CONFIG(vsp2)
 QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QVsp2Screen);
+#endif
+
+#ifdef Q_OS_WEBOS
+QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QWebOSScreen);
 #endif
 
 #if QT_CONFIG(evdev)
@@ -198,11 +232,6 @@ QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QVsp2Screen);
 
 QT_DEFINE_PRIVATE_NATIVE_INTERFACE(QEvdevKeyMapper);
 
-template <>
-QEvdevKeyMapper *QKeyMapper::nativeInterface<QEvdevKeyMapper>() const
-{
-    return dynamic_cast<QEvdevKeyMapper*>(QGuiApplicationPrivate::platformIntegration());
-}
 #endif // QT_CONFIG(evdev)
 
 QT_END_NAMESPACE

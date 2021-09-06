@@ -1,7 +1,7 @@
 # -*- coding: utf-8; -*-
 #############################################################################
 ##
-## Copyright (C) 2020 The Qt Company Ltd.
+## Copyright (C) 2021 The Qt Company Ltd.
 ## Contact: https://www.qt.io/licensing/
 ##
 ## This file is part of the test suite of the Qt Toolkit.
@@ -28,7 +28,7 @@
 #############################################################################
 
 # A run of cldr2qlocalexml.py will produce output reporting any
-# language, script and country codes it sees, in data, for which it
+# language, script and territory codes it sees, in data, for which it
 # can find a name (taken always from en.xml) that could potentially be
 # used. There is no point adding a mapping for such a code unless the
 # CLDR's common/main/ contains an XML file for at least one locale
@@ -36,7 +36,7 @@
 
 # Each *_list reflects the current values of its enums in qlocale.h;
 # if new xml language files are available in CLDR, these languages and
-# countries need to be *appended* to this list (for compatibility
+# territories need to be *appended* to this list (for compatibility
 # between versions).  Include any spaces present in names (scripts
 # shall squish them out for the enum entries) in *_list, but use the
 # squished forms of names in the *_aliases mappings.
@@ -52,7 +52,7 @@
 # languages so closely related to one another that they could also be
 # regarded as divergent dialects of the macrolanguage.
 
-language_list = {
+language_map = {
       0: ("AnyLanguage",                 "  "),
       1: ("C",                           "  "),
 
@@ -408,8 +408,8 @@ language_aliases = {
     'Kirghiz': 'Kyrgyz'
     }
 
-country_list = {
-      0: ("AnyCountry",                                   "ZZ"),
+territory_map = {
+      0: ("AnyTerritory",                                 "ZZ"),
 
       1: ("Afghanistan",                                  "AF"),
       2: ("Aland Islands",                                "AX"),
@@ -677,7 +677,7 @@ country_list = {
     261: ("Zimbabwe",                                     "ZW"),
 }
 
-country_aliases = {
+territory_aliases = {
     # Renamings prior to Qt 6.0 (CLDR v37):
     'DemocraticRepublicOfCongo': 'CongoKinshasa',
     'PeoplesRepublicOfCongo': 'CongoBrazzaville',
@@ -700,9 +700,15 @@ country_aliases = {
     'UnitedStatesMinorOutlyingIslands': 'UnitedStatesOutlyingIslands',
     'CuraSao': 'Curacao',
     'CzechRepublic': 'Czechia',
+
+    # Backwards compatibility with old Country enum, prior to Qt 6.2:
+    'AnyCountry': 'AnyTerritory',
+    'NauruCountry': 'NauruTerritory',
+    'TokelauCountry': 'TokelauTerritory',
+    'TuvaluCountry': 'TuvaluTerritory',
 }
 
-script_list = {
+script_map = {
       0: ("AnyScript",              "Zzzz"),
 
       1: ("Adlam",                  "Adlm"),
@@ -857,27 +863,3 @@ script_aliases = {
     'MendeKikakuiScript': 'MendeScript',
     'BengaliScript': 'BanglaScript',
 }
-
-def countryCodeToId(code):
-    if not code:
-        return 0
-    for country_id in country_list:
-        if country_list[country_id][1] == code:
-            return country_id
-    return -1
-
-def languageCodeToId(code):
-    if not code:
-        return 0
-    for language_id in language_list:
-        if language_list[language_id][1] == code:
-            return language_id
-    return -1
-
-def scriptCodeToId(code):
-    if not code:
-        return 0
-    for script_id in script_list:
-        if script_list[script_id][1] == code:
-            return script_id
-    return -1

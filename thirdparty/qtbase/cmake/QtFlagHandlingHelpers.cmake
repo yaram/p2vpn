@@ -1,48 +1,44 @@
 function(qt_internal_add_linker_version_script target)
-    qt_parse_all_arguments(arg "qt_internal_add_linker" "INTERNAL" "" "PRIVATE_HEADERS" ${ARGN})
+    qt_parse_all_arguments(arg "qt_internal_add_linker" "" "" "PRIVATE_HEADERS" ${ARGN})
 
     if (TEST_ld_version_script)
-        if (arg_INTERNAL)
-            set(contents "Qt_${PROJECT_VERSION_MAJOR}_PRIVATE_API { *; };")
+        set(contents "Qt_${PROJECT_VERSION_MAJOR}_PRIVATE_API {\n    qt_private_api_tag*;\n")
+        foreach(ph ${arg_PRIVATE_HEADERS})
+            string(APPEND contents "    @FILE:${ph}@\n")
+        endforeach()
+        string(APPEND contents "};\n")
+        set(current "Qt_${PROJECT_VERSION_MAJOR}")
+        if (QT_NAMESPACE STREQUAL "")
+            set(tag_symbol "qt_version_tag")
         else()
-            set(contents "Qt_${PROJECT_VERSION_MAJOR}_PRIVATE_API {\n    qt_private_api_tag*;\n")
-            foreach(ph ${arg_PRIVATE_HEADERS})
-                string(APPEND contents "    @FILE:${ph}@\n")
-            endforeach()
-            string(APPEND contents "};\n")
-            set(current "Qt_${PROJECT_VERSION_MAJOR}")
-            if (QT_NAMESPACE STREQUAL "")
-                set(tag_symbol "qt_version_tag")
-            else()
-                set(tag_symbol "qt_version_tag_${QT_NAMESPACE}")
-            endif()
-            string(APPEND contents "${current} { *; };\n")
-
-            foreach(minor_version RANGE ${PROJECT_VERSION_MINOR})
-                set(previous "${current}")
-                set(current "Qt_${PROJECT_VERSION_MAJOR}.${minor_version}")
-                if (minor_version EQUAL ${PROJECT_VERSION_MINOR})
-                   string(APPEND contents "${current} { ${tag_symbol}; } ${previous};\n")
-                else()
-                   string(APPEND contents "${current} {} ${previous};\n")
-                endif()
-            endforeach()
-
-            set(infile "${CMAKE_CURRENT_BINARY_DIR}/${target}.version.in")
-            set(outfile "${CMAKE_CURRENT_BINARY_DIR}/${target}.version")
-
-            file(GENERATE OUTPUT "${infile}" CONTENT "${contents}")
-
-            qt_ensure_perl()
-
-            add_custom_command(TARGET "${target}" PRE_LINK
-                COMMAND "${HOST_PERL}" "${QT_MKSPECS_DIR}/features/data/unix/findclasslist.pl" < "${infile}" > "${outfile}"
-                BYPRODUCTS "${outfile}" DEPENDS "${infile}"
-                WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-                COMMENT "Generating version linker script"
-            )
-            target_link_options("${target}" PRIVATE "-Wl,--version-script,${outfile}")
+            set(tag_symbol "qt_version_tag_${QT_NAMESPACE}")
         endif()
+        string(APPEND contents "${current} { *; };\n")
+
+        foreach(minor_version RANGE ${PROJECT_VERSION_MINOR})
+            set(previous "${current}")
+            set(current "Qt_${PROJECT_VERSION_MAJOR}.${minor_version}")
+            if (minor_version EQUAL ${PROJECT_VERSION_MINOR})
+                string(APPEND contents "${current} { ${tag_symbol}; } ${previous};\n")
+            else()
+                string(APPEND contents "${current} {} ${previous};\n")
+            endif()
+        endforeach()
+
+        set(infile "${CMAKE_CURRENT_BINARY_DIR}/${target}.version.in")
+        set(outfile "${CMAKE_CURRENT_BINARY_DIR}/${target}.version")
+
+        file(GENERATE OUTPUT "${infile}" CONTENT "${contents}")
+
+        qt_ensure_perl()
+
+        add_custom_command(TARGET "${target}" PRE_LINK
+            COMMAND "${HOST_PERL}" "${QT_MKSPECS_DIR}/features/data/unix/findclasslist.pl" < "${infile}" > "${outfile}"
+            BYPRODUCTS "${outfile}" DEPENDS "${infile}"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            COMMENT "Generating version linker script"
+            )
+        target_link_options("${target}" PRIVATE "-Wl,--version-script,${outfile}")
     endif()
 endfunction()
 
@@ -50,7 +46,7 @@ function(qt_internal_add_link_flags_no_undefined target)
     if (NOT QT_BUILD_SHARED_LIBS)
         return()
     endif()
-    if (GCC OR CLANG)
+    if ((GCC OR CLANG) AND NOT MSVC)
         if(CLANG AND QT_FEATURE_sanitizer)
             return()
         endif()
@@ -92,7 +88,7 @@ function(qt_internal_apply_gc_binaries target visibility)
         message(FATAL_ERROR "Visibitily setting must be one of PRIVATE, INTERFACE or PUBLIC.")
     endif()
 
-    if ((GCC OR CLANG) AND NOT EMSCRIPTEN AND NOT UIKIT AND NOT MSVC)
+    if ((GCC OR CLANG) AND NOT WASM AND NOT UIKIT AND NOT MSVC)
         if(APPLE)
             set(gc_sections_flag "-Wl,-dead_strip")
         elseif(SOLARIS)
@@ -105,7 +101,7 @@ function(qt_internal_apply_gc_binaries target visibility)
         target_link_options("${target}" ${visibility} "${gc_sections_flag}")
     endif()
 
-    if((GCC OR CLANG OR ICC) AND NOT EMSCRIPTEN AND NOT UIKIT AND NOT MSVC)
+    if((GCC OR CLANG OR ICC) AND NOT WASM AND NOT UIKIT AND NOT MSVC)
         set(split_sections_flags "-ffunction-sections" "-fdata-sections")
     endif()
     if(split_sections_flags)
@@ -239,7 +235,7 @@ endfunction()
 function(qt_set_msvc_cplusplus_options target visibility)
     # For MSVC we need to explicitly pass -Zc:__cplusplus to get correct __cplusplus.
     # Check qt_config_compile_test for more info.
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND MSVC_VERSION GREATER_EQUAL 1913)
+    if(MSVC AND MSVC_VERSION GREATER_EQUAL 1913)
         target_compile_options("${target}" ${visibility} "-Zc:__cplusplus" "-permissive-")
     endif()
 endfunction()
@@ -674,6 +670,11 @@ function(qt_internal_add_optimize_full_flags)
         ""
         ""
         ${ARGN})
+
+    # QT_USE_DEFAULT_CMAKE_OPTIMIZATION_FLAGS disables forced full optimization.
+    if(QT_USE_DEFAULT_CMAKE_OPTIMIZATION_FLAGS)
+        return()
+    endif()
 
     # Assume that FEATURE_optimize_full has higher priority. But if FEATURE_optimize_full is OFF,
     # flags are set by FEATURE_optimize_size should remain unchanged.

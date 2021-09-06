@@ -45,6 +45,7 @@
 #  include <type_traits>
 #  include <cstddef>
 #  include <utility>
+#  include <cstdint>
 #endif
 #ifndef __ASSEMBLER__
 #  include <assert.h>
@@ -85,6 +86,16 @@
 #include <QtCore/qsystemdetection.h>
 #include <QtCore/qprocessordetection.h>
 #include <QtCore/qcompilerdetection.h>
+
+// This could go to the very beginning of this file, but we're using compiler
+// detection, so it's here.
+#if defined(__cplusplus) && (__cplusplus < 201703L)
+#  ifdef Q_CC_MSVC
+#    error "Qt requires a C++17 compiler, and a suitable value for __cplusplus. On MSVC, you must pass the /Zc:__cplusplus option to the compiler."
+#  else
+#    error "Qt requires a C++17 compiler"
+#  endif
+#endif // __cplusplus
 
 #if defined (__ELF__)
 #  define Q_OF_ELF
@@ -216,12 +227,8 @@ typedef short qint16;              /* 16 bit signed */
 typedef unsigned short quint16;    /* 16 bit unsigned */
 typedef int qint32;                /* 32 bit signed */
 typedef unsigned int quint32;      /* 32 bit unsigned */
-#if defined(Q_OS_WIN) && !defined(Q_CC_GNU)
-#  define Q_INT64_C(c) c ## i64    /* signed 64 bit constant */
-#  define Q_UINT64_C(c) c ## ui64   /* unsigned 64 bit constant */
-typedef __int64 qint64;            /* 64 bit signed */
-typedef unsigned __int64 quint64;  /* 64 bit unsigned */
-#else
+// Unlike LL / ULL in C++, for historical reasons, we force the
+// result to be of the requested type.
 #ifdef __cplusplus
 #  define Q_INT64_C(c) static_cast<long long>(c ## LL)     /* signed 64 bit constant */
 #  define Q_UINT64_C(c) static_cast<unsigned long long>(c ## ULL) /* unsigned 64 bit constant */
@@ -231,7 +238,6 @@ typedef unsigned __int64 quint64;  /* 64 bit unsigned */
 #endif
 typedef long long qint64;           /* 64 bit signed */
 typedef unsigned long long quint64; /* 64 bit unsigned */
-#endif
 
 typedef qint64 qlonglong;
 typedef quint64 qulonglong;
@@ -243,6 +249,20 @@ typedef ptrdiff_t qptrdiff;
 typedef ptrdiff_t qsizetype;
 typedef ptrdiff_t qintptr;
 typedef size_t quintptr;
+
+#define PRIdQPTRDIFF "td"
+#define PRIiQPTRDIFF "ti"
+
+#define PRIdQSIZETYPE "td"
+#define PRIiQSIZETYPE "ti"
+
+#define PRIdQINTPTR "td"
+#define PRIiQINTPTR "ti"
+
+#define PRIuQUINTPTR "zu"
+#define PRIoQUINTPTR "zo"
+#define PRIxQUINTPTR "zx"
+#define PRIXQUINTPTR "zX"
 #endif
 
 /*
@@ -374,6 +394,46 @@ typedef double qreal;
 # define QT_DEPRECATED_VERSION_6_1
 #endif
 
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(6, 2, 0)
+# define QT_DEPRECATED_VERSION_X_6_2(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_6_2         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_6_2(text)
+# define QT_DEPRECATED_VERSION_6_2
+#endif
+
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(6, 3, 0)
+# define QT_DEPRECATED_VERSION_X_6_3(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_6_3         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_6_3(text)
+# define QT_DEPRECATED_VERSION_6_3
+#endif
+
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(6, 4, 0)
+# define QT_DEPRECATED_VERSION_X_6_4(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_6_4         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_6_4(text)
+# define QT_DEPRECATED_VERSION_6_4
+#endif
+
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(6, 5, 0)
+# define QT_DEPRECATED_VERSION_X_6_5(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_6_5         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_6_5(text)
+# define QT_DEPRECATED_VERSION_6_5
+#endif
+
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(6, 6, 0)
+# define QT_DEPRECATED_VERSION_X_6_6(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_6_6         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_6_6(text)
+# define QT_DEPRECATED_VERSION_6_6
+#endif
+
 #define QT_DEPRECATED_VERSION_X_5(minor, text)      QT_DEPRECATED_VERSION_X_5_##minor(text)
 #define QT_DEPRECATED_VERSION_X(major, minor, text) QT_DEPRECATED_VERSION_X_##major##_##minor(text)
 
@@ -431,13 +491,10 @@ constexpr inline Deprecated_t Deprecated = {};
     Class(const Class &) = delete;\
     Class &operator=(const Class &) = delete;
 
-#define Q_DISABLE_MOVE(Class) \
-    Class(Class &&) = delete; \
-    Class &operator=(Class &&) = delete;
-
 #define Q_DISABLE_COPY_MOVE(Class) \
     Q_DISABLE_COPY(Class) \
-    Q_DISABLE_MOVE(Class)
+    Class(Class &&) = delete; \
+    Class &operator=(Class &&) = delete;
 
 /*
     Implementing a move assignment operator using an established
@@ -548,7 +605,7 @@ Q_CORE_EXPORT Q_DECL_CONST_FUNCTION const char *qVersion(void) Q_DECL_NOEXCEPT;
       && sizeof(void *) == sizeof(qptrdiff)
 
   size_t and qsizetype are not guaranteed to be the same size as a pointer, but
-  they usually are.
+  they usually are. We actually check for that in qglobal.cpp.
 */
 template <int> struct QIntegerForSize;
 template <>    struct QIntegerForSize<1> { typedef quint8  Unsigned; typedef qint8  Signed; };
@@ -565,6 +622,47 @@ typedef QIntegerForSizeof<void *>::Unsigned quintptr;
 typedef QIntegerForSizeof<void *>::Signed qptrdiff;
 typedef qptrdiff qintptr;
 using qsizetype = QIntegerForSizeof<std::size_t>::Signed;
+
+// These custom definitions are necessary as we're not defining our
+// datatypes in terms of the language ones, but in terms of integer
+// types that have the sime size. For instance, on a 32-bit platform,
+// qptrdiff is int, while ptrdiff_t may be aliased to long; therefore
+// using %td to print a qptrdiff would be wrong (and raise -Wformat
+// warnings), although both int and long have same bit size on that
+// platform.
+//
+// We know that sizeof(size_t) == sizeof(void *) == sizeof(qptrdiff).
+#if SIZE_MAX == 4294967295ULL
+#define PRIuQUINTPTR "u"
+#define PRIoQUINTPTR "o"
+#define PRIxQUINTPTR "x"
+#define PRIXQUINTPTR "X"
+
+#define PRIdQPTRDIFF "d"
+#define PRIiQPTRDIFF "i"
+
+#define PRIdQINTPTR "d"
+#define PRIiQINTPTR "i"
+
+#define PRIdQSIZETYPE "d"
+#define PRIiQSIZETYPE "i"
+#elif SIZE_MAX == 18446744073709551615ULL
+#define PRIuQUINTPTR "llu"
+#define PRIoQUINTPTR "llo"
+#define PRIxQUINTPTR "llx"
+#define PRIXQUINTPTR "llX"
+
+#define PRIdQPTRDIFF "lld"
+#define PRIiQPTRDIFF "lli"
+
+#define PRIdQINTPTR "lld"
+#define PRIiQINTPTR "lli"
+
+#define PRIdQSIZETYPE "lld"
+#define PRIiQSIZETYPE "lli"
+#else
+#error Unsupported platform (unknown value for SIZE_MAX)
+#endif
 
 /* moc compats (signals/slots) */
 #ifndef QT_MOC_COMPAT
@@ -1076,6 +1174,13 @@ constexpr T qExchange(T &t, U &&newValue)
     return old;
 }
 
+// like std::to_underlying
+template <typename Enum>
+constexpr std::underlying_type_t<Enum> qToUnderlying(Enum e) noexcept
+{
+    return static_cast<std::underlying_type_t<Enum>>(e);
+}
+
 #ifdef __cpp_conditional_explicit
 #define Q_IMPLICIT explicit(false)
 #else
@@ -1290,33 +1395,9 @@ inline int qIntCast(float f) { return int(f); }
 #define QT_VA_ARGS_CHOOSE(_1, _2, _3, _4, _5, _6, _7, _8, _9, N, ...) N
 #define QT_VA_ARGS_EXPAND(...) __VA_ARGS__ // Needed for MSVC
 #define QT_VA_ARGS_COUNT(...) QT_VA_ARGS_EXPAND(QT_VA_ARGS_CHOOSE(__VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0))
-#define QT_OVERLOADED_MACRO_EXPAND(MACRO, ARGC) MACRO##ARGC
+#define QT_OVERLOADED_MACRO_EXPAND(MACRO, ARGC) MACRO##_##ARGC
 #define QT_OVERLOADED_MACRO_IMP(MACRO, ARGC) QT_OVERLOADED_MACRO_EXPAND(MACRO, ARGC)
 #define QT_OVERLOADED_MACRO(MACRO, ...) QT_VA_ARGS_EXPAND(QT_OVERLOADED_MACRO_IMP(MACRO, QT_VA_ARGS_COUNT(__VA_ARGS__))(__VA_ARGS__))
-
-// Ensures that the interface's typeinfo is exported so that
-// dynamic casts work reliably, and protects the destructor
-// so that pointers to the interface can't be deleted.
-#define QT_DECLARE_NATIVE_INTERFACE(InterfaceClass) \
-    protected: virtual ~InterfaceClass(); public:
-
-// Declares an accessor for the native interface
-#define QT_DECLARE_NATIVE_INTERFACE_ACCESSOR \
-    template <typename QNativeInterface> \
-    QNativeInterface *nativeInterface() const;
-
-// Provides a definition for the interface destructor
-#define QT_DEFINE_NATIVE_INTERFACE2(Namespace, InterfaceClass) \
-    QT_PREPEND_NAMESPACE(Namespace)::InterfaceClass::~InterfaceClass() = default
-
-// Provides a definition for the destructor, and an explicit
-// template instantiation of the native interface accessor.
-#define QT_DEFINE_NATIVE_INTERFACE3(Namespace, InterfaceClass, PublicClass) \
-    QT_DEFINE_NATIVE_INTERFACE2(Namespace, InterfaceClass); \
-    template Q_DECL_EXPORT QT_PREPEND_NAMESPACE(Namespace)::InterfaceClass *PublicClass::nativeInterface() const
-
-#define QT_DEFINE_NATIVE_INTERFACE(...) QT_OVERLOADED_MACRO(QT_DEFINE_NATIVE_INTERFACE, QNativeInterface, __VA_ARGS__)
-#define QT_DEFINE_PRIVATE_NATIVE_INTERFACE(...) QT_OVERLOADED_MACRO(QT_DEFINE_NATIVE_INTERFACE, QNativeInterface::Private, __VA_ARGS__)
 
 // This macro can be used to calculate member offsets for types with a non standard layout.
 // It uses the fact that offsetof() is allowed to support those types since C++17 as an optional

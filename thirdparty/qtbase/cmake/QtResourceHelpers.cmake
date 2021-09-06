@@ -21,6 +21,10 @@ function(qt_internal_add_resource target resourceName)
             EXPORT "${INSTALL_CMAKE_NAMESPACE}${target}Targets"
             DESTINATION "${INSTALL_LIBDIR}"
         )
+        qt_internal_add_targets_to_additional_targets_export_file(
+            TARGETS ${out_targets}
+            EXPORT_NAME_PREFIX "${INSTALL_CMAKE_NAMESPACE}${target}"
+        )
 
         qt_internal_record_rcc_object_files("${target}" "${out_targets}"
                                             INSTALL_DIRECTORY "${INSTALL_LIBDIR}")
@@ -83,10 +87,6 @@ function(qt_internal_record_rcc_object_files target resource_targets)
         endif()
         set_property(TARGET ${target} APPEND PROPERTY _qt_rcc_objects "${rcc_object_file_path}")
 
-        # Make sure that the target cpp files are compiled with the regular Qt internal compile
-        # flags, needed for building iOS apps with qmake where bitcode is involved.
-        target_link_libraries("${out_target}" PRIVATE Qt::PlatformModuleInternal)
-
-        qt_set_common_target_properties(${out_target})
+        qt_internal_link_internal_platform_for_object_library("${out_target}")
     endforeach()
 endfunction()

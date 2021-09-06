@@ -13,6 +13,7 @@
 #define CBASE64_IMPLEMENTATION
 #include "cbase64.h"
 #include "qapplication.h"
+#include "qclipboard.h"
 #include "qmainwindow.h"
 #include "qboxlayout.h"
 #include "qstackedwidget.h"
@@ -349,16 +350,20 @@ struct Context : QObject {
 
     Page current_page;
 
+    QClipboard *clipboard;
+
     QLabel *status_label;
 
     QStackedWidget *page_stack;
 
     QWidget *create_page_widget;
+    QPushButton *create_page_local_connection_string_copy_button;
     QLineEdit *create_page_local_connection_string_edit;
     QLineEdit *create_page_remote_connection_string_edit;
     QPushButton *create_page_connect_button;
 
     QWidget *connect_page_widget;
+    QPushButton *connect_page_local_connection_string_copy_button;
     QLineEdit *connect_page_local_connection_string_edit;
     QLineEdit *connect_page_remote_connection_string_edit;
     QPushButton *connect_page_generate_button;
@@ -457,6 +462,19 @@ struct Context : QObject {
         status_label->setVisible(true);
     }
 
+    void on_local_connection_string_copy_button_pressed() {
+        char local_description[max_description_length + 1];
+        juice_get_local_description(juice_agent, local_description, max_description_length + 1);
+
+        uint8_t local_description_encoded[max_description_encoded_length];
+        auto local_description_encoded_length = encode_description(local_description, local_description_encoded);
+
+        char local_description_encoded_base64[max_description_encoded_base64_length + 1];
+        base64_encode(local_description_encoded, local_description_encoded_length, local_description_encoded_base64);
+
+        clipboard->setText(QString(local_description_encoded_base64));
+    }
+
     void on_gathering_done() {
         char local_description[max_description_length + 1];
         juice_get_local_description(juice_agent, local_description, max_description_length + 1);
@@ -473,11 +491,13 @@ struct Context : QObject {
                 create_page_local_connection_string_edit->setEnabled(true);
                 create_page_remote_connection_string_edit->setEnabled(true);
                 create_page_connect_button->setEnabled(true);
+                create_page_local_connection_string_copy_button->setEnabled(true);
             } break;
 
             case Page::Connect: {
                 connect_page_local_connection_string_edit->setText(local_description_encoded_base64);
                 connect_page_local_connection_string_edit->setEnabled(true);
+                connect_page_local_connection_string_copy_button->setEnabled(true);
             } break;
         }
     }
@@ -722,6 +742,8 @@ static bool entry() {
     QApplication application(dummy_argc, nullptr);
     application.setStyle("Fusion");
 
+    context.clipboard = application.clipboard();
+
     QMainWindow window;
     window.setWindowTitle("P2P VPN");
 
@@ -759,11 +781,22 @@ static bool entry() {
     QLabel create_page_local_connection_string_label("Your connection string (send this to your peer)");
     create_page_layout.addWidget(&create_page_local_connection_string_label);
 
+    QWidget create_page_local_connection_string_widget;
+    QHBoxLayout create_page_local_connection_string_layout(&create_page_local_connection_string_widget);
+    create_page_local_connection_string_layout.setContentsMargins(0, 0, 0, 0);
+    create_page_layout.addWidget(&create_page_local_connection_string_widget);
+
     QLineEdit create_page_local_connection_string_edit("Loading...");
-    create_page_layout.addWidget(&create_page_local_connection_string_edit);
+    create_page_local_connection_string_layout.addWidget(&create_page_local_connection_string_edit);
     create_page_local_connection_string_edit.setReadOnly(true);
     create_page_local_connection_string_edit.setDisabled(true);
     context.create_page_local_connection_string_edit = &create_page_local_connection_string_edit;
+
+    QPushButton create_page_local_connection_string_copy_button("Copy");
+    QObject::connect(&create_page_local_connection_string_copy_button, &QPushButton::clicked, &context, &Context::on_local_connection_string_copy_button_pressed);
+    create_page_local_connection_string_layout.addWidget(&create_page_local_connection_string_copy_button);
+    create_page_local_connection_string_copy_button.setDisabled(true);
+    context.create_page_local_connection_string_copy_button = &create_page_local_connection_string_copy_button;
 
     QLabel create_page_remote_connection_string_label("Their connection string (your peer will send this to you)");
     create_page_layout.addWidget(&create_page_remote_connection_string_label);
@@ -800,11 +833,22 @@ static bool entry() {
     QLabel connect_page_local_connection_string_label("Your connection string (send this to your peer)");
     connect_page_layout.addWidget(&connect_page_local_connection_string_label);
 
+    QWidget connect_page_local_connection_string_widget;
+    QHBoxLayout connect_page_local_connection_string_layout(&connect_page_local_connection_string_widget);
+    connect_page_local_connection_string_layout.setContentsMargins(0, 0, 0, 0);
+    connect_page_layout.addWidget(&connect_page_local_connection_string_widget);
+
     QLineEdit connect_page_local_connection_string_edit;
-    connect_page_layout.addWidget(&connect_page_local_connection_string_edit);
+    connect_page_local_connection_string_layout.addWidget(&connect_page_local_connection_string_edit);
     connect_page_local_connection_string_edit.setReadOnly(true);
     connect_page_local_connection_string_edit.setDisabled(true);
     context.connect_page_local_connection_string_edit = &connect_page_local_connection_string_edit;
+
+    QPushButton connect_page_local_connection_string_copy_button("Copy");
+    QObject::connect(&connect_page_local_connection_string_copy_button, &QPushButton::clicked, &context, &Context::on_local_connection_string_copy_button_pressed);
+    connect_page_local_connection_string_layout.addWidget(&connect_page_local_connection_string_copy_button);
+    connect_page_local_connection_string_copy_button.setDisabled(true);
+    context.connect_page_local_connection_string_copy_button = &connect_page_local_connection_string_copy_button;
 
     // Connected page
 

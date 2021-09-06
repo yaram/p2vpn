@@ -747,122 +747,122 @@ static bool entry() {
     QMainWindow window;
     window.setWindowTitle("P2VPN");
 
-    QWidget central_widget;
-    QVBoxLayout central_layout(&central_widget);
-    window.setCentralWidget(&central_widget);
+    auto central_widget = new QWidget;
+    QVBoxLayout central_layout(central_widget);
+    window.setCentralWidget(central_widget);
 
-    QStackedWidget page_stack;
-    central_layout.addWidget(&page_stack);
-    context.page_stack = &page_stack;
+    auto page_stack = new QStackedWidget;
+    central_layout.addWidget(page_stack);
+    context.page_stack = page_stack;
 
     // Will probably clean this up eventually...
 
     // Initial page
 
-    QWidget initial_page_widget;
-    QVBoxLayout initial_page_layout(&initial_page_widget);
-    page_stack.addWidget(&initial_page_widget);
+    auto initial_page_widget = new QWidget;
+    QVBoxLayout initial_page_layout(initial_page_widget);
+    page_stack->addWidget(initial_page_widget);
 
-    QPushButton initial_page_create_page_button("Create");
-    QObject::connect(&initial_page_create_page_button, &QPushButton::clicked, &context, &Context::on_create_page_button_pressed);
-    initial_page_layout.addWidget(&initial_page_create_page_button);
+    auto initial_page_create_page_button = new QPushButton("Create");
+    QObject::connect(initial_page_create_page_button, &QPushButton::clicked, &context, &Context::on_create_page_button_pressed);
+    initial_page_layout.addWidget(initial_page_create_page_button);
 
-    QPushButton initial_page_connect_page_button("Connect");
-    QObject::connect(&initial_page_connect_page_button, &QPushButton::clicked, &context, &Context::on_connect_page_button_pressed);
-    initial_page_layout.addWidget(&initial_page_connect_page_button);
+    auto initial_page_connect_page_button = new QPushButton("Connect");
+    QObject::connect(initial_page_connect_page_button, &QPushButton::clicked, &context, &Context::on_connect_page_button_pressed);
+    initial_page_layout.addWidget(initial_page_connect_page_button);
 
     // Create page
 
-    QWidget create_page_widget;
-    QVBoxLayout create_page_layout(&create_page_widget);
-    page_stack.addWidget(&create_page_widget);
-    context.create_page_widget = &create_page_widget;
+    auto create_page_widget = new QWidget;
+    QVBoxLayout create_page_layout(create_page_widget);
+    page_stack->addWidget(create_page_widget);
+    context.create_page_widget = create_page_widget;
 
-    QLabel create_page_local_connection_string_label("Your connection string (send this to your peer)");
-    create_page_layout.addWidget(&create_page_local_connection_string_label);
+    auto create_page_local_connection_string_label = new QLabel("Your connection string (send this to your peer)");
+    create_page_layout.addWidget(create_page_local_connection_string_label);
 
-    QWidget create_page_local_connection_string_widget;
-    QHBoxLayout create_page_local_connection_string_layout(&create_page_local_connection_string_widget);
+    auto create_page_local_connection_string_widget = new QWidget;
+    QHBoxLayout create_page_local_connection_string_layout(create_page_local_connection_string_widget);
     create_page_local_connection_string_layout.setContentsMargins(0, 0, 0, 0);
-    create_page_layout.addWidget(&create_page_local_connection_string_widget);
+    create_page_layout.addWidget(create_page_local_connection_string_widget);
 
-    QLineEdit create_page_local_connection_string_edit("Loading...");
-    create_page_local_connection_string_layout.addWidget(&create_page_local_connection_string_edit);
-    create_page_local_connection_string_edit.setReadOnly(true);
-    create_page_local_connection_string_edit.setDisabled(true);
-    context.create_page_local_connection_string_edit = &create_page_local_connection_string_edit;
+    auto create_page_local_connection_string_edit = new QLineEdit("Loading...");
+    create_page_local_connection_string_layout.addWidget(create_page_local_connection_string_edit);
+    create_page_local_connection_string_edit->setReadOnly(true);
+    create_page_local_connection_string_edit->setDisabled(true);
+    context.create_page_local_connection_string_edit = create_page_local_connection_string_edit;
 
-    QPushButton create_page_local_connection_string_copy_button("Copy");
-    QObject::connect(&create_page_local_connection_string_copy_button, &QPushButton::clicked, &context, &Context::on_local_connection_string_copy_button_pressed);
-    create_page_local_connection_string_layout.addWidget(&create_page_local_connection_string_copy_button);
-    create_page_local_connection_string_copy_button.setDisabled(true);
-    context.create_page_local_connection_string_copy_button = &create_page_local_connection_string_copy_button;
+    auto create_page_local_connection_string_copy_button = new QPushButton("Copy");
+    QObject::connect(create_page_local_connection_string_copy_button, &QPushButton::clicked, &context, &Context::on_local_connection_string_copy_button_pressed);
+    create_page_local_connection_string_layout.addWidget(create_page_local_connection_string_copy_button);
+    create_page_local_connection_string_copy_button->setDisabled(true);
+    context.create_page_local_connection_string_copy_button = create_page_local_connection_string_copy_button;
 
-    QLabel create_page_remote_connection_string_label("Their connection string (your peer will send this to you)");
-    create_page_layout.addWidget(&create_page_remote_connection_string_label);
+    auto create_page_remote_connection_string_label = new QLabel("Their connection string (your peer will send this to you)");
+    create_page_layout.addWidget(create_page_remote_connection_string_label);
 
-    QLineEdit create_page_remote_connection_string_edit;
-    create_page_layout.addWidget(&create_page_remote_connection_string_edit);
-    create_page_remote_connection_string_edit.setDisabled(true);
-    context.create_page_remote_connection_string_edit = &create_page_remote_connection_string_edit;
+    auto create_page_remote_connection_string_edit = new QLineEdit;
+    create_page_layout.addWidget(create_page_remote_connection_string_edit);
+    create_page_remote_connection_string_edit->setDisabled(true);
+    context.create_page_remote_connection_string_edit = create_page_remote_connection_string_edit;
 
-    QPushButton create_page_connect_button("Connect to peer");
-    create_page_layout.addWidget(&create_page_connect_button);
-    QObject::connect(&create_page_connect_button, &QPushButton::clicked, &context, &Context::on_create_page_connect_button_pressed);
-    context.create_page_connect_button = &create_page_connect_button;
+    auto create_page_connect_button = new QPushButton("Connect to peer");
+    create_page_layout.addWidget(create_page_connect_button);
+    QObject::connect(create_page_connect_button, &QPushButton::clicked, &context, &Context::on_create_page_connect_button_pressed);
+    context.create_page_connect_button = create_page_connect_button;
 
     // Connect page
 
-    QWidget connect_page_widget;
-    QVBoxLayout connect_page_layout(&connect_page_widget);
-    page_stack.addWidget(&connect_page_widget);
-    context.connect_page_widget = &connect_page_widget;
+    auto connect_page_widget = new QWidget;
+    QVBoxLayout connect_page_layout(connect_page_widget);
+    page_stack->addWidget(connect_page_widget);
+    context.connect_page_widget = connect_page_widget;
 
-    QLabel connect_page_remote_connection_string_label("Their connection string (your peer will send this to you)");
-    connect_page_layout.addWidget(&connect_page_remote_connection_string_label);
+    auto connect_page_remote_connection_string_label = new QLabel("Their connection string (your peer will send this to you)");
+    connect_page_layout.addWidget(connect_page_remote_connection_string_label);
 
-    QLineEdit connect_page_remote_connection_string_edit;
-    connect_page_layout.addWidget(&connect_page_remote_connection_string_edit);
-    context.connect_page_remote_connection_string_edit = &connect_page_remote_connection_string_edit;
+    auto connect_page_remote_connection_string_edit = new QLineEdit;
+    connect_page_layout.addWidget(connect_page_remote_connection_string_edit);
+    context.connect_page_remote_connection_string_edit = connect_page_remote_connection_string_edit;
 
-    QPushButton connect_page_generate_button("Generate connection string");
-    connect_page_layout.addWidget(&connect_page_generate_button);
-    QObject::connect(&connect_page_generate_button, &QPushButton::clicked, &context, &Context::on_connect_page_generate_button_pressed);
-    context.connect_page_generate_button = &connect_page_generate_button;
+    auto connect_page_generate_button = new QPushButton("Generate connection string");
+    connect_page_layout.addWidget(connect_page_generate_button);
+    QObject::connect(connect_page_generate_button, &QPushButton::clicked, &context, &Context::on_connect_page_generate_button_pressed);
+    context.connect_page_generate_button = connect_page_generate_button;
 
-    QLabel connect_page_local_connection_string_label("Your connection string (send this to your peer)");
-    connect_page_layout.addWidget(&connect_page_local_connection_string_label);
+    auto connect_page_local_connection_string_label = new QLabel("Your connection string (send this to your peer)");
+    connect_page_layout.addWidget(connect_page_local_connection_string_label);
 
-    QWidget connect_page_local_connection_string_widget;
-    QHBoxLayout connect_page_local_connection_string_layout(&connect_page_local_connection_string_widget);
+    auto connect_page_local_connection_string_widget = new QWidget;
+    QHBoxLayout connect_page_local_connection_string_layout(connect_page_local_connection_string_widget);
     connect_page_local_connection_string_layout.setContentsMargins(0, 0, 0, 0);
-    connect_page_layout.addWidget(&connect_page_local_connection_string_widget);
+    connect_page_layout.addWidget(connect_page_local_connection_string_widget);
 
-    QLineEdit connect_page_local_connection_string_edit;
-    connect_page_local_connection_string_layout.addWidget(&connect_page_local_connection_string_edit);
-    connect_page_local_connection_string_edit.setReadOnly(true);
-    connect_page_local_connection_string_edit.setDisabled(true);
-    context.connect_page_local_connection_string_edit = &connect_page_local_connection_string_edit;
+    auto connect_page_local_connection_string_edit = new QLineEdit;
+    connect_page_local_connection_string_layout.addWidget(connect_page_local_connection_string_edit);
+    connect_page_local_connection_string_edit->setReadOnly(true);
+    connect_page_local_connection_string_edit->setDisabled(true);
+    context.connect_page_local_connection_string_edit = connect_page_local_connection_string_edit;
 
-    QPushButton connect_page_local_connection_string_copy_button("Copy");
-    QObject::connect(&connect_page_local_connection_string_copy_button, &QPushButton::clicked, &context, &Context::on_local_connection_string_copy_button_pressed);
-    connect_page_local_connection_string_layout.addWidget(&connect_page_local_connection_string_copy_button);
-    connect_page_local_connection_string_copy_button.setDisabled(true);
-    context.connect_page_local_connection_string_copy_button = &connect_page_local_connection_string_copy_button;
+    auto connect_page_local_connection_string_copy_button = new QPushButton("Copy");
+    QObject::connect(connect_page_local_connection_string_copy_button, &QPushButton::clicked, &context, &Context::on_local_connection_string_copy_button_pressed);
+    connect_page_local_connection_string_layout.addWidget(connect_page_local_connection_string_copy_button);
+    connect_page_local_connection_string_copy_button->setDisabled(true);
+    context.connect_page_local_connection_string_copy_button = connect_page_local_connection_string_copy_button;
 
     // Connected page
 
-    QWidget connected_page_widget;
-    QVBoxLayout connected_page_layout(&connected_page_widget);
-    page_stack.addWidget(&connected_page_widget);
-    context.connected_page_widget = &connected_page_widget;
+    auto connected_page_widget = new QWidget;
+    QVBoxLayout connected_page_layout(connected_page_widget);
+    page_stack->addWidget(connected_page_widget);
+    context.connected_page_widget = connected_page_widget;
 
-    QWidget connected_page_ip_address_widget;
-    QHBoxLayout ip_address_layout(&connected_page_ip_address_widget);
-    connected_page_layout.addWidget(&connected_page_ip_address_widget);
+    auto connected_page_ip_address_widget = new QWidget;
+    QHBoxLayout ip_address_layout(connected_page_ip_address_widget);
+    connected_page_layout.addWidget(connected_page_ip_address_widget);
 
-    QLabel connected_page_ip_address_label("Your IP address is:");
-    ip_address_layout.addWidget(&connected_page_ip_address_label);
+    auto connected_page_ip_address_label = new QLabel("Your IP address is:");
+    ip_address_layout.addWidget(connected_page_ip_address_label);
 
     char ip_address_text[32];
     sprintf_s(
@@ -875,32 +875,32 @@ static bool entry() {
         (uint8_t)ip_address
     );
 
-    QLineEdit connected_page_ip_address_edit(ip_address_text);
-    ip_address_layout.addWidget(&connected_page_ip_address_edit);
-    connected_page_ip_address_edit.setReadOnly(true);
+    auto connected_page_ip_address_edit = new QLineEdit(ip_address_text);
+    ip_address_layout.addWidget(connected_page_ip_address_edit);
+    connected_page_ip_address_edit->setReadOnly(true);
 
-    QLineEdit connected_page_peer_ip_address_edit;
-    connected_page_layout.addWidget(&connected_page_peer_ip_address_edit);
-    connected_page_peer_ip_address_edit.setReadOnly(true);
-    connected_page_peer_ip_address_edit.setDisabled(true);
+    auto connected_page_peer_ip_address_edit = new QLineEdit;
+    connected_page_layout.addWidget(connected_page_peer_ip_address_edit);
+    connected_page_peer_ip_address_edit->setReadOnly(true);
+    connected_page_peer_ip_address_edit->setDisabled(true);
 
-    QWidget connected_page_peer_ip_address_widget;
-    QHBoxLayout peer_ip_address_layout(&connected_page_peer_ip_address_widget);
-    connected_page_layout.addWidget(&connected_page_peer_ip_address_widget);
+    auto connected_page_peer_ip_address_widget = new QWidget;
+    QHBoxLayout peer_ip_address_layout(connected_page_peer_ip_address_widget);
+    connected_page_layout.addWidget(connected_page_peer_ip_address_widget);
 
-    QLabel connected_page_peer_ip_address_label("Your peer's IP address is:");
-    peer_ip_address_layout.addWidget(&connected_page_peer_ip_address_label);
+    auto connected_page_peer_ip_address_label = new QLabel("Your peer's IP address is:");
+    peer_ip_address_layout.addWidget(connected_page_peer_ip_address_label);
 
-    QLineEdit peer_ip_address_edit;
-    peer_ip_address_layout.addWidget(&connected_page_peer_ip_address_edit);
-    peer_ip_address_edit.setReadOnly(true);
-    peer_ip_address_edit.setDisabled(true);
-    context.connected_page_peer_ip_address_edit = &connected_page_peer_ip_address_edit;
+    auto peer_ip_address_edit = new QLineEdit;
+    peer_ip_address_layout.addWidget(connected_page_peer_ip_address_edit);
+    peer_ip_address_edit->setReadOnly(true);
+    peer_ip_address_edit->setDisabled(true);
+    context.connected_page_peer_ip_address_edit = connected_page_peer_ip_address_edit;
 
-    QLabel status_label;
-    status_label.setVisible(false);
-    central_layout.addWidget(&status_label);
-    context.status_label = &status_label;
+    auto status_label = new QLabel;
+    status_label->setVisible(false);
+    central_layout.addWidget(status_label);
+    context.status_label = status_label;
 
     window.show();
 

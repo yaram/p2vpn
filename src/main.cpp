@@ -655,7 +655,7 @@ static bool entry() {
     WintunEndSession = (WINTUN_END_SESSION_FUNC)GetProcAddress(wintun_library, "WintunEndSession");
     WintunFreeAdapter = (WINTUN_FREE_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunFreeAdapter");
 
-    auto pool_name = L"P2PVPN";
+    auto pool_name = L"P2VPN";
 
     EnumerationParameters enum_parameters {};
     WintunEnumAdapters(pool_name, wintun_adapter_enumeration_callback, (LPARAM)&enum_parameters);
@@ -666,7 +666,7 @@ static bool entry() {
     } else {
         // {CA88F39E-7B30-4AC1-8A08-EFF4220C133A}
         const GUID guid { 0xca88f39e, 0x7b30, 0x4ac1, { 0x8a, 0x8, 0xef, 0xf4, 0x22, 0xc, 0x13, 0x3a } };
-        wintun_adapter = WintunCreateAdapter(pool_name, L"P2P VPN Adapter", &guid, nullptr);
+        wintun_adapter = WintunCreateAdapter(pool_name, L"P2VPN Virtual Adapter", &guid, nullptr);
     }
 
     auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
@@ -745,7 +745,7 @@ static bool entry() {
     context.clipboard = application.clipboard();
 
     QMainWindow window;
-    window.setWindowTitle("P2P VPN");
+    window.setWindowTitle("P2VPN");
 
     QWidget central_widget;
     QVBoxLayout central_layout(&central_widget);

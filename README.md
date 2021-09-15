@@ -8,7 +8,7 @@ Windows is currently the only supported platform, but more are planned.
 ## Windows x64
 
 Requirements:
-* CMake 3.21.2 or later
+* CMake built from git commit [118a0adf](https://gitlab.kitware.com/cmake/cmake/-/tree/118a0adf5bf5a8629fd75da9d30f7e5c475eebbc) or later (This specific version is required because of a bug present in CMake version 3.21.2 and older that prevents building the vendored QT6 dependency)
 * Ninja 1.10.0 or later
 * Visual Studio 2019 with C++ build tools (MSVC)
 * The latest amd64 `wintun.dll` from https://www.wintun.net

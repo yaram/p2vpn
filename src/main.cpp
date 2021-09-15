@@ -4,6 +4,7 @@
 #include <time.h>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <bcrypt.h>
 #include <winsock2.h>
 #include <ws2ipdef.h> 
 #include <iphlpapi.h>
@@ -12,6 +13,7 @@
 #include "wintun.h"
 #define CBASE64_IMPLEMENTATION
 #include "cbase64.h"
+#include "tweetnacl.h"
 #include "qapplication.h"
 #include "qclipboard.h"
 #include "qmainwindow.h"
@@ -35,6 +37,10 @@ static WINTUN_ALLOCATE_SEND_PACKET_FUNC WintunAllocateSendPacket;
 static WINTUN_SEND_PACKET_FUNC WintunSendPacket;
 static WINTUN_END_SESSION_FUNC WintunEndSession;
 static WINTUN_FREE_ADAPTER_FUNC WintunFreeAdapter;
+
+extern "C" void randombytes(uint8_t *buffer, uint64_t buffer_size) {
+    BCryptGenRandom(nullptr, buffer, buffer_size, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+}
 
 static void base64_encode(const uint8_t *data, size_t data_length, char *buffer) {
     cbase64_encodestate encode_state;
@@ -329,7 +335,7 @@ static bool decode_description(uint8_t *bytes, size_t bytes_length, char *buffer
 }
 
 enum struct PacketType {
-    IPAddress,
+    Hello,
     Data
 };
 
@@ -347,6 +353,15 @@ struct Context : QObject {
 
     uint32_t local_ip_address;
     uint32_t peer_ip_address;
+
+    bool has_received_hello_packet;
+
+    uint8_t local_public_key[crypto_box_PUBLICKEYBYTES];
+    uint8_t private_key[crypto_box_SECRETKEYBYTES];
+
+    uint8_t peer_public_key[crypto_box_PUBLICKEYBYTES];
+
+    uint8_t shared_key[crypto_box_BEFORENMBYTES];
 
     Page current_page;
 
@@ -511,18 +526,20 @@ struct Context : QObject {
                     current_page = Page::Connected;
                 }
 
-                uint8_t ip_address_packet[5] {
-                    (uint8_t)PacketType::IPAddress,
-                    (uint8_t)(local_ip_address >> 24),
-                    (uint8_t)(local_ip_address >> 16),
-                    (uint8_t)(local_ip_address >> 8),
-                    (uint8_t)local_ip_address
-                };
+                uint8_t hello_packet[5 + crypto_box_PUBLICKEYBYTES];
+                hello_packet[0] = (uint8_t)PacketType::Hello;
+                hello_packet[1] = (uint8_t)(local_ip_address >> 24);
+                hello_packet[2] = (uint8_t)(local_ip_address >> 16);
+                hello_packet[3] = (uint8_t)(local_ip_address >> 8);
+                hello_packet[4] = (uint8_t)local_ip_address;
+                memcpy(&hello_packet[5], local_public_key, crypto_box_PUBLICKEYBYTES);
 
-                juice_send(juice_agent, (char*)ip_address_packet, 5);
+                juice_send(juice_agent, (char*)hello_packet, 5 + crypto_box_PUBLICKEYBYTES);
 
-                status_label->setText("Connected to peer!");
-                status_label->setVisible(true);
+                if(!has_received_hello_packet) {
+                    status_label->setText("Encrypting connection to peer...");
+                    status_label->setVisible(true);
+                }
             } break;
 
             case JUICE_STATE_FAILED: {
@@ -538,7 +555,9 @@ struct Context : QObject {
         }
     }
 
-    void on_peer_ip_address_received() {
+    void on_hello_packet_received() {
+        crypto_box_beforenm(shared_key, peer_public_key, private_key);
+
         char ip_address_text[32];
         sprintf_s(
             ip_address_text,
@@ -550,8 +569,13 @@ struct Context : QObject {
             (uint8_t)peer_ip_address
         );
 
+        status_label->setText("Connected to peer!");
+        status_label->setVisible(true);
+
         connected_page_peer_ip_address_edit->setText(ip_address_text);
         connected_page_peer_ip_address_edit->setEnabled(true);
+
+        has_received_hello_packet = true;
     }
 };
 
@@ -573,22 +597,68 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
     auto data_bytes = (const uint8_t*)data;
 
     switch((PacketType)data_bytes[0]) {
-        case PacketType::IPAddress: {
+        case PacketType::Hello: {
+            if(size != 5 + crypto_box_PUBLICKEYBYTES) {
+                return;
+            }
+
             context->peer_ip_address =
                 (uint32_t)data_bytes[1] << 24 |
                 (uint32_t)data_bytes[2] << 16 |
                 (uint32_t)data_bytes[3] << 8 |
                 (uint32_t)data_bytes[4];
 
-            QMetaObject::invokeMethod(context, &Context::on_peer_ip_address_received);
+            memcpy(context->peer_public_key, &data_bytes[5], crypto_box_PUBLICKEYBYTES);
+
+            QMetaObject::invokeMethod(context, &Context::on_hello_packet_received);
         } break;
 
         case PacketType::Data: {
-            auto packet = WintunAllocateSendPacket(context->wintun_session, (DWORD)size);
+            if(!context->has_received_hello_packet) {
+                return;
+            }
 
-            memcpy(packet, &data[1], size - 1);
+            const size_t preamble_size = 1 + crypto_box_NONCEBYTES;
 
-            WintunSendPacket(context->wintun_session, packet);
+            if(size < preamble_size) {
+                return;
+            }
+
+            auto nonce = &data_bytes[1];
+
+            auto packet_data_size = size - preamble_size;
+
+            auto box_buffer_size = crypto_box_BOXZEROBYTES + packet_data_size;
+
+            auto box_encrypted_data = (uint8_t*)malloc(box_buffer_size);
+
+            memset(box_encrypted_data, 0, crypto_box_BOXZEROBYTES);
+            memcpy(&box_encrypted_data[crypto_box_BOXZEROBYTES], &data_bytes[1 + crypto_box_NONCEBYTES], packet_data_size);
+
+            auto box_unencrypted_data = (uint8_t*)malloc(box_buffer_size);
+
+            auto result = crypto_box_open_afternm(
+                box_unencrypted_data,
+                box_encrypted_data,
+                box_buffer_size,
+                nonce,
+                context->shared_key
+            );
+
+            free(box_encrypted_data);
+
+            if(result == 0) {
+                auto unencrypted_data_size = box_buffer_size - crypto_box_ZEROBYTES;
+
+                auto packet = WintunAllocateSendPacket(context->wintun_session, (DWORD)unencrypted_data_size);
+
+                memcpy(packet, &box_unencrypted_data[crypto_box_ZEROBYTES], unencrypted_data_size);
+                free(box_unencrypted_data);
+
+                WintunSendPacket(context->wintun_session, packet);
+            } else {
+                free(box_unencrypted_data);
+            }
         } break;
     }
 }
@@ -618,18 +688,57 @@ static DWORD WINAPI packet_send_thread(LPVOID lpParameter) {
         auto packet_data = WintunReceivePacket(context->wintun_session, &packet_data_size);
 
         if(packet_data != nullptr) {
-            if(juice_get_state(context->juice_agent) == JUICE_STATE_COMPLETED) {
-                auto packet_size = 1 + (size_t)packet_data_size;
-                auto packet = (uint8_t*)malloc(packet_size);
+            if(juice_get_state(context->juice_agent) == JUICE_STATE_COMPLETED && context->has_received_hello_packet) {
+                auto box_buffer_size = crypto_box_ZEROBYTES + (size_t)packet_data_size;
 
-                packet[0] = (uint8_t)PacketType::Data;
+                auto box_unencrypted_data = (uint8_t*)malloc(box_buffer_size);
 
-                memcpy(&packet[1], packet_data, packet_data_size);
+                memset(box_unencrypted_data, 0, crypto_box_ZEROBYTES);
+                memcpy(&box_unencrypted_data[crypto_box_ZEROBYTES], packet_data, (size_t)packet_data_size);
 
-                juice_send(context->juice_agent, (char*)packet, packet_size);
+                WintunReleaseReceivePacket(context->wintun_session, packet_data);
+
+                uint8_t nonce[crypto_box_NONCEBYTES];
+                randombytes(nonce, crypto_box_NONCEBYTES);
+
+                auto box_encrypted_data = (uint8_t*)malloc(box_buffer_size);
+
+                auto result = crypto_box_afternm(
+                    box_encrypted_data,
+                    box_unencrypted_data,
+                    box_buffer_size,
+                    nonce,
+                    context->shared_key
+                );
+
+                free(box_unencrypted_data);
+
+                if(result == 0) {
+                    auto encrypted_data_size = box_buffer_size - crypto_box_BOXZEROBYTES;
+
+                    auto packet_size = 1 + crypto_box_NONCEBYTES + encrypted_data_size;
+                    auto packet = (uint8_t*)malloc(packet_size);
+
+                    packet[0] = (uint8_t)PacketType::Data;
+
+                    memcpy(&packet[1], nonce, crypto_box_NONCEBYTES);
+
+                    memcpy(
+                        &packet[1 + crypto_box_NONCEBYTES],
+                        &box_encrypted_data[crypto_box_BOXZEROBYTES],
+                        encrypted_data_size
+                    );
+                    free(box_encrypted_data);
+
+                    juice_send(context->juice_agent, (char*)packet, packet_size);
+
+                    free(packet);
+                } else {
+                    free(box_encrypted_data);
+                }
+            } else {
+                WintunReleaseReceivePacket(context->wintun_session, packet_data);
             }
-
-            WintunReleaseReceivePacket(context->wintun_session, packet_data);
         } else {
             WaitForSingleObject(wintun_wait_handle, INFINITE);
         }
@@ -671,8 +780,14 @@ static bool entry() {
 
     auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
 
-    Context context;
+    Context context {};
     context.wintun_session = wintun_session;
+
+    uint8_t public_key[crypto_box_PUBLICKEYBYTES];
+    uint8_t private_key[crypto_box_SECRETKEYBYTES];
+    crypto_box_keypair(public_key, private_key);
+    memcpy(context.local_public_key, public_key, crypto_box_PUBLICKEYBYTES);
+    memcpy(context.private_key, private_key, crypto_box_SECRETKEYBYTES);
 
     const uint32_t ip_subnet_prefix = IP_CONSTANT(100, 64, 0, 0);
     const uint32_t ip_subnet_length = 10;
@@ -736,7 +851,7 @@ static bool entry() {
     auto juice_agent = juice_create(&juice_config);
     context.juice_agent = juice_agent;
 
-    CreateThread(nullptr, 0, packet_send_thread, (void*)&context, 0, nullptr);
+    auto thread_handle = CreateThread(nullptr, 0, packet_send_thread, (void*)&context, 0, nullptr);
 
     int dummy_argc = 0;
     QApplication application(dummy_argc, nullptr);
@@ -905,6 +1020,8 @@ static bool entry() {
     window.show();
 
     application.exec();
+
+    TerminateThread(thread_handle, 0);
 
     return 0;
 }

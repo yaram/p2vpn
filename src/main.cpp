@@ -23,6 +23,7 @@
 #include "qlineedit.h"
 #include "qpushbutton.h"
 #include "qplugin.h"
+#include "byte_array.h"
 
 static WINTUN_ENUM_ADAPTERS_FUNC WintunEnumAdapters;
 static WINTUN_CREATE_ADAPTER_FUNC WintunCreateAdapter;
@@ -360,17 +361,17 @@ struct Context : QObject {
 
     bool has_received_hello_packet;
 
-    uint8_t local_signing_public_key[crypto_sign_PUBLICKEYBYTES];
-    uint8_t signing_private_key[crypto_sign_SECRETKEYBYTES];
+    StaticByteArray<crypto_sign_PUBLICKEYBYTES> local_signing_public_key;
+    StaticByteArray<crypto_sign_SECRETKEYBYTES> signing_private_key;
 
-    uint8_t peer_signing_public_key[crypto_sign_PUBLICKEYBYTES];
+    StaticByteArray<crypto_sign_PUBLICKEYBYTES> peer_signing_public_key;
 
-    uint8_t local_box_public_key[crypto_box_PUBLICKEYBYTES];
-    uint8_t box_private_key[crypto_box_SECRETKEYBYTES];
+    StaticByteArray<crypto_box_PUBLICKEYBYTES> local_box_public_key;
+    StaticByteArray<crypto_box_SECRETKEYBYTES> box_private_key;
 
-    uint8_t peer_box_public_key[crypto_box_PUBLICKEYBYTES];
+    StaticByteArray<crypto_box_PUBLICKEYBYTES> peer_box_public_key;
 
-    uint8_t box_shared_key[crypto_box_BEFORENMBYTES];
+    StaticByteArray<crypto_box_BEFORENMBYTES> box_shared_key;
 
     Page current_page;
 
@@ -535,7 +536,7 @@ struct Context : QObject {
                     current_page = Page::Connected;
                 }
 
-                uint8_t packet[hello_packet_size];
+                StaticByteArray<hello_packet_size> packet;
 
                 packet[0] = (uint8_t)PacketType::Hello;
 
@@ -544,11 +545,11 @@ struct Context : QObject {
                 packet[3] = (uint8_t)(local_ip_address >> 8);
                 packet[4] = (uint8_t)local_ip_address;
 
-                memcpy(&packet[5], local_signing_public_key, crypto_sign_PUBLICKEYBYTES);
+                copy_array(packet, 5, local_signing_public_key);
 
-                memcpy(&packet[5 + crypto_sign_PUBLICKEYBYTES], local_box_public_key, crypto_box_PUBLICKEYBYTES);
+                copy_array(packet, 5 + crypto_sign_PUBLICKEYBYTES, local_box_public_key);
 
-                juice_send(juice_agent, (char*)packet, hello_packet_size);
+                juice_send(juice_agent, (char*)packet.data, packet.length);
 
                 if(!has_received_hello_packet) {
                     status_label->setText("Encrypting connection to peer...");
@@ -570,7 +571,11 @@ struct Context : QObject {
     }
 
     void on_hello_packet_received() {
-        crypto_box_beforenm(box_shared_key, peer_box_public_key, box_private_key);
+        crypto_box_beforenm(
+            get_c_array(box_shared_key, crypto_box_BEFORENMBYTES),
+            get_c_array(peer_box_public_key, crypto_box_PUBLICKEYBYTES),
+            get_c_array(box_private_key, crypto_box_SECRETKEYBYTES)
+        );
 
         char ip_address_text[32];
         sprintf_s(
@@ -605,26 +610,28 @@ static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *us
     QMetaObject::invokeMethod(context, &Context::on_state_changed);
 }
 
-static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *user_ptr) {
+static void on_recv(juice_agent_t *agent, const char *data_char, size_t data_size, void *user_ptr) {
     auto context = (Context*)user_ptr;
 
-    auto data_bytes = (const uint8_t*)data;
+    auto data = make_array(data_size, (uint8_t*)data_char);
 
-    switch((PacketType)data_bytes[0]) {
+    switch((PacketType)data[0]) {
         case PacketType::Hello: {
-            if(size != hello_packet_size) {
+            if(data.length != hello_packet_size) {
                 return;
             }
 
             context->peer_ip_address =
-                (uint32_t)data_bytes[1] << 24 |
-                (uint32_t)data_bytes[2] << 16 |
-                (uint32_t)data_bytes[3] << 8 |
-                (uint32_t)data_bytes[4];
+                (uint32_t)data[1] << 24 |
+                (uint32_t)data[2] << 16 |
+                (uint32_t)data[3] << 8 |
+                (uint32_t)data[4];
 
-            memcpy(context->peer_signing_public_key, &data_bytes[5], crypto_sign_PUBLICKEYBYTES);
+            auto signing_public_key = subarray(data, 5, crypto_sign_PUBLICKEYBYTES);
+            copy_array(context->peer_signing_public_key, 0, signing_public_key);
 
-            memcpy(context->peer_box_public_key, &data_bytes[5 + crypto_sign_PUBLICKEYBYTES], crypto_box_PUBLICKEYBYTES);
+            auto box_public_key = subarray(data, 5 + crypto_sign_PUBLICKEYBYTES, crypto_box_PUBLICKEYBYTES);
+            copy_array(context->peer_box_public_key, 0, box_public_key);
 
             QMetaObject::invokeMethod(context, &Context::on_hello_packet_received);
         } break;
@@ -634,75 +641,73 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
                 return;
             }
 
-            if(size <= data_packet_header_size) {
+            if(data.length <= data_packet_header_size) {
                 return;
             }
 
-            auto signed_data_size = size - data_packet_header_size;
-            auto signed_data = &data_bytes[1];
+            auto signed_data = subarray(data, 1);
 
-            if(signed_data_size <= crypto_sign_BYTES) {
+            if(signed_data.length <= crypto_sign_BYTES) {
                 return;
             }
 
-            auto unsigned_data = (uint8_t*)malloc(signed_data_size);
+            auto unsigned_data_buffer = allocate_array(signed_data.length);
 
-            size_t unsigned_data_size;
+            size_t actual_unsigned_data_length;
             auto sign_open_result = crypto_sign_open(
-                unsigned_data,
-                &unsigned_data_size,
-                signed_data,
-                signed_data_size,
-                context->peer_signing_public_key
+                get_c_array(unsigned_data_buffer, signed_data.length),
+                &actual_unsigned_data_length,
+                array_data_length(signed_data),
+                get_c_array(context->peer_signing_public_key, crypto_sign_PUBLICKEYBYTES)
             );
+
+            auto unsigned_data = subarray(unsigned_data_buffer, 0, actual_unsigned_data_length);
 
             if(sign_open_result != 0) {
-                free(unsigned_data);
+                free_array(unsigned_data_buffer);
 
                 return;
             }
 
-            auto nonce = unsigned_data;
+            auto nonce = subarray(unsigned_data, 0, crypto_box_NONCEBYTES);
 
-            auto encrypted_data_size = unsigned_data_size - crypto_box_NONCEBYTES;
-            auto encrypted_data = &unsigned_data[crypto_box_NONCEBYTES];
+            auto encrypted_data = subarray(unsigned_data, crypto_box_NONCEBYTES);
 
-            auto box_buffer_size = crypto_box_BOXZEROBYTES + encrypted_data_size;
+            auto box_open_input = allocate_array(crypto_box_BOXZEROBYTES + encrypted_data.length);
 
-            auto box_open_input = (uint8_t*)malloc(box_buffer_size);
+            zero_array(subarray(box_open_input, 0, crypto_box_BOXZEROBYTES));
 
-            memset(box_open_input, 0, crypto_box_BOXZEROBYTES);
-            memcpy(&box_open_input[crypto_box_BOXZEROBYTES], encrypted_data, encrypted_data_size);
+            copy_array(box_open_input, crypto_box_BOXZEROBYTES, encrypted_data);
 
-            auto box_open_output = (uint8_t*)malloc(box_buffer_size);
+            auto box_open_output = allocate_array(box_open_input.length);
 
             auto box_open_result = crypto_box_open_afternm(
-                box_open_output,
-                box_open_input,
-                box_buffer_size,
-                nonce,
-                context->box_shared_key
+                get_c_array(box_open_output, box_open_input.length),
+                array_data_length(box_open_input),
+                get_c_array(nonce, crypto_box_NONCEBYTES),
+                get_c_array(context->box_shared_key, crypto_box_BEFORENMBYTES)
             );
 
-            free(unsigned_data);
+            free_array(unsigned_data_buffer);
 
-            free(box_open_input);
+            free_array(box_open_input);
 
             if(box_open_result != 0) {
-                free(box_open_output);
+                free_array(box_open_output);
 
                 return;
             }
 
-            auto unencrypted_data_size = box_buffer_size - crypto_box_ZEROBYTES;
-            auto unencrypted_data = &box_open_output[crypto_box_ZEROBYTES];
+            auto unencrypted_data = subarray(box_open_output, crypto_box_ZEROBYTES);
 
-            auto packet = WintunAllocateSendPacket(context->wintun_session, (DWORD)unencrypted_data_size);
+            auto packet_data = WintunAllocateSendPacket(context->wintun_session, (DWORD)unencrypted_data.length);
 
-            memcpy(packet, unencrypted_data, unencrypted_data_size);
-            free(box_open_output);
+            auto packet = make_array(unencrypted_data.length, packet_data);
 
-            WintunSendPacket(context->wintun_session, packet);
+            copy_array(packet, 0, unencrypted_data);
+            free_array(box_open_output);
+
+            WintunSendPacket(context->wintun_session, packet_data);
         } break;
     }
 }
@@ -730,89 +735,89 @@ static DWORD WINAPI packet_send_thread(LPVOID lpParameter) {
     while(true) {
         WaitForSingleObject(wintun_wait_handle, INFINITE);
 
-        DWORD packet_data_size;
-        auto packet_data = WintunReceivePacket(context->wintun_session, &packet_data_size);
+        DWORD original_packet_length;
+        auto original_packet_data = WintunReceivePacket(context->wintun_session, &original_packet_length);
 
-        if(packet_data == nullptr) {
+        if(original_packet_data == nullptr) {
             continue;
         }
 
         if(juice_get_state(context->juice_agent) != JUICE_STATE_COMPLETED) {
-            WintunReleaseReceivePacket(context->wintun_session, packet_data);
+            WintunReleaseReceivePacket(context->wintun_session, original_packet_data);
 
             continue;
         }
 
         if(!context->has_received_hello_packet) {
-            WintunReleaseReceivePacket(context->wintun_session, packet_data);
+            WintunReleaseReceivePacket(context->wintun_session, original_packet_data);
 
             continue;
         }
 
-        auto box_buffer_size = crypto_box_ZEROBYTES + (size_t)packet_data_size;
+        auto original_packet = make_array(original_packet_length, original_packet_data);
 
-        auto box_input = (uint8_t*)malloc(box_buffer_size);
+        auto box_input = allocate_array(crypto_box_ZEROBYTES + original_packet.length);
 
-        memset(box_input, 0, crypto_box_ZEROBYTES);
-        memcpy(&box_input[crypto_box_ZEROBYTES], packet_data, (size_t)packet_data_size);
+        zero_array(subarray(box_input, 0, crypto_box_ZEROBYTES));
 
-        WintunReleaseReceivePacket(context->wintun_session, packet_data);
+        copy_array(box_input, crypto_box_ZEROBYTES, original_packet);
 
-        uint8_t nonce[crypto_box_NONCEBYTES];
-        randombytes(nonce, crypto_box_NONCEBYTES);
+        WintunReleaseReceivePacket(context->wintun_session, original_packet_data);
 
-        auto box_output = (uint8_t*)malloc(box_buffer_size);
+        StaticByteArray<crypto_box_NONCEBYTES> nonce;
+        randombytes(array_data_length(nonce));
+
+        auto box_output = allocate_array(box_input.length);
 
         auto result = crypto_box_afternm(
-            box_output,
-            box_input,
-            box_buffer_size,
-            nonce,
-            context->box_shared_key
+            get_c_array(box_output, box_input.length),
+            array_data_length(box_input),
+            get_c_array(nonce, crypto_box_NONCEBYTES),
+            get_c_array(context->box_shared_key, crypto_box_BEFORENMBYTES)
         );
 
-        free(box_input);
+        free_array(box_input);
 
         if(result != 0) {
-            free(box_output);
+            free_array(box_output);
 
             continue;
         }
 
-        auto encrypted_data_size = box_buffer_size - crypto_box_BOXZEROBYTES;
-        auto encrypted_data = &box_output[crypto_box_BOXZEROBYTES];
+        auto encrypted_data = subarray(box_output, crypto_box_BOXZEROBYTES);
 
-        auto unsigned_data_size = crypto_box_NONCEBYTES + encrypted_data_size;
-        auto unsigned_data = (uint8_t*)malloc(unsigned_data_size);
+        auto unsigned_data = allocate_array(crypto_box_NONCEBYTES + encrypted_data.length);
 
-        memcpy(unsigned_data, nonce, crypto_box_NONCEBYTES);
+        copy_array(unsigned_data, 0, nonce);
 
-        memcpy(&unsigned_data[crypto_box_NONCEBYTES], encrypted_data, encrypted_data_size);
+        copy_array(unsigned_data, crypto_box_NONCEBYTES, encrypted_data);
 
-        free(box_output);
+        free_array(box_output);
 
-        auto signed_data = (uint8_t*)malloc(crypto_sign_BYTES + unsigned_data_size);
+        auto signed_data_buffer = allocate_array(crypto_sign_BYTES + unsigned_data.length);
 
-        size_t signed_data_size;
-        crypto_sign(signed_data, &signed_data_size, unsigned_data, unsigned_data_size, context->signing_private_key);
+        size_t actual_signed_data_length;
+        crypto_sign(
+            get_c_array(signed_data_buffer, crypto_sign_BYTES + unsigned_data.length),
+            &actual_signed_data_length,
+            array_data_length(unsigned_data),
+            get_c_array(context->signing_private_key, crypto_sign_SECRETKEYBYTES)
+        );
 
-        free(unsigned_data);
+        free_array(unsigned_data);
 
-        auto packet_size = data_packet_header_size + signed_data_size;
-        auto packet = (uint8_t*)malloc(packet_size);
+        auto signed_data = subarray(signed_data_buffer, 0, actual_signed_data_length);
+
+        auto packet = allocate_array(data_packet_header_size + signed_data.length);
 
         packet[0] = (uint8_t)PacketType::Data;
 
-        memcpy(
-            &packet[1],
-            signed_data,
-            signed_data_size
-        );
-        free(signed_data);
+        copy_array(packet, 1, signed_data);
+        free_array(signed_data_buffer);
 
-        juice_send(context->juice_agent, (char*)packet, packet_size);
+        juice_send(context->juice_agent, (char*)packet.data, packet.length);
 
-        free(packet);
+        free_array(packet);
     }
 }
 
@@ -854,9 +859,15 @@ static bool entry() {
     Context context {};
     context.wintun_session = wintun_session;
 
-    crypto_sign_keypair(context.local_signing_public_key, context.signing_private_key);
+    crypto_sign_keypair(
+        get_c_array(context.local_signing_public_key, crypto_sign_PUBLICKEYBYTES),
+        get_c_array(context.signing_private_key, crypto_sign_SECRETKEYBYTES)
+    );
 
-    crypto_box_keypair(context.local_box_public_key, context.box_private_key);
+    crypto_box_keypair(
+        get_c_array(context.local_box_public_key, crypto_box_PUBLICKEYBYTES),
+        get_c_array(context.box_private_key, crypto_box_SECRETKEYBYTES)
+    );
 
     const uint32_t ip_subnet_prefix = IP_CONSTANT(100, 64, 0, 0);
     const uint32_t ip_subnet_length = 10;

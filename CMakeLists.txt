@@ -10,6 +10,8 @@ add_subdirectory(thirdparty/qtbase)
 add_executable(p2vpn 
     thirdparty/tweetnacl/tweetnacl.c
 
+    src/byte_array.h
+
     src/main.cpp
 )
 

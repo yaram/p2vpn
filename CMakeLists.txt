@@ -1,4 +1,8 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.15)
+
+if(WIN32)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 include(ExternalProject)
 
@@ -15,6 +19,8 @@ target_include_directories(p2vpn PRIVATE thirdparty)
 
 if(WIN32)
     target_link_libraries(p2vpn PRIVATE iphlpapi)
+    target_include_directories(p2vpn PRIVATE thirdparty/wintun/include)
+
     target_compile_definitions(p2vpn PRIVATE $<$<NOT:$<CONFIG:Debug>>:WINDOWS_SUBSYSTEM>)
     set_target_properties(
         p2vpn
@@ -22,4 +28,14 @@ if(WIN32)
         WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>
         LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\""
     )
+
+    add_custom_command(
+        OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/wintun.dll"
+        COMMAND cmake -E copy
+            "\"${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/wintun/bin/${CMAKE_SYSTEM_PROCESSOR}/wintun.dll\""
+            "\"${CMAKE_CURRENT_BINARY_DIR}/wintun.dll\""
+        MAIN_DEPENDENCY "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/wintun/bin/${CMAKE_SYSTEM_PROCESSOR}/wintun.dll"
+    )
+    add_custom_target(copy_wintun_dll DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/wintun.dll")
+    add_dependencies(p2vpn copy_wintun_dll)
 endif()

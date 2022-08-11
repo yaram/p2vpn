@@ -22,19 +22,20 @@
 #include "qpushbutton.h"
 #include "qplugin.h"
 
-static WINTUN_ENUM_ADAPTERS_FUNC WintunEnumAdapters;
-static WINTUN_CREATE_ADAPTER_FUNC WintunCreateAdapter;
-static WINTUN_OPEN_ADAPTER_FUNC WintunOpenAdapter;
-static WINTUN_GET_ADAPTER_NAME_FUNC WintunGetAdapterName;
-static WINTUN_GET_ADAPTER_LUID_FUNC WintunGetAdapterLUID;
-static WINTUN_START_SESSION_FUNC WintunStartSession;
-static WINTUN_GET_READ_WAIT_EVENT_FUNC WintunGetReadWaitEvent;
-static WINTUN_RECEIVE_PACKET_FUNC WintunReceivePacket;
-static WINTUN_RELEASE_RECEIVE_PACKET_FUNC WintunReleaseReceivePacket;
-static WINTUN_ALLOCATE_SEND_PACKET_FUNC WintunAllocateSendPacket;
-static WINTUN_SEND_PACKET_FUNC WintunSendPacket;
-static WINTUN_END_SESSION_FUNC WintunEndSession;
-static WINTUN_FREE_ADAPTER_FUNC WintunFreeAdapter;
+static WINTUN_CREATE_ADAPTER_FUNC *WintunCreateAdapter;
+static WINTUN_OPEN_ADAPTER_FUNC *WintunOpenAdapter;
+static WINTUN_CLOSE_ADAPTER_FUNC *WintunCloseAdapter;
+static WINTUN_DELETE_DRIVER_FUNC *WintunDeleteDriver;
+static WINTUN_GET_ADAPTER_LUID_FUNC *WintunGetAdapterLUID;
+static WINTUN_GET_RUNNING_DRIVER_VERSION_FUNC *WintunGetRunningDriverVersion;
+static WINTUN_SET_LOGGER_FUNC *WintunSetLogger;
+static WINTUN_START_SESSION_FUNC *WintunStartSession;
+static WINTUN_END_SESSION_FUNC *WintunEndSession;
+static WINTUN_GET_READ_WAIT_EVENT_FUNC *WintunGetReadWaitEvent;
+static WINTUN_RECEIVE_PACKET_FUNC *WintunReceivePacket;
+static WINTUN_RELEASE_RECEIVE_PACKET_FUNC *WintunReleaseReceivePacket;
+static WINTUN_ALLOCATE_SEND_PACKET_FUNC *WintunAllocateSendPacket;
+static WINTUN_SEND_PACKET_FUNC *WintunSendPacket;
 
 static void base64_encode(const uint8_t *data, size_t data_length, char *buffer) {
     cbase64_encodestate encode_state;
@@ -505,6 +506,8 @@ struct Context : QObject {
                 connect_page_local_connection_string_edit->setEnabled(true);
                 connect_page_local_connection_string_copy_button->setEnabled(true);
             } break;
+
+            default: abort();
         }
     }
 
@@ -627,21 +630,6 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
     }
 }
 
-struct EnumerationParameters {
-    bool adapter_found;
-    WCHAR adapter_name[MAX_ADAPTER_NAME];
-};
-
-static BOOL CALLBACK wintun_adapter_enumeration_callback(WINTUN_ADAPTER_HANDLE adapter, LPARAM parameter) {
-    auto parameters = (EnumerationParameters*)parameter;
-
-    parameters->adapter_found = true;
-
-    WintunGetAdapterName(adapter, parameters->adapter_name);
-
-    return FALSE;
-}
-
 static DWORD WINAPI packet_send_thread(LPVOID lpParameter) {
     auto context = (Context*)lpParameter;
 
@@ -686,38 +674,46 @@ static DWORD WINAPI packet_send_thread(LPVOID lpParameter) {
 
 #define IP_CONSTANT(a, b, c, d) ((uint32_t)d | (uint32_t)c << 8 | (uint32_t)b << 16 | (uint32_t)a << 24)
 
-static bool entry() {
+static int entry() {
     auto wintun_library = LoadLibraryA("wintun.dll");
 
-    WintunEnumAdapters = (WINTUN_ENUM_ADAPTERS_FUNC)GetProcAddress(wintun_library, "WintunEnumAdapters");
-    WintunCreateAdapter = (WINTUN_CREATE_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunCreateAdapter");
-    WintunOpenAdapter = (WINTUN_OPEN_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunOpenAdapter");
-    WintunGetAdapterName = (WINTUN_GET_ADAPTER_NAME_FUNC)GetProcAddress(wintun_library, "WintunGetAdapterName");
-    WintunGetAdapterLUID = (WINTUN_GET_ADAPTER_LUID_FUNC)GetProcAddress(wintun_library, "WintunGetAdapterLUID");
-    WintunStartSession = (WINTUN_START_SESSION_FUNC)GetProcAddress(wintun_library, "WintunStartSession");
-    WintunGetReadWaitEvent = (WINTUN_GET_READ_WAIT_EVENT_FUNC)GetProcAddress(wintun_library, "WintunGetReadWaitEvent");
-    WintunReceivePacket = (WINTUN_RECEIVE_PACKET_FUNC)GetProcAddress(wintun_library, "WintunReceivePacket");
-    WintunReleaseReceivePacket = (WINTUN_RELEASE_RECEIVE_PACKET_FUNC)GetProcAddress(wintun_library, "WintunReleaseReceivePacket");
-    WintunAllocateSendPacket = (WINTUN_ALLOCATE_SEND_PACKET_FUNC)GetProcAddress(wintun_library, "WintunAllocateSendPacket");
-    WintunSendPacket = (WINTUN_SEND_PACKET_FUNC)GetProcAddress(wintun_library, "WintunSendPacket");
-    WintunEndSession = (WINTUN_END_SESSION_FUNC)GetProcAddress(wintun_library, "WintunEndSession");
-    WintunFreeAdapter = (WINTUN_FREE_ADAPTER_FUNC)GetProcAddress(wintun_library, "WintunFreeAdapter");
+    WintunCreateAdapter = (WINTUN_CREATE_ADAPTER_FUNC*)GetProcAddress(wintun_library, "WintunCreateAdapter");
+    WintunOpenAdapter = (WINTUN_OPEN_ADAPTER_FUNC*)GetProcAddress(wintun_library, "WintunOpenAdapter");
+    WintunCloseAdapter = (WINTUN_CLOSE_ADAPTER_FUNC*)GetProcAddress(wintun_library, "WintunCloseAdapter");
+    WintunDeleteDriver = (WINTUN_DELETE_DRIVER_FUNC*)GetProcAddress(wintun_library, "WintunDeleteDriver");
+    WintunGetAdapterLUID = (WINTUN_GET_ADAPTER_LUID_FUNC*)GetProcAddress(wintun_library, "WintunGetAdapterLUID");
+    WintunGetRunningDriverVersion = (WINTUN_GET_RUNNING_DRIVER_VERSION_FUNC*)GetProcAddress(wintun_library, "WintunGetRunningDriverVersion");
+    WintunSetLogger = (WINTUN_SET_LOGGER_FUNC*)GetProcAddress(wintun_library, "WintunSetLogger");
+    WintunStartSession = (WINTUN_START_SESSION_FUNC*)GetProcAddress(wintun_library, "WintunStartSession");
+    WintunEndSession = (WINTUN_END_SESSION_FUNC*)GetProcAddress(wintun_library, "WintunEndSession");
+    WintunGetReadWaitEvent = (WINTUN_GET_READ_WAIT_EVENT_FUNC*)GetProcAddress(wintun_library, "WintunGetReadWaitEvent");
+    WintunReceivePacket = (WINTUN_RECEIVE_PACKET_FUNC*)GetProcAddress(wintun_library, "WintunReceivePacket");
+    WintunReleaseReceivePacket = (WINTUN_RELEASE_RECEIVE_PACKET_FUNC*)GetProcAddress(wintun_library, "WintunReleaseReceivePacket");
+    WintunAllocateSendPacket = (WINTUN_ALLOCATE_SEND_PACKET_FUNC*)GetProcAddress(wintun_library, "WintunAllocateSendPacket");
+    WintunSendPacket = (WINTUN_SEND_PACKET_FUNC*)GetProcAddress(wintun_library, "WintunSendPacket");
 
-    auto pool_name = L"P2VPN";
+    WintunDeleteDriver(); // Needed to prevent crash on startup if app was previously closed without calling WintunCloseAdapter
 
-    EnumerationParameters enum_parameters {};
-    WintunEnumAdapters(pool_name, wintun_adapter_enumeration_callback, (LPARAM)&enum_parameters);
+    // {CA88F39E-7B30-4AC1-8A08-EFF4220C133A}
+    const GUID wintun_adapter_guid { 0xCA88F39E, 0x7B30, 0x4AC1, { 0x8A, 0x08, 0xEF, 0xF4, 0x22, 0x0C, 0x13, 0x3A } };
+    const auto wintun_adapter_name = L"P2VPN Virtual Adapter";
+    const auto wintun_tunnel_type = L"P2VPN";
 
-    WINTUN_ADAPTER_HANDLE wintun_adapter;
-    if(enum_parameters.adapter_found) {
-        wintun_adapter = WintunOpenAdapter(pool_name, enum_parameters.adapter_name);
-    } else {
-        // {CA88F39E-7B30-4AC1-8A08-EFF4220C133A}
-        const GUID guid { 0xca88f39e, 0x7b30, 0x4ac1, { 0x8a, 0x8, 0xef, 0xf4, 0x22, 0xc, 0x13, 0x3a } };
-        wintun_adapter = WintunCreateAdapter(pool_name, L"P2VPN Virtual Adapter", &guid, nullptr);
+    auto wintun_adapter = WintunCreateAdapter(wintun_adapter_name, wintun_tunnel_type, &wintun_adapter_guid);
+
+    if(wintun_adapter == nullptr) {
+        fprintf(stderr, "ERROR: Unable to create wintun adapter (%lu)\n", GetLastError());
+
+        return 1;
     }
 
     auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
+
+    if(wintun_session == nullptr) {
+        fprintf(stderr, "ERROR: Unable to start wintun session (%lu)\n", GetLastError());
+
+        return 1;
+    }
 
     Context context {};
     context.wintun_session = wintun_session;
@@ -740,19 +736,6 @@ static bool entry() {
 
     NET_LUID wintun_adapter_luid;
     WintunGetAdapterLUID(wintun_adapter, &wintun_adapter_luid);
-
-    // Clear existing IPv4 addresses from adapter with windows craziness
-
-    MIB_UNICASTIPADDRESS_TABLE *address_table;
-    GetUnicastIpAddressTable(AF_INET, &address_table);
-
-    for(size_t i = 0; i < address_table->NumEntries; i += 1) {
-        if(memcmp(&address_table->Table[i].InterfaceLuid, &wintun_adapter_luid, sizeof(NET_LUID)) == 0) {
-            DeleteUnicastIpAddressEntry(&address_table->Table[i]);
-        }
-    }
-
-    FreeMibTable(address_table);
 
     // Assign new IPv4 address to adapter with windows craziness
 
@@ -956,24 +939,18 @@ static bool entry() {
 
     TerminateThread(thread_handle, 0);
 
+    WintunCloseAdapter(wintun_adapter);
+
     return 0;
 }
 
 #ifdef WINDOWS_SUBSYSTEM
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-    if(entry()) {
-        return 0;
-    } else {
-        return 1;
-    }
+    return entry();
 }
 #else
 int main(int argc, char *argv[]) {
-    if(entry()) {
-        return 0;
-    } else {
-        return 1;
-    }
+    return entry();
 }
 #endif
 

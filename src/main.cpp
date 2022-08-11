@@ -21,6 +21,11 @@
 #include "qlineedit.h"
 #include "qpushbutton.h"
 #include "qplugin.h"
+#include "qmessagebox.h"
+#include "qdatetime.h"
+#include "qstandardpaths.h"
+#include "qdir.h"
+#include "qfile.h"
 
 static WINTUN_CREATE_ADAPTER_FUNC *WintunCreateAdapter;
 static WINTUN_OPEN_ADAPTER_FUNC *WintunOpenAdapter;
@@ -396,6 +401,8 @@ struct Context : QObject {
         auto remote_description_encoded_base64 = create_page_remote_connection_string_edit->text().toUtf8();
 
         if(remote_description_encoded_base64.length() > max_description_encoded_base64_length) {
+            qWarning("Remote descriptor too large");
+
             status_label->setText("Remote connection string is invalid");
             status_label->setVisible(true);
 
@@ -409,6 +416,8 @@ struct Context : QObject {
 
         char remote_descriptor[max_description_length + 1];
         if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
+            qWarning("Incorrectly encoded remote descriptor");
+
             status_label->setText("Remote connection string is invalid");
             status_label->setVisible(true);
 
@@ -416,6 +425,8 @@ struct Context : QObject {
         }
 
         if(juice_set_remote_description(juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
+            qWarning("Invalid remote descriptor");
+
             status_label->setText("Remote connection string is invalid");
             status_label->setVisible(true);
 
@@ -434,6 +445,8 @@ struct Context : QObject {
         auto remote_description_encoded_base64 = connect_page_remote_connection_string_edit->text().toUtf8();
 
         if(remote_description_encoded_base64.length() > max_description_encoded_base64_length) {
+            qWarning("Remote descriptor too large");
+
             status_label->setText("Remote connection string is invalid");
             status_label->setVisible(true);
 
@@ -447,6 +460,8 @@ struct Context : QObject {
 
         char remote_descriptor[max_description_length + 1];
         if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
+            qWarning("Incorrectly encoded remote descriptor");
+
             status_label->setText("Remote connection string is invalid");
             status_label->setVisible(true);
 
@@ -454,6 +469,8 @@ struct Context : QObject {
         }
 
         if(juice_set_remote_description(juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
+            qWarning("Invalid remote descriptor");
+
             status_label->setText("Remote connection string is invalid");
             status_label->setVisible(true);
 
@@ -483,6 +500,8 @@ struct Context : QObject {
     }
 
     void on_gathering_done() {
+        qInfo("Local candidates gathered, generating encoded local descriptor");
+
         char local_description[max_description_length + 1];
         juice_get_local_description(juice_agent, local_description, max_description_length + 1);
 
@@ -514,6 +533,8 @@ struct Context : QObject {
     void on_state_changed() {
         switch(juice_get_state(juice_agent)) {
             case JUICE_STATE_COMPLETED: {
+                qInfo("libjuice connection made, sending hello packet");
+
                 if(current_page == Page::Connect) {
                     page_stack->setCurrentWidget(connected_page_widget);
 
@@ -545,6 +566,8 @@ struct Context : QObject {
                     current_page = Page::Connected;
                 }
 
+                qWarning("libjuice connection failed");
+
                 status_label->setText("Disconnected from peer!");
                 status_label->setVisible(true);
             } break;
@@ -562,6 +585,8 @@ struct Context : QObject {
             (uint8_t)(peer_ip_address >> 8),
             (uint8_t)peer_ip_address
         );
+
+        qInfo("Hello packet received with IP address %s", ip_address_text);
 
         status_label->setText("Connected to peer!");
         status_label->setVisible(true);
@@ -589,6 +614,8 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
     auto context = (Context*)user_ptr;
 
     if(size < packet_header_size) {
+        qWarning("Packet below minimum packet size received");
+
         return;
     }
 
@@ -600,6 +627,8 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
     switch(packet_type) {
         case PacketType::Hello: {
             if(packet_contents_size != hello_packet_size) {
+                qWarning("Incorrectly sized hello packet received");
+
                 return;
             }
 
@@ -614,6 +643,8 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
 
         case PacketType::Data: {
             if(!context->has_received_hello_packet) {
+                qWarning("Data packet received before hello packet received");
+
                 return;
             }
 
@@ -642,6 +673,8 @@ static DWORD WINAPI packet_send_thread(LPVOID lpParameter) {
         auto original_packet_data = WintunReceivePacket(context->wintun_session, &original_packet_length);
 
         if(original_packet_data == nullptr) {
+            qWarning("No packet data received from wintun");
+
             continue;
         }
 
@@ -672,9 +705,45 @@ static DWORD WINAPI packet_send_thread(LPVOID lpParameter) {
     }
 }
 
+QtMessageHandler default_message_handler;
+QFile log_file;
+
+void message_handler(QtMsgType type, const QMessageLogContext &context, const QString &message) {
+    default_message_handler(type, context, message);
+
+    if(log_file.isOpen()) {
+        auto formatted_message = qFormatLogMessage(type, context, message).append('\n');
+
+        log_file.write(formatted_message.toUtf8());
+    }
+}
+
 #define IP_CONSTANT(a, b, c, d) ((uint32_t)d | (uint32_t)c << 8 | (uint32_t)b << 16 | (uint32_t)a << 24)
 
 static int entry() {
+    int dummy_argc = 0;
+    QApplication application(dummy_argc, nullptr);
+    application.setStyle("Fusion");
+
+    qSetMessagePattern("[%{type}] %{message}");
+
+    auto log_file_name = "Log_" + QDateTime::currentDateTime().toString("yyyy-MM-dd_hh-mm-ss") + ".log";
+
+    auto local_appdata_directory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+
+    if(!QDir(local_appdata_directory).exists()) {
+        QDir().mkdir(local_appdata_directory);
+    }
+
+    auto log_file_path = local_appdata_directory + '/' + log_file_name;
+
+    log_file.setFileName(log_file_path);
+    if(!log_file.open(QIODeviceBase::WriteOnly | QIODeviceBase::NewOnly)) {
+        qWarning("Unable to open log file");
+    }
+
+    default_message_handler = qInstallMessageHandler(message_handler);
+
     auto wintun_library = LoadLibraryA("wintun.dll");
 
     WintunCreateAdapter = (WINTUN_CREATE_ADAPTER_FUNC*)GetProcAddress(wintun_library, "WintunCreateAdapter");
@@ -701,8 +770,17 @@ static int entry() {
 
     auto wintun_adapter = WintunCreateAdapter(wintun_adapter_name, wintun_tunnel_type, &wintun_adapter_guid);
 
+    qInfo("Creating wintun adapter");
+
     if(wintun_adapter == nullptr) {
-        fprintf(stderr, "ERROR: Unable to create wintun adapter (%lu)\n", GetLastError());
+        qFatal("Unable to create wintun adapter (%lu)", GetLastError());
+        QMessageBox::critical(
+            nullptr,
+            "Fatal error",
+            "Unable to create network adapter",
+            QMessageBox::StandardButton::Ok,
+            QMessageBox::StandardButton::NoButton
+        );
 
         return 1;
     }
@@ -710,7 +788,14 @@ static int entry() {
     auto wintun_session = WintunStartSession(wintun_adapter, 0x400000);
 
     if(wintun_session == nullptr) {
-        fprintf(stderr, "ERROR: Unable to start wintun session (%lu)\n", GetLastError());
+        qFatal("Unable to start wintun session (%lu)", GetLastError());
+        QMessageBox::critical(
+            nullptr,
+            "Fatal error",
+            "Unable to open network adapter",
+            QMessageBox::StandardButton::Ok,
+            QMessageBox::StandardButton::NoButton
+        );
 
         return 1;
     }
@@ -732,7 +817,20 @@ static int entry() {
 
     ip_address |= ip_subnet_prefix;
 
+    char ip_address_text[32];
+    sprintf_s(
+        ip_address_text,
+        32,
+        "%hhu.%hhu.%hhu.%hhu",
+        (uint8_t)(ip_address >> 24),
+        (uint8_t)(ip_address >> 16),
+        (uint8_t)(ip_address >> 8),
+        (uint8_t)ip_address
+    );
+
     context.local_ip_address = ip_address;
+
+    qInfo("Generated local IP address %s", ip_address_text);
 
     NET_LUID wintun_adapter_luid;
     WintunGetAdapterLUID(wintun_adapter, &wintun_adapter_luid);
@@ -764,14 +862,12 @@ static int entry() {
     juice_config.cb_gathering_done = on_gathering_done;
     juice_config.cb_recv = on_recv;
 
+    qInfo("Create libjuice agent");
+
     auto juice_agent = juice_create(&juice_config);
     context.juice_agent = juice_agent;
 
     auto thread_handle = CreateThread(nullptr, 0, packet_send_thread, (void*)&context, 0, nullptr);
-
-    int dummy_argc = 0;
-    QApplication application(dummy_argc, nullptr);
-    application.setStyle("Fusion");
 
     context.clipboard = application.clipboard();
 
@@ -895,17 +991,6 @@ static int entry() {
     auto connected_page_ip_address_label = new QLabel("Your IP address is:");
     ip_address_layout.addWidget(connected_page_ip_address_label);
 
-    char ip_address_text[32];
-    sprintf_s(
-        ip_address_text,
-        32,
-        "%hhu.%hhu.%hhu.%hhu",
-        (uint8_t)(ip_address >> 24),
-        (uint8_t)(ip_address >> 16),
-        (uint8_t)(ip_address >> 8),
-        (uint8_t)ip_address
-    );
-
     auto connected_page_ip_address_edit = new QLineEdit(ip_address_text);
     ip_address_layout.addWidget(connected_page_ip_address_edit);
     connected_page_ip_address_edit->setReadOnly(true);
@@ -936,6 +1021,10 @@ static int entry() {
     window.show();
 
     application.exec();
+
+    qInfo("Closing wintun adapter and exiting");
+
+    log_file.close();
 
     TerminateThread(thread_handle, 0);
 

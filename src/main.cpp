@@ -720,9 +720,8 @@ void message_handler(QtMsgType type, const QMessageLogContext &context, const QS
 
 #define IP_CONSTANT(a, b, c, d) ((uint32_t)d | (uint32_t)c << 8 | (uint32_t)b << 16 | (uint32_t)a << 24)
 
-static int entry() {
-    int dummy_argc = 0;
-    QApplication application(dummy_argc, nullptr);
+static int entry(int argc, char *argv[]) {
+    QApplication application(argc, argv);
     application.setStyle("Fusion");
 
     qSetMessagePattern("[%{type}] %{message}");
@@ -852,6 +851,8 @@ static int entry() {
 
     CreateUnicastIpAddressEntry(&address_row);
 
+    qInfo("Creating libjuice agent");
+
     juice_config_t juice_config {};
     juice_config.stun_server_host = "stun.stunprotocol.org";
     juice_config.stun_server_port = 3478;
@@ -862,14 +863,14 @@ static int entry() {
     juice_config.cb_gathering_done = on_gathering_done;
     juice_config.cb_recv = on_recv;
 
-    qInfo("Create libjuice agent");
-
     auto juice_agent = juice_create(&juice_config);
     context.juice_agent = juice_agent;
 
     auto thread_handle = CreateThread(nullptr, 0, packet_send_thread, (void*)&context, 0, nullptr);
 
     context.clipboard = application.clipboard();
+
+    qInfo("Creating UI");
 
     QMainWindow window;
     window.setWindowTitle("P2VPN");
@@ -1035,11 +1036,11 @@ static int entry() {
 
 #ifdef WINDOWS_SUBSYSTEM
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-    return entry();
+    return entry(__argc, __argv);
 }
 #else
 int main(int argc, char *argv[]) {
-    return entry();
+    return entry(argc, argv);
 }
 #endif
 

@@ -613,16 +613,18 @@ static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *us
 static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *user_ptr) {
     auto context = (Context*)user_ptr;
 
+    auto packet_data = (uint8_t*)data;
+
     if(size < packet_header_size) {
         qWarning("Packet below minimum packet size received");
 
         return;
     }
 
-    auto packet_type = (PacketType)data[0];
+    auto packet_type = (PacketType)packet_data[0];
 
     auto packet_contents_size = size - packet_header_size;
-    auto packet_contents = &data[1];
+    auto packet_contents = &packet_data[1];
 
     switch(packet_type) {
         case PacketType::Hello: {

@@ -46,6 +46,7 @@ struct CreatePage : QWidget {
     void local_connection_string_acquired(QString local_connection_string);
     void local_connection_string_copy_button_clicked();
     void connect_button_clicked();
+    void remote_connection_string_rejected();
 };
 
 struct ConnectPage : QWidget {
@@ -71,6 +72,7 @@ struct ConnectPage : QWidget {
     public slots:
 
     void generate_button_clicked();
+    void remote_connection_string_rejected();
     void local_connection_string_acquired(QString local_connection_string);
     void local_connection_string_copy_button_clicked();
 };
@@ -115,6 +117,7 @@ struct Window : QMainWindow {
 
     void open_create_page();
     void open_connect_page();
+    void remote_connection_string_rejected();
     void local_connection_string_acquired(QString local_connection_string);
     void connection_made();
     void peer_ip_address_received(QString peer_ip_address_text);
@@ -144,11 +147,10 @@ struct Context : QObject {
 
     bool has_received_hello_packet;
 
-    bool submit_remote_connection_string(QString remote_connection_string);
-
     signals:
 
     void local_connection_string_acquired(QString local_connection_string);
+    void remote_connection_string_rejected();
     void connection_made();
     void peer_ip_address_received(QString peer_ip_address_text);
     void status_message(QString message);

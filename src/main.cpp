@@ -395,7 +395,15 @@ void CreatePage::local_connection_string_copy_button_clicked() {
 }
 
 void CreatePage::connect_button_clicked() {
+    remote_connection_string_edit->setEnabled(false);
+    connect_button->setEnabled(false);
+
     emit connect_requested(remote_connection_string_edit->text());
+}
+
+void CreatePage::remote_connection_string_rejected() {
+    remote_connection_string_edit->setEnabled(true);
+    connect_button->setEnabled(true);
 }
 
 ConnectPage::ConnectPage(QClipboard *clipboard) : QWidget(), clipboard(clipboard) {
@@ -431,7 +439,15 @@ ConnectPage::ConnectPage(QClipboard *clipboard) : QWidget(), clipboard(clipboard
 }
 
 void ConnectPage::generate_button_clicked() {
+    remote_connection_string_edit->setEnabled(false);
+    generate_button->setEnabled(false);
+
     emit generate_requested(remote_connection_string_edit->text());
+}
+
+void ConnectPage::remote_connection_string_rejected() {
+    remote_connection_string_edit->setEnabled(true);
+    generate_button->setEnabled(true);
 }
 
 void ConnectPage::local_connection_string_acquired(QString local_connection_string) {
@@ -522,6 +538,14 @@ void Window::open_connect_page() {
     page_stack->setCurrentWidget(connect_page);
 }
 
+void Window::remote_connection_string_rejected() {
+    if(page_stack->currentWidget() == create_page) {
+        create_page->remote_connection_string_rejected();
+    } else if(page_stack->currentWidget() == connect_page) {
+        connect_page->remote_connection_string_rejected();
+    }
+}
+
 void Window::local_connection_string_acquired(QString local_connection_string) {
     if(page_stack->currentWidget() == create_page) {
         create_page->local_connection_string_acquired(local_connection_string);
@@ -560,13 +584,11 @@ void Context::candidates_gathered() {
     emit local_connection_string_acquired(local_description_encoded_base64);
 }
 
-bool Context::submit_remote_connection_string(QString remote_connection_string) {
+bool submit_remote_connection_string(Context *context, QString remote_connection_string) {
     auto remote_description_encoded_base64 = remote_connection_string.toUtf8();
 
     if(remote_description_encoded_base64.length() > max_description_encoded_base64_length) {
         qWarning("Remote descriptor too large");
-
-        emit status_message("Remote connection string is invalid");
 
         return false;
     }
@@ -580,15 +602,11 @@ bool Context::submit_remote_connection_string(QString remote_connection_string) 
     if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
         qWarning("Incorrectly encoded remote descriptor");
 
-        emit status_message("Remote connection string is invalid");
-
         return false;
     }
 
-    if(juice_set_remote_description(juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
+    if(juice_set_remote_description(context->juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
         qWarning("Invalid remote descriptor");
-
-        emit status_message("Remote connection string is invalid");
 
         return false;
     }
@@ -597,12 +615,20 @@ bool Context::submit_remote_connection_string(QString remote_connection_string) 
 }
 
 void Context::connect_requested(QString remote_connection_string) {
-    submit_remote_connection_string(remote_connection_string);
+    if(!submit_remote_connection_string(this, remote_connection_string)) {
+        emit status_message("Remote connection string is invalid");
+
+        emit remote_connection_string_rejected();
+    }
 }
 
 void Context::generate_requested(QString remote_connection_string) {
-    if(submit_remote_connection_string(remote_connection_string)) {
+    if(submit_remote_connection_string(this, remote_connection_string)) {
         juice_gather_candidates(juice_agent);
+    } else {
+        emit status_message("Remote connection string is invalid");
+
+        emit remote_connection_string_rejected();
     }
 }
 
@@ -934,6 +960,7 @@ static int entry(int argc, char *argv[]) {
     auto window = new Window(clipboard, ip_address_text);
 
     QObject::connect(context, &Context::local_connection_string_acquired, window, &Window::local_connection_string_acquired);
+    QObject::connect(context, &Context::remote_connection_string_rejected, window, &Window::remote_connection_string_rejected);
     QObject::connect(context, &Context::connection_made, window, &Window::connection_made);
     QObject::connect(context, &Context::peer_ip_address_received, window, &Window::peer_ip_address_received);
     QObject::connect(context, &Context::status_message, window, &Window::status_message);

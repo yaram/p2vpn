@@ -1,3 +1,4 @@
+#include "main.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -7,19 +8,9 @@
 #include <winsock2.h>
 #include <ws2ipdef.h> 
 #include <iphlpapi.h>
-#include <assert.h>
-#include "juice/juice.h"
-#include "wintun.h"
 #define CBASE64_IMPLEMENTATION
 #include "cbase64.h"
 #include "qapplication.h"
-#include "qclipboard.h"
-#include "qmainwindow.h"
-#include "qboxlayout.h"
-#include "qstackedwidget.h"
-#include "qlabel.h"
-#include "qlineedit.h"
-#include "qpushbutton.h"
 #include "qplugin.h"
 #include "qmessagebox.h"
 #include "qdatetime.h"
@@ -343,271 +334,340 @@ enum struct PacketType {
     Data
 };
 
-enum struct Page {
-    Initial,
-    Create,
-    Connect,
-    Connected
-};
+InitialPage::InitialPage() : QWidget() {
+    auto layout = new QVBoxLayout(this);
 
-struct Context : QObject {
-    WINTUN_SESSION_HANDLE wintun_session;
+    auto create_page_button = new QPushButton("Create");
+    connect(create_page_button, &QPushButton::clicked, this, &InitialPage::open_create_page);
+    layout->addWidget(create_page_button);
 
-    juice_agent_t *juice_agent;
+    auto connect_page_button = new QPushButton("Connect");
+    connect(connect_page_button, &QPushButton::clicked, this, &InitialPage::open_connect_page);
+    layout->addWidget(connect_page_button);
+}
 
-    uint32_t local_ip_address;
-    uint32_t peer_ip_address;
+CreatePage::CreatePage(QClipboard *clipboard) : QWidget(), clipboard(clipboard) {
+    auto layout = new QVBoxLayout(this);
 
-    bool has_received_hello_packet;
+    auto local_connection_string_label = new QLabel("Your connection string (send this to your peer)");
+    layout->addWidget(local_connection_string_label);
 
-    Page current_page;
+    auto local_connection_string_container = new QWidget;
+    auto local_connection_string_layout = new QHBoxLayout(local_connection_string_container);
+    local_connection_string_layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(local_connection_string_container);
 
-    QClipboard *clipboard;
+    local_connection_string_edit = new QLineEdit("Loading...");
+    local_connection_string_layout->addWidget(local_connection_string_edit);
+    local_connection_string_edit->setReadOnly(true);
+    local_connection_string_edit->setDisabled(true);
 
-    QLabel *status_label;
+    local_connection_string_copy_button = new QPushButton("Copy");
+    connect(local_connection_string_copy_button, &QPushButton::clicked, this, &CreatePage::local_connection_string_copy_button_clicked);
+    local_connection_string_layout->addWidget(local_connection_string_copy_button);
+    local_connection_string_copy_button->setDisabled(true);
 
-    QStackedWidget *page_stack;
+    auto remote_connection_string_label = new QLabel("Their connection string (your peer will send this to you)");
+    layout->addWidget(remote_connection_string_label);
 
-    QWidget *create_page_widget;
-    QPushButton *create_page_local_connection_string_copy_button;
-    QLineEdit *create_page_local_connection_string_edit;
-    QLineEdit *create_page_remote_connection_string_edit;
-    QPushButton *create_page_connect_button;
+    remote_connection_string_edit = new QLineEdit;
+    layout->addWidget(remote_connection_string_edit);
+    remote_connection_string_edit->setDisabled(true);
 
-    QWidget *connect_page_widget;
-    QPushButton *connect_page_local_connection_string_copy_button;
-    QLineEdit *connect_page_local_connection_string_edit;
-    QLineEdit *connect_page_remote_connection_string_edit;
-    QPushButton *connect_page_generate_button;
+    connect_button = new QPushButton("Connect to peer");
+    connect(connect_button, &QPushButton::clicked, this, &CreatePage::connect_button_clicked);
+    layout->addWidget(connect_button);
+}
 
-    QWidget *connected_page_widget;
-    QLineEdit *connected_page_peer_ip_address_edit;
+void CreatePage::local_connection_string_acquired(QString local_connection_string) {
+    local_connection_string_edit->setText(local_connection_string);
+    local_connection_string_edit->setEnabled(true);
 
-    void on_create_page_button_pressed() {
-        page_stack->setCurrentWidget(create_page_widget);
+    local_connection_string_copy_button->setEnabled(true);
 
+    remote_connection_string_edit->setEnabled(true);
+
+    connect_button->setEnabled(true);
+}
+
+void CreatePage::local_connection_string_copy_button_clicked() {
+    clipboard->setText(local_connection_string_edit->text());
+}
+
+void CreatePage::connect_button_clicked() {
+    emit connect_requested(remote_connection_string_edit->text());
+}
+
+ConnectPage::ConnectPage(QClipboard *clipboard) : QWidget(), clipboard(clipboard) {
+    auto layout = new QVBoxLayout(this);
+
+    auto remote_connection_string_label = new QLabel("Their connection string (your peer will send this to you)");
+    layout->addWidget(remote_connection_string_label);
+
+    remote_connection_string_edit = new QLineEdit;
+    layout->addWidget(remote_connection_string_edit);
+
+    generate_button = new QPushButton("Generate connection string");
+    layout->addWidget(generate_button);
+    connect(generate_button, &QPushButton::clicked, this, &ConnectPage::generate_button_clicked);
+
+    auto local_connection_string_label = new QLabel("Your connection string (send this to your peer)");
+    layout->addWidget(local_connection_string_label);
+
+    auto local_connection_string_widget = new QWidget;
+    auto local_connection_string_layout = new QHBoxLayout(local_connection_string_widget);
+    local_connection_string_layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(local_connection_string_widget);
+
+    local_connection_string_edit = new QLineEdit;
+    local_connection_string_layout->addWidget(local_connection_string_edit);
+    local_connection_string_edit->setReadOnly(true);
+    local_connection_string_edit->setDisabled(true);
+
+    local_connection_string_copy_button = new QPushButton("Copy");
+    connect(local_connection_string_copy_button, &QPushButton::clicked, this, &ConnectPage::local_connection_string_copy_button_clicked);
+    local_connection_string_layout->addWidget(local_connection_string_copy_button);
+    local_connection_string_copy_button->setDisabled(true);
+}
+
+void ConnectPage::generate_button_clicked() {
+    emit generate_requested(remote_connection_string_edit->text());
+}
+
+void ConnectPage::local_connection_string_acquired(QString local_connection_string) {
+    remote_connection_string_edit->setEnabled(false);
+
+    generate_button->setEnabled(false);
+
+    local_connection_string_edit->setText(local_connection_string);
+    local_connection_string_edit->setEnabled(true);
+
+    local_connection_string_copy_button->setEnabled(true);
+}
+
+void ConnectPage::local_connection_string_copy_button_clicked() {
+    clipboard->setText(local_connection_string_edit->text());
+}
+
+ConnectedPage::ConnectedPage(QString ip_address_text) : QWidget() {
+    auto layout = new QVBoxLayout(this);
+
+    auto ip_address_widget = new QWidget;
+    auto ip_address_layout = new QHBoxLayout(ip_address_widget);
+    layout->addWidget(ip_address_widget);
+
+    auto ip_address_label = new QLabel("Your IP address is:");
+    ip_address_layout->addWidget(ip_address_label);
+
+    auto ip_address_edit = new QLineEdit(ip_address_text);
+    ip_address_layout->addWidget(ip_address_edit);
+    ip_address_edit->setReadOnly(true);
+
+    auto peer_ip_address_widget = new QWidget;
+    auto peer_ip_address_layout = new QHBoxLayout(peer_ip_address_widget);
+    layout->addWidget(peer_ip_address_widget);
+
+    auto peer_ip_address_label = new QLabel("Your peer's IP address is:");
+    peer_ip_address_layout->addWidget(peer_ip_address_label);
+
+    peer_ip_address_edit = new QLineEdit;
+    peer_ip_address_layout->addWidget(peer_ip_address_edit);
+    peer_ip_address_edit->setReadOnly(true);
+    peer_ip_address_edit->setDisabled(true);
+}
+
+void ConnectedPage::peer_ip_address_received(QString peer_ip_address_text) {
+    peer_ip_address_edit->setText(peer_ip_address_text);
+    peer_ip_address_edit->setEnabled(true);
+}
+
+Window::Window(QClipboard *clipboard, QString ip_address_text) : QMainWindow() {
+    setWindowTitle("P2VPN");
+
+    auto central_widget = new QWidget();
+    auto central_layout = new QVBoxLayout(central_widget);
+    setCentralWidget(central_widget);
+
+    page_stack = new QStackedWidget;
+    central_layout->addWidget(page_stack);
+
+    initial_page = new InitialPage;
+    connect(initial_page, &InitialPage::open_create_page, this, &Window::open_create_page);
+    connect(initial_page, &InitialPage::open_connect_page, this, &Window::open_connect_page);
+    page_stack->addWidget(initial_page);
+
+    create_page = new CreatePage(clipboard);
+    connect(create_page, &CreatePage::connect_requested, this, &Window::connect_requested);
+    page_stack->addWidget(create_page);
+
+    connect_page = new ConnectPage(clipboard);
+    connect(connect_page, &ConnectPage::generate_requested, this, &Window::generate_requested);
+    page_stack->addWidget(connect_page);
+
+    connected_page = new ConnectedPage(ip_address_text);
+    page_stack->addWidget(connected_page);
+
+    status_label = new QLabel;
+    status_label->setVisible(false);
+    central_layout->addWidget(status_label);
+}
+
+void Window::open_create_page() {
+    page_stack->setCurrentWidget(create_page);
+
+    emit acquire_local_connection_string();
+}
+
+void Window::open_connect_page() {
+    page_stack->setCurrentWidget(connect_page);
+}
+
+void Window::local_connection_string_acquired(QString local_connection_string) {
+    if(page_stack->currentWidget() == create_page) {
+        create_page->local_connection_string_acquired(local_connection_string);
+    } else if(page_stack->currentWidget() == connect_page) {
+        connect_page->local_connection_string_acquired(local_connection_string);
+    }
+}
+
+void Window::connection_made() {
+    page_stack->setCurrentWidget(connected_page);
+}
+
+void Window::peer_ip_address_received(QString peer_ip_address_text) {
+    connected_page->peer_ip_address_received(peer_ip_address_text);
+}
+
+void Window::status_message(QString message) {
+    status_label->setText(message);
+    status_label->setVisible(true);
+}
+
+void Context::acquire_local_connection_string() {
+    juice_gather_candidates(juice_agent);
+}
+
+void Context::candidates_gathered() {
+    char local_description[max_description_length + 1];
+    juice_get_local_description(juice_agent, local_description, max_description_length + 1);
+
+    uint8_t local_description_encoded[max_description_encoded_length];
+    auto local_description_encoded_length = encode_description(local_description, local_description_encoded);
+
+    char local_description_encoded_base64[max_description_encoded_base64_length + 1];
+    base64_encode(local_description_encoded, local_description_encoded_length, local_description_encoded_base64);
+
+    emit local_connection_string_acquired(local_description_encoded_base64);
+}
+
+bool Context::submit_remote_connection_string(QString remote_connection_string) {
+    auto remote_description_encoded_base64 = remote_connection_string.toUtf8();
+
+    if(remote_description_encoded_base64.length() > max_description_encoded_base64_length) {
+        qWarning("Remote descriptor too large");
+
+        emit status_message("Remote connection string is invalid");
+
+        return false;
+    }
+
+    remote_description_encoded_base64.append('\0');
+
+    uint8_t remote_descriptor_encoded[max_description_encoded_length];
+    auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64.data(), remote_descriptor_encoded);
+
+    char remote_descriptor[max_description_length + 1];
+    if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
+        qWarning("Incorrectly encoded remote descriptor");
+
+        emit status_message("Remote connection string is invalid");
+
+        return false;
+    }
+
+    if(juice_set_remote_description(juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
+        qWarning("Invalid remote descriptor");
+
+        emit status_message("Remote connection string is invalid");
+
+        return false;
+    }
+
+    return true;
+}
+
+void Context::connect_requested(QString remote_connection_string) {
+    submit_remote_connection_string(remote_connection_string);
+}
+
+void Context::generate_requested(QString remote_connection_string) {
+    if(submit_remote_connection_string(remote_connection_string)) {
         juice_gather_candidates(juice_agent);
-
-        current_page = Page::Create;
     }
+}
 
-    void on_connect_page_button_pressed() {
-        page_stack->setCurrentWidget(connect_page_widget);
+void Context::juice_state_changed() {
+    switch(juice_get_state(juice_agent)) {
+        case JUICE_STATE_COMPLETED: {
+            qInfo("libjuice connection made, sending hello packet");
 
-        current_page = Page::Connect;
+            const auto packet_size = packet_header_size + hello_packet_size;
+            uint8_t packet[packet_size];
+
+            packet[0] = (uint8_t)PacketType::Hello;
+
+            packet[1] = (uint8_t)(local_ip_address >> 24);
+            packet[2] = (uint8_t)(local_ip_address >> 16);
+            packet[3] = (uint8_t)(local_ip_address >> 8);
+            packet[4] = (uint8_t)local_ip_address;
+
+            juice_send(juice_agent, (char*)packet, packet_size);
+
+            if(!has_received_hello_packet) {
+                emit status_message("Waiting for response from peer...");
+            }
+
+            emit connection_made();
+        } break;
+
+        case JUICE_STATE_FAILED: {
+            qWarning("libjuice connection failed");
+
+            emit status_message("Unable to connect to peer!");
+        } break;
     }
+}
 
-    void on_create_page_connect_button_pressed() {
-        auto remote_description_encoded_base64 = create_page_remote_connection_string_edit->text().toUtf8();
+void Context::on_hello_packet_received() {
+    char peer_ip_address_text[32];
+    sprintf_s(
+        peer_ip_address_text,
+        32,
+        "%hhu.%hhu.%hhu.%hhu",
+        (uint8_t)(peer_ip_address >> 24),
+        (uint8_t)(peer_ip_address >> 16),
+        (uint8_t)(peer_ip_address >> 8),
+        (uint8_t)peer_ip_address
+    );
 
-        if(remote_description_encoded_base64.length() > max_description_encoded_base64_length) {
-            qWarning("Remote descriptor too large");
+    qInfo("Hello packet received with IP address %s", peer_ip_address_text);
 
-            status_label->setText("Remote connection string is invalid");
-            status_label->setVisible(true);
+    has_received_hello_packet = true;
 
-            return;
-        }
-
-        remote_description_encoded_base64.append('\0');
-
-        uint8_t remote_descriptor_encoded[max_description_encoded_length];
-        auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64.data(), remote_descriptor_encoded);
-
-        char remote_descriptor[max_description_length + 1];
-        if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
-            qWarning("Incorrectly encoded remote descriptor");
-
-            status_label->setText("Remote connection string is invalid");
-            status_label->setVisible(true);
-
-            return;
-        }
-
-        if(juice_set_remote_description(juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
-            qWarning("Invalid remote descriptor");
-
-            status_label->setText("Remote connection string is invalid");
-            status_label->setVisible(true);
-
-            return;
-        }
-
-        page_stack->setCurrentWidget(connected_page_widget);
-
-        current_page = Page::Connected;
-
-        status_label->setText("Waiting for connection from peer...");
-        status_label->setVisible(true);
-    }
-
-    void on_connect_page_generate_button_pressed() {
-        auto remote_description_encoded_base64 = connect_page_remote_connection_string_edit->text().toUtf8();
-
-        if(remote_description_encoded_base64.length() > max_description_encoded_base64_length) {
-            qWarning("Remote descriptor too large");
-
-            status_label->setText("Remote connection string is invalid");
-            status_label->setVisible(true);
-
-            return;
-        }
-
-        remote_description_encoded_base64.append('\0');
-
-        uint8_t remote_descriptor_encoded[max_description_encoded_length];
-        auto remote_description_encoded_size = base64_decode(remote_description_encoded_base64.data(), remote_descriptor_encoded);
-
-        char remote_descriptor[max_description_length + 1];
-        if(!decode_description(remote_descriptor_encoded, remote_description_encoded_size, remote_descriptor, max_description_length + 1)) {
-            qWarning("Incorrectly encoded remote descriptor");
-
-            status_label->setText("Remote connection string is invalid");
-            status_label->setVisible(true);
-
-            return;
-        }
-
-        if(juice_set_remote_description(juice_agent, remote_descriptor) != JUICE_ERR_SUCCESS) {
-            qWarning("Invalid remote descriptor");
-
-            status_label->setText("Remote connection string is invalid");
-            status_label->setVisible(true);
-
-            return;
-        }
-
-        connect_page_remote_connection_string_edit->setEnabled(false);
-        connect_page_generate_button->setEnabled(false);
-
-        juice_gather_candidates(juice_agent);
-
-        status_label->setText("Waiting for connection from peer...");
-        status_label->setVisible(true);
-    }
-
-    void on_local_connection_string_copy_button_pressed() {
-        char local_description[max_description_length + 1];
-        juice_get_local_description(juice_agent, local_description, max_description_length + 1);
-
-        uint8_t local_description_encoded[max_description_encoded_length];
-        auto local_description_encoded_length = encode_description(local_description, local_description_encoded);
-
-        char local_description_encoded_base64[max_description_encoded_base64_length + 1];
-        base64_encode(local_description_encoded, local_description_encoded_length, local_description_encoded_base64);
-
-        clipboard->setText(QString(local_description_encoded_base64));
-    }
-
-    void on_gathering_done() {
-        qInfo("Local candidates gathered, generating encoded local descriptor");
-
-        char local_description[max_description_length + 1];
-        juice_get_local_description(juice_agent, local_description, max_description_length + 1);
-
-        uint8_t local_description_encoded[max_description_encoded_length];
-        auto local_description_encoded_length = encode_description(local_description, local_description_encoded);
-
-        char local_description_encoded_base64[max_description_encoded_base64_length + 1];
-        base64_encode(local_description_encoded, local_description_encoded_length, local_description_encoded_base64);
-
-        switch(current_page) {
-            case Page::Create: {
-                create_page_local_connection_string_edit->setText(local_description_encoded_base64);
-                create_page_local_connection_string_edit->setEnabled(true);
-                create_page_remote_connection_string_edit->setEnabled(true);
-                create_page_connect_button->setEnabled(true);
-                create_page_local_connection_string_copy_button->setEnabled(true);
-            } break;
-
-            case Page::Connect: {
-                connect_page_local_connection_string_edit->setText(local_description_encoded_base64);
-                connect_page_local_connection_string_edit->setEnabled(true);
-                connect_page_local_connection_string_copy_button->setEnabled(true);
-            } break;
-
-            default: abort();
-        }
-    }
-
-    void on_state_changed() {
-        switch(juice_get_state(juice_agent)) {
-            case JUICE_STATE_COMPLETED: {
-                qInfo("libjuice connection made, sending hello packet");
-
-                if(current_page == Page::Connect) {
-                    page_stack->setCurrentWidget(connected_page_widget);
-
-                    current_page = Page::Connected;
-                }
-
-                const auto packet_size = packet_header_size + hello_packet_size;
-                uint8_t packet[packet_size];
-
-                packet[0] = (uint8_t)PacketType::Hello;
-
-                packet[1] = (uint8_t)(local_ip_address >> 24);
-                packet[2] = (uint8_t)(local_ip_address >> 16);
-                packet[3] = (uint8_t)(local_ip_address >> 8);
-                packet[4] = (uint8_t)local_ip_address;
-
-                juice_send(juice_agent, (char*)packet, packet_size);
-
-                if(!has_received_hello_packet) {
-                    status_label->setText("Waiting for response from peer...");
-                    status_label->setVisible(true);
-                }
-            } break;
-
-            case JUICE_STATE_FAILED: {
-                if(current_page == Page::Connect) {
-                    page_stack->setCurrentWidget(connected_page_widget);
-
-                    current_page = Page::Connected;
-                }
-
-                qWarning("libjuice connection failed");
-
-                status_label->setText("Disconnected from peer!");
-                status_label->setVisible(true);
-            } break;
-        }
-    }
-
-    void on_hello_packet_received() {
-        char ip_address_text[32];
-        sprintf_s(
-            ip_address_text,
-            32,
-            "%hhu.%hhu.%hhu.%hhu",
-            (uint8_t)(peer_ip_address >> 24),
-            (uint8_t)(peer_ip_address >> 16),
-            (uint8_t)(peer_ip_address >> 8),
-            (uint8_t)peer_ip_address
-        );
-
-        qInfo("Hello packet received with IP address %s", ip_address_text);
-
-        status_label->setText("Connected to peer!");
-        status_label->setVisible(true);
-
-        connected_page_peer_ip_address_edit->setText(ip_address_text);
-        connected_page_peer_ip_address_edit->setEnabled(true);
-
-        has_received_hello_packet = true;
-    }
-};
+    emit peer_ip_address_received(peer_ip_address_text);
+}
 
 static void on_gathering_done(juice_agent_t *agent, void *user_ptr) {
     auto context = (Context*)user_ptr;
 
-    QMetaObject::invokeMethod(context, &Context::on_gathering_done);
+    QMetaObject::invokeMethod(context, &Context::candidates_gathered, Qt::QueuedConnection); // Needs to be queued because of libjuice global mutex
 }
 
 static void on_state_changed(juice_agent_t *agent, juice_state_t state, void *user_ptr) {
     auto context = (Context*)user_ptr;
 
-    QMetaObject::invokeMethod(context, &Context::on_state_changed);
+    static_assert(sizeof(juice_state_t) == sizeof(int));
+    QMetaObject::invokeMethod(context, &Context::juice_state_changed, Qt::QueuedConnection); // Needs to be queued because of libjuice global mutex
 }
 
 static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *user_ptr) {
@@ -640,17 +700,13 @@ static void on_recv(juice_agent_t *agent, const char *data, size_t size, void *u
                 (uint32_t)packet_contents[2] << 8 |
                 (uint32_t)packet_contents[3];
 
-            QMetaObject::invokeMethod(context, &Context::on_hello_packet_received);
+            QMetaObject::invokeMethod(context, &Context::on_hello_packet_received, Qt::QueuedConnection);
         } break;
 
         case PacketType::Data: {
             if(!context->has_received_hello_packet) {
-                qWarning("Data packet received before hello packet received");
+                qWarning("Data packet received before hello packet received, ignoring packet");
 
-                return;
-            }
-
-            if(packet_contents_size == 0) {
                 return;
             }
 
@@ -745,6 +801,8 @@ static int entry(int argc, char *argv[]) {
 
     default_message_handler = qInstallMessageHandler(message_handler);
 
+    auto context = new Context;
+
     auto wintun_library = LoadLibraryA("wintun.dll");
 
     WintunCreateAdapter = (WINTUN_CREATE_ADAPTER_FUNC*)GetProcAddress(wintun_library, "WintunCreateAdapter");
@@ -801,8 +859,7 @@ static int entry(int argc, char *argv[]) {
         return 1;
     }
 
-    Context context {};
-    context.wintun_session = wintun_session;
+    context->wintun_session = wintun_session;
 
     const uint32_t ip_subnet_prefix = IP_CONSTANT(100, 64, 0, 0);
     const uint32_t ip_subnet_length = 10;
@@ -818,6 +875,8 @@ static int entry(int argc, char *argv[]) {
 
     ip_address |= ip_subnet_prefix;
 
+    context->local_ip_address = ip_address;
+
     char ip_address_text[32];
     sprintf_s(
         ip_address_text,
@@ -828,8 +887,6 @@ static int entry(int argc, char *argv[]) {
         (uint8_t)(ip_address >> 8),
         (uint8_t)ip_address
     );
-
-    context.local_ip_address = ip_address;
 
     qInfo("Generated local IP address %s", ip_address_text);
 
@@ -859,169 +916,33 @@ static int entry(int argc, char *argv[]) {
     juice_config.stun_server_host = "stun.stunprotocol.org";
     juice_config.stun_server_port = 3478;
 
-    juice_config.user_ptr = (void*)&context;
-
+    juice_config.user_ptr = (void*)context;
     juice_config.cb_state_changed = on_state_changed;
     juice_config.cb_gathering_done = on_gathering_done;
     juice_config.cb_recv = on_recv;
 
     auto juice_agent = juice_create(&juice_config);
-    context.juice_agent = juice_agent;
 
-    auto thread_handle = CreateThread(nullptr, 0, packet_send_thread, (void*)&context, 0, nullptr);
+    context->juice_agent = juice_agent;
 
-    context.clipboard = application.clipboard();
+    auto thread_handle = CreateThread(nullptr, 0, packet_send_thread, (void*)context, 0, nullptr);
 
     qInfo("Creating UI");
 
-    QMainWindow window;
-    window.setWindowTitle("P2VPN");
+    auto clipboard = application.clipboard();
 
-    auto central_widget = new QWidget;
-    QVBoxLayout central_layout(central_widget);
-    window.setCentralWidget(central_widget);
+    auto window = new Window(clipboard, ip_address_text);
 
-    auto page_stack = new QStackedWidget;
-    central_layout.addWidget(page_stack);
-    context.page_stack = page_stack;
+    QObject::connect(context, &Context::local_connection_string_acquired, window, &Window::local_connection_string_acquired);
+    QObject::connect(context, &Context::connection_made, window, &Window::connection_made);
+    QObject::connect(context, &Context::peer_ip_address_received, window, &Window::peer_ip_address_received);
+    QObject::connect(context, &Context::status_message, window, &Window::status_message);
 
-    // Will probably clean this up eventually...
+    QObject::connect(window, &Window::acquire_local_connection_string, context, &Context::acquire_local_connection_string);
+    QObject::connect(window, &Window::connect_requested, context, &Context::connect_requested);
+    QObject::connect(window, &Window::generate_requested, context, &Context::generate_requested);
 
-    // Initial page
-
-    auto initial_page_widget = new QWidget;
-    QVBoxLayout initial_page_layout(initial_page_widget);
-    page_stack->addWidget(initial_page_widget);
-
-    auto initial_page_create_page_button = new QPushButton("Create");
-    QObject::connect(initial_page_create_page_button, &QPushButton::clicked, &context, &Context::on_create_page_button_pressed);
-    initial_page_layout.addWidget(initial_page_create_page_button);
-
-    auto initial_page_connect_page_button = new QPushButton("Connect");
-    QObject::connect(initial_page_connect_page_button, &QPushButton::clicked, &context, &Context::on_connect_page_button_pressed);
-    initial_page_layout.addWidget(initial_page_connect_page_button);
-
-    // Create page
-
-    auto create_page_widget = new QWidget;
-    QVBoxLayout create_page_layout(create_page_widget);
-    page_stack->addWidget(create_page_widget);
-    context.create_page_widget = create_page_widget;
-
-    auto create_page_local_connection_string_label = new QLabel("Your connection string (send this to your peer)");
-    create_page_layout.addWidget(create_page_local_connection_string_label);
-
-    auto create_page_local_connection_string_widget = new QWidget;
-    QHBoxLayout create_page_local_connection_string_layout(create_page_local_connection_string_widget);
-    create_page_local_connection_string_layout.setContentsMargins(0, 0, 0, 0);
-    create_page_layout.addWidget(create_page_local_connection_string_widget);
-
-    auto create_page_local_connection_string_edit = new QLineEdit("Loading...");
-    create_page_local_connection_string_layout.addWidget(create_page_local_connection_string_edit);
-    create_page_local_connection_string_edit->setReadOnly(true);
-    create_page_local_connection_string_edit->setDisabled(true);
-    context.create_page_local_connection_string_edit = create_page_local_connection_string_edit;
-
-    auto create_page_local_connection_string_copy_button = new QPushButton("Copy");
-    QObject::connect(create_page_local_connection_string_copy_button, &QPushButton::clicked, &context, &Context::on_local_connection_string_copy_button_pressed);
-    create_page_local_connection_string_layout.addWidget(create_page_local_connection_string_copy_button);
-    create_page_local_connection_string_copy_button->setDisabled(true);
-    context.create_page_local_connection_string_copy_button = create_page_local_connection_string_copy_button;
-
-    auto create_page_remote_connection_string_label = new QLabel("Their connection string (your peer will send this to you)");
-    create_page_layout.addWidget(create_page_remote_connection_string_label);
-
-    auto create_page_remote_connection_string_edit = new QLineEdit;
-    create_page_layout.addWidget(create_page_remote_connection_string_edit);
-    create_page_remote_connection_string_edit->setDisabled(true);
-    context.create_page_remote_connection_string_edit = create_page_remote_connection_string_edit;
-
-    auto create_page_connect_button = new QPushButton("Connect to peer");
-    create_page_layout.addWidget(create_page_connect_button);
-    QObject::connect(create_page_connect_button, &QPushButton::clicked, &context, &Context::on_create_page_connect_button_pressed);
-    context.create_page_connect_button = create_page_connect_button;
-
-    // Connect page
-
-    auto connect_page_widget = new QWidget;
-    QVBoxLayout connect_page_layout(connect_page_widget);
-    page_stack->addWidget(connect_page_widget);
-    context.connect_page_widget = connect_page_widget;
-
-    auto connect_page_remote_connection_string_label = new QLabel("Their connection string (your peer will send this to you)");
-    connect_page_layout.addWidget(connect_page_remote_connection_string_label);
-
-    auto connect_page_remote_connection_string_edit = new QLineEdit;
-    connect_page_layout.addWidget(connect_page_remote_connection_string_edit);
-    context.connect_page_remote_connection_string_edit = connect_page_remote_connection_string_edit;
-
-    auto connect_page_generate_button = new QPushButton("Generate connection string");
-    connect_page_layout.addWidget(connect_page_generate_button);
-    QObject::connect(connect_page_generate_button, &QPushButton::clicked, &context, &Context::on_connect_page_generate_button_pressed);
-    context.connect_page_generate_button = connect_page_generate_button;
-
-    auto connect_page_local_connection_string_label = new QLabel("Your connection string (send this to your peer)");
-    connect_page_layout.addWidget(connect_page_local_connection_string_label);
-
-    auto connect_page_local_connection_string_widget = new QWidget;
-    QHBoxLayout connect_page_local_connection_string_layout(connect_page_local_connection_string_widget);
-    connect_page_local_connection_string_layout.setContentsMargins(0, 0, 0, 0);
-    connect_page_layout.addWidget(connect_page_local_connection_string_widget);
-
-    auto connect_page_local_connection_string_edit = new QLineEdit;
-    connect_page_local_connection_string_layout.addWidget(connect_page_local_connection_string_edit);
-    connect_page_local_connection_string_edit->setReadOnly(true);
-    connect_page_local_connection_string_edit->setDisabled(true);
-    context.connect_page_local_connection_string_edit = connect_page_local_connection_string_edit;
-
-    auto connect_page_local_connection_string_copy_button = new QPushButton("Copy");
-    QObject::connect(connect_page_local_connection_string_copy_button, &QPushButton::clicked, &context, &Context::on_local_connection_string_copy_button_pressed);
-    connect_page_local_connection_string_layout.addWidget(connect_page_local_connection_string_copy_button);
-    connect_page_local_connection_string_copy_button->setDisabled(true);
-    context.connect_page_local_connection_string_copy_button = connect_page_local_connection_string_copy_button;
-
-    // Connected page
-
-    auto connected_page_widget = new QWidget;
-    QVBoxLayout connected_page_layout(connected_page_widget);
-    page_stack->addWidget(connected_page_widget);
-    context.connected_page_widget = connected_page_widget;
-
-    auto connected_page_ip_address_widget = new QWidget;
-    QHBoxLayout ip_address_layout(connected_page_ip_address_widget);
-    connected_page_layout.addWidget(connected_page_ip_address_widget);
-
-    auto connected_page_ip_address_label = new QLabel("Your IP address is:");
-    ip_address_layout.addWidget(connected_page_ip_address_label);
-
-    auto connected_page_ip_address_edit = new QLineEdit(ip_address_text);
-    ip_address_layout.addWidget(connected_page_ip_address_edit);
-    connected_page_ip_address_edit->setReadOnly(true);
-
-    auto connected_page_peer_ip_address_edit = new QLineEdit;
-    connected_page_layout.addWidget(connected_page_peer_ip_address_edit);
-    connected_page_peer_ip_address_edit->setReadOnly(true);
-    connected_page_peer_ip_address_edit->setDisabled(true);
-
-    auto connected_page_peer_ip_address_widget = new QWidget;
-    QHBoxLayout peer_ip_address_layout(connected_page_peer_ip_address_widget);
-    connected_page_layout.addWidget(connected_page_peer_ip_address_widget);
-
-    auto connected_page_peer_ip_address_label = new QLabel("Your peer's IP address is:");
-    peer_ip_address_layout.addWidget(connected_page_peer_ip_address_label);
-
-    auto peer_ip_address_edit = new QLineEdit;
-    peer_ip_address_layout.addWidget(connected_page_peer_ip_address_edit);
-    peer_ip_address_edit->setReadOnly(true);
-    peer_ip_address_edit->setDisabled(true);
-    context.connected_page_peer_ip_address_edit = connected_page_peer_ip_address_edit;
-
-    auto status_label = new QLabel;
-    status_label->setVisible(false);
-    central_layout.addWidget(status_label);
-    context.status_label = status_label;
-
-    window.show();
+    window->show();
 
     application.exec();
 

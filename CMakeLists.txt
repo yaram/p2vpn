@@ -11,7 +11,14 @@ project(P2VPN LANGUAGES CXX)
 add_subdirectory(thirdparty/libjuice)
 add_subdirectory(thirdparty/qtbase)
 
-add_executable(p2vpn src/main.cpp)
+set(SOURCES
+    src/main.h
+    src/main.cpp
+)
+
+qt6_wrap_cpp(SOURCES src/main.h TARGET p2vpn)
+
+add_executable(p2vpn ${SOURCES})
 
 target_compile_features(p2vpn PRIVATE cxx_std_11)
 target_link_libraries(p2vpn PRIVATE juice-static Qt::Core Qt::Gui Qt::Widgets Qt::QWindowsIntegrationPlugin)
